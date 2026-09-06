@@ -31,6 +31,14 @@ def main():
     shutil.copy(f"{TERMUX_USR}/bin/python3", f"{bin_dir}/python3")
     os.chmod(f"{bin_dir}/python3", 0o755)
 
+    for tool in ["ffmpeg", "ffprobe"]:
+        tool_src = f"{TERMUX_USR}/bin/{tool}"
+        if os.path.exists(tool_src):
+            tool_dst = f"{bin_dir}/{tool}"
+            shutil.copy(tool_src, tool_dst)
+            os.chmod(tool_dst, 0o755)
+            print(f"Bundled {tool} into {tool_dst}")
+
     core_libs = ["libpython3.14.so", "libandroid-support.so", "libcrypto.so.3", "libssl.so.3"]
     for lib in core_libs:
         src = f"{TERMUX_USR}/lib/{lib}"

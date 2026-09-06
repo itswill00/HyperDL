@@ -118,8 +118,10 @@ if [ -d "webui" ]; then
     cp webui/dist/index.html webroot/index.html
 fi
 
-if [ ! -f "runtime/bin/python3" ] && [ -f "scripts/bundle_runtime.py" ]; then
-    python3 scripts/bundle_runtime.py
+if [ ! -f "runtime/bin/python3" ] || [ ! -f "runtime/bin/ffmpeg" ]; then
+    if [ -f "scripts/bundle_runtime.py" ]; then
+        python3 scripts/bundle_runtime.py
+    fi
 fi
 
 if [ ! -f "system/bin/yt-dlp" ]; then
