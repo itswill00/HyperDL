@@ -139,7 +139,7 @@ static void cmd_status(void) {
     printf("%s\n", buf);
 }
 
-static void cmd_download(const char *url, const char *fmt) {
+static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height) {
     ensure_directories();
 
     FILE *pf = fopen(PID_FILE, "r");
@@ -201,11 +201,13 @@ static void cmd_download(const char *url, const char *fmt) {
             if (p) {
                 size_t len = p - python_bin;
                 snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
-                char libdir[550], pypath[650], cacert[550];
+                char libdir[550], pypath[650], cacert[550], path_env[1024];
                 snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
                 snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
                 snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", moddir);
 
+                setenv("PATH", path_env, 1);
                 setenv("PYTHONHOME", moddir, 1);
                 setenv("PYTHONPATH", pypath, 1);
                 setenv("LD_LIBRARY_PATH", libdir, 1);
@@ -223,14 +225,33 @@ static void cmd_download(const char *url, const char *fmt) {
             setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
         }
 
+        char fid_arg[256] = "";
+        char ht_arg[64] = "";
+        if (format_id && *format_id) {
+            snprintf(fid_arg, sizeof(fid_arg), "--format-id=%s", format_id);
+        }
+        if (height && *height) {
+            snprintf(ht_arg, sizeof(ht_arg), "--height=%s", height);
+        }
+
         if (bundle_path) {
-            execl(python_bin, python_bin, bundle_path, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+            if (fid_arg[0])
+                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
+            else if (ht_arg[0])
+                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
+            else
+                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
         } else {
             char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
             snprintf(launcher, sizeof(launcher),
                      "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
                      EMBEDDED_ENGINE_B64);
-            execl(python_bin, python_bin, "-c", launcher, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+            if (fid_arg[0])
+                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
+            else if (ht_arg[0])
+                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
+            else
+                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
         }
         fprintf(stderr, "HyperDL child exec failed: %s (%s)\n", strerror(errno), python_bin);
         fflush(stderr);
@@ -246,6 +267,111 @@ static void cmd_download(const char *url, const char *fmt) {
 
     printf("{\"status\":\"started\",\"pid\":%d}\n", pid);
 }
+
+static void cmd_probe(const char *url) {
+    if (!url || !*url) {
+        printf("{\"error\":\"missing_url\"}\n");
+        return;
+    }
+
+    const char *python_bin = find_python();
+    if (!python_bin) {
+        printf("{\"error\":\"python_not_found\"}\n");
+        return;
+    }
+
+    const char *bundle_path = NULL;
+    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
+    }
+
+    if (strstr(python_bin, "com.termux")) {
+        setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
+        setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
+        setenv("HOME", "/data/data/com.termux/files/home", 1);
+        setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
+    } else if (strstr(python_bin, "py2droid")) {
+        setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
+        setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
+        setenv("LD_LIBRARY_PATH", "/data/adb/py2droid/usr/lib", 1);
+        setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
+    } else if (strstr(python_bin, "runtime")) {
+        char moddir[512];
+        const char *p = strstr(python_bin, "/bin/python3");
+        if (p) {
+            size_t len = p - python_bin;
+            snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
+            char libdir[550], pypath[650], cacert[550], path_env[1024];
+            snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
+            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
+            snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", moddir);
+
+            setenv("PATH", path_env, 1);
+            setenv("PYTHONHOME", moddir, 1);
+            setenv("PYTHONPATH", pypath, 1);
+            setenv("LD_LIBRARY_PATH", libdir, 1);
+            setenv("SSL_CERT_FILE", cacert, 1);
+        }
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        printf("{\"error\":\"pipe_failed\"}\n");
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        printf("{\"error\":\"fork_failed\"}\n");
+        return;
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        int dev_null = open("/dev/null", O_WRONLY);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDERR_FILENO);
+            close(dev_null);
+        }
+        close(pipefd[1]);
+
+        if (bundle_path) {
+            execl(python_bin, python_bin, bundle_path, "probe", url, (char *)NULL);
+        } else {
+            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
+            snprintf(launcher, sizeof(launcher),
+                     "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
+                     EMBEDDED_ENGINE_B64);
+            execl(python_bin, python_bin, "-c", launcher, "probe", url, (char *)NULL);
+        }
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+
+    char output[65536] = "";
+    size_t total = 0;
+    ssize_t n;
+    while (total < sizeof(output) - 1 && (n = read(pipefd[0], output + total, sizeof(output) - total - 1)) > 0) {
+        total += n;
+    }
+    output[total] = '\0';
+    close(pipefd[0]);
+
+    int status;
+    waitpid(pid, &status, 0);
+
+    if (total > 0) {
+        printf("%s\n", output);
+    } else {
+        printf("{\"resolutions\":[]}\n");
+    }
+}
+
 
 static void cmd_list(void) {
     DIR *d = opendir(OUTDIR);
@@ -483,11 +609,32 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
+    char mod_version[32] = "v1.1.0";
+    FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
+    if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
+    if (mp) {
+        char line[256];
+        while (fgets(line, sizeof(line), mp)) {
+            if (strncmp(line, "version=", 8) == 0) {
+                char *nl = strchr(line + 8, '\n');
+                if (nl) *nl = '\0';
+                char *cr = strchr(line + 8, '\r');
+                if (cr) *cr = '\0';
+                strncpy(mod_version, line + 8, sizeof(mod_version) - 1);
+                break;
+            }
+        }
+        fclose(mp);
+    }
+
     const char *python_bin = find_python();
     int has_cookies = (access(COOKIES_FILE, F_OK) == 0);
+    int has_ffmpeg = (access("/data/adb/modules/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
+                     (access("/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg", X_OK) == 0) ||
+                     (access("/data/data/com.termux/files/usr/bin/ffmpeg", X_OK) == 0);
 
-    printf("{\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s}\n",
-           storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false");
+    printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s}\n",
+           mod_version, storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false");
 }
 
 static void cmd_get_cookies(void) {
@@ -599,6 +746,12 @@ static void cmd_get_logs(void) {
     }
 }
 
+static void cmd_clear_logs(void) {
+    FILE *f = fopen(LOG_FILE, "w");
+    if (f) fclose(f);
+    printf("{\"success\":true}\n");
+}
+
 static void cmd_toggle_autodl(const char *val) {
     ensure_directories();
     if (val && (strcmp(val, "1") == 0 || strcmp(val, "on") == 0)) {
@@ -627,7 +780,17 @@ int main(int argc, char *argv[]) {
     if (strcmp(action, "status") == 0) {
         cmd_status();
     } else if (strcmp(action, "download") == 0) {
-        cmd_download(argc > 2 ? argv[2] : "", argc > 3 ? argv[3] : "video");
+        const char *url = argc > 2 ? argv[2] : "";
+        const char *fmt = argc > 3 ? argv[3] : "video";
+        const char *format_id = NULL;
+        const char *height = NULL;
+        for (int i = 4; i < argc; i++) {
+            if (strncmp(argv[i], "--format-id=", 12) == 0) format_id = argv[i] + 12;
+            else if (strncmp(argv[i], "--height=", 9) == 0) height = argv[i] + 9;
+        }
+        cmd_download(url, fmt, format_id, height);
+    } else if (strcmp(action, "probe") == 0) {
+        cmd_probe(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {
         cmd_list();
     } else if (strcmp(action, "delete") == 0) {
@@ -646,6 +809,8 @@ int main(int argc, char *argv[]) {
         cmd_clear_cookies();
     } else if (strcmp(action, "get_logs") == 0) {
         cmd_get_logs();
+    } else if (strcmp(action, "clear_logs") == 0) {
+        cmd_clear_logs();
     } else if (strcmp(action, "toggle_autodl") == 0) {
         cmd_toggle_autodl(argc > 2 ? argv[2] : "0");
     } else if (strcmp(action, "get_autodl") == 0) {
