@@ -100,42 +100,46 @@ html, body, #app {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
-  color: var(--on-surface);
+  width: fit-content;
   background: linear-gradient(
-    110deg,
-    rgba(240, 242, 245, 0.82) 0%,
-    rgba(240, 242, 245, 0.82) 35%,
+    115deg,
+    #717788 0%,
+    #717788 28%,
+    #c8d3ea 40%,
     #ffffff 50%,
-    rgba(240, 242, 245, 0.82) 65%,
-    rgba(240, 242, 245, 0.82) 100%
+    #c8d3ea 60%,
+    #717788 72%,
+    #717788 100%
   );
-  background-size: 220% 100%;
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: header-sheen 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: header-sheen 3.6s ease-in-out infinite;
   display: block;
 }
 
 .page-header-sub {
   font-size: 11px;
-  color: var(--on-surface-variant);
   margin-top: 1px;
   letter-spacing: 0.25px;
+  width: fit-content;
   background: linear-gradient(
-    110deg,
-    rgba(176, 180, 192, 0.7) 0%,
-    rgba(176, 180, 192, 0.7) 35%,
-    rgba(240, 242, 245, 0.95) 50%,
-    rgba(176, 180, 192, 0.7) 65%,
-    rgba(176, 180, 192, 0.7) 100%
+    115deg,
+    #585d6e 0%,
+    #585d6e 28%,
+    #b8c2d8 40%,
+    #f2f5fb 50%,
+    #b8c2d8 60%,
+    #585d6e 72%,
+    #585d6e 100%
   );
-  background-size: 220% 100%;
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: header-sheen 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  animation-delay: 0.28s;
+  animation: header-sheen 3.6s ease-in-out infinite;
+  animation-delay: 0.24s;
   display: block;
 }
 
@@ -143,8 +147,8 @@ html, body, #app {
   0% {
     background-position: 120% 0;
   }
-  36%, 100% {
-    background-position: -120% 0;
+  100% {
+    background-position: -80% 0;
   }
 }
 
