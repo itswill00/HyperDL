@@ -454,3 +454,12 @@ html, body, #app {
   gap: 8px;
   pointer-events: none;
 }
+
+.toast-pill.error {
+  border-color: rgba(229, 153, 149, 0.4);
+  background: var(--error-container);
+}
+
+.toast-pill.success {
+  border-color: rgba(163, 217, 165, 0.4);
+}

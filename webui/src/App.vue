@@ -11,7 +11,7 @@
           {{ storageFree }} free
         </span>
         <span class="badge-pill active">
-          {{ sysInfo.version || 'v1.1.0' }}
+          {{ sysInfo.version || 'v1.2.0' }}
         </span>
       </div>
     </header>
@@ -65,8 +65,10 @@
               class="text-input"
               v-model="url"
               placeholder="Paste media link here..."
+              enterkeyhint="go"
+              @input="onUrlInput"
               @paste="onPasteInput"
-              @keyup.enter="startDownload"
+              @keydown.enter.prevent="startDownload"
             />
             <button
               v-if="url"
@@ -200,7 +202,11 @@
           </div>
 
                     <div class="progress-track">
-            <div class="progress-fill" :style="{ width: task.percent + '%' }"></div>
+            <div
+              class="progress-fill"
+              :class="{ indeterminate: task.status === 'resolving' }"
+              :style="{ width: (task.status === 'resolving' ? 100 : task.percent) + '%' }"
+            ></div>
           </div>
 
                     <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
@@ -288,6 +294,9 @@
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             <template v-if="selectedFiles.size > 0">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="toggleSelectAll">
+                {{ isAllSelected ? 'Deselect all' : 'Select all' }}
+              </button>
               <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); gap: 4px;" @click="deleteSelected">
                 <Icons name="trash" :size="12" />
                 Delete ({{ selectedFiles.size }})
@@ -330,7 +339,7 @@
               </span>
             </label>
 
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="handleItemClick(item)">
               <div class="icon-badge secondary">
                 <Icons :name="getExtIcon(item.ext)" :size="16" />
               </div>
@@ -538,7 +547,7 @@
           </div>
         </div>
 
-        <div class="terminal-card">
+        <div class="terminal-card" ref="terminalCard">
           <pre class="terminal-text">{{ logContent }}</pre>
         </div>
 
@@ -563,65 +572,68 @@
 
     </main>
 
-        <transition name="toast-fade">
-      <div v-if="toastMsg" class="toast-pill">
-        <Icons name="check" :size="14" style="color: var(--primary);" />
-        <span>{{ toastMsg }}</span>
+    <transition name="toast-fade">
+      <div v-if="toast.show" class="toast-pill" :class="toast.type">
+        <Icons
+          :name="toast.type === 'error' ? 'close' : (toast.type === 'success' ? 'check' : 'info')"
+          :size="14"
+          :style="toast.type === 'error' ? 'color: var(--error);' : (toast.type === 'success' ? 'color: var(--success);' : 'color: var(--primary);')"
+        />
+        <span>{{ toast.message }}</span>
       </div>
     </transition>
 
-        <transition name="sheet-slide">
-      <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
-        <div class="sheet-panel">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select resolution</span>
-              <span v-if="isProbingResolutions" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
-                Scanning streams...
-              </span>
-            </div>
-            <button class="icon-btn" @click="closeResolutionPicker">
-              <Icons name="close" :size="18" />
-            </button>
+    <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
+      <div class="sheet-panel">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select resolution</span>
+            <span v-if="isProbingResolutions" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
+              Scanning streams...
+            </span>
           </div>
+          <button class="icon-btn" type="button" @click.stop="closeResolutionPicker">
+            <Icons name="close" :size="18" />
+          </button>
+        </div>
 
-          <!-- Subtle non-intrusive stream scan status -->
-          <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 6px 10px; background: var(--surface-container); border-radius: 8px; margin-bottom: 12px;">
-            <div class="spin-loader" style="display: flex; align-items: center;">
-              <Icons name="refresh" :size="13" />
-            </div>
-            <span>Detecting exact file sizes & high-res streams...</span>
+        <!-- Subtle non-intrusive stream scan status -->
+        <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 6px 10px; background: var(--surface-container); border-radius: 8px; margin-bottom: 12px;">
+          <div class="spin-loader" style="display: flex; align-items: center;">
+            <Icons name="refresh" :size="13" />
           </div>
+          <span>Detecting exact file sizes & high-res streams...</span>
+        </div>
 
-          <!-- Loaded resolution list (instant presets or probed streams) -->
-          <div v-if="resolutions.length > 0" class="resolution-list">
-            <button
-              v-for="r in resolutions"
-              :key="r.height || r.format_id"
-              class="resolution-row"
-              @click="downloadWithResolution(r)"
-            >
-              <span class="res-label">
-                <span class="res-badge">{{ r.height >= 720 ? (r.height >= 2160 ? '4K' : (r.height >= 1440 ? '2K' : 'HD')) : 'SD' }}</span>
-                <span>{{ r.label || (r.height + 'p') }}</span>
-                <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
-              </span>
-              <span class="res-size">{{ formatFileSize(r.filesize) || (r.isPreset ? 'Instant Select' : 'Best quality') }}</span>
-            </button>
-          </div>
+        <!-- Loaded resolution list (instant presets or probed streams) -->
+        <div v-if="resolutions.length > 0" class="resolution-list">
+          <button
+            v-for="r in resolutions"
+            :key="r.height || r.format_id"
+            type="button"
+            class="resolution-row"
+            @click.stop="downloadWithResolution(r)"
+          >
+            <span class="res-label">
+              <span class="res-badge">{{ r.height >= 720 ? (r.height >= 2160 ? '4K' : (r.height >= 1440 ? '2K' : 'HD')) : 'SD' }}</span>
+              <span>{{ r.label || (r.height + 'p') }}</span>
+              <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
+            </span>
+            <span class="res-size">{{ formatFileSize(r.filesize) || (r.isPreset ? 'Instant Select' : 'Best quality') }}</span>
+          </button>
+        </div>
 
-          <!-- Action buttons: Best Quality & Cancel -->
-          <div style="display: flex; gap: 8px; margin-top: 12px;">
-            <button class="btn btn-secondary" style="flex: 1; height: 38px; font-size: 12px;" @click="downloadWithResolution(null)">
-              Best Available Quality
-            </button>
-            <button class="btn btn-secondary" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click="closeResolutionPicker">
-              Cancel
-            </button>
-          </div>
+        <!-- Action buttons: Best Quality & Cancel -->
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
+            Best Available Quality
+          </button>
+          <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click.stop="closeResolutionPicker">
+            Cancel
+          </button>
         </div>
       </div>
-    </transition>
+    </div>
 
     <!-- Custom In-App Material 3 Confirmation Dialog -->
     <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
@@ -648,18 +660,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { execCommand, openMediaFile, openFolder, base64EncodeUtf8, base64DecodeUtf8 } from '@/helpers/shell.js'
 import Icons from '@/components/Icons.vue'
 
 const activeTab = ref('download')
 const url = ref('')
 const urlInput = ref(null)
+const terminalCard = ref(null)
 const selectedFormat = ref('video')
 const isProcessing = ref(false)
 const autoDl = ref(false)
 const storageFree = ref('')
-const toastMsg = ref('')
+const toast = ref({ show: false, message: '', type: 'info' })
 
 const resolutions = ref([])
 const showResolutionPicker = ref(false)
@@ -705,6 +718,7 @@ function resolveConfirm(result) {
 
 let toastTimer = null
 let pollTimer = null
+let isPollingActive = false
 
 const task = ref({
   status: 'idle',
@@ -719,10 +733,12 @@ const task = ref({
 
 const historyList = ref([])
 
-function showToast(msg) {
-  toastMsg.value = msg
+function showToast(message, type = 'info') {
+  toast.value = { show: true, message, type }
   if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastMsg.value = '' }, 2500)
+  toastTimer = setTimeout(() => {
+    toast.value.show = false
+  }, 2600)
 }
 
 const supportedPlatforms = [
@@ -780,6 +796,15 @@ function onPasteInput() {
       url.value = extractUrl(url.value)
     }
   }, 50)
+}
+
+function onUrlInput() {
+  if (url.value && (url.value.includes('\n') || url.value.includes(' '))) {
+    const clean = extractUrl(url.value)
+    if (clean && clean !== url.value) {
+      url.value = clean
+    }
+  }
 }
 
 function dismissTask() {
@@ -846,14 +871,14 @@ async function pasteClipboard() {
 
   if (text && text.trim()) {
     url.value = extractUrl(text)
-    showToast('Link pasted')
+    showToast('Link pasted', 'success')
     return
   }
 
   if (urlInput.value) {
     urlInput.value.focus()
   }
-  showToast('Tap & hold input box to paste')
+  showToast('Tap & hold input box to paste', 'info')
 }
 
 const STANDARD_RESOLUTIONS = [
@@ -943,10 +968,10 @@ async function cancelDownload() {
       error: ''
     }
     isProcessing.value = false
-    showToast('Download cancelled')
+    showToast('Download cancelled', 'info')
     fetchLogs()
   } catch (e) {
-    showToast('Failed to cancel download')
+    showToast('Failed to cancel download', 'error')
   }
 }
 
@@ -963,7 +988,7 @@ async function doDownload(u, fmt, extraArg) {
     error: ''
   }
 
-  showToast('Starting download...')
+  showToast('Starting download...', 'info')
   try {
     if (extraArg) {
       await runBridge('download', u, fmt, extraArg)
@@ -981,6 +1006,8 @@ async function doDownload(u, fmt, extraArg) {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = setInterval(async () => {
+    if (isPollingActive) return
+    isPollingActive = true
     try {
       const raw = await runBridge('status')
       if (!raw || raw === 'bridge_not_found') return
@@ -992,17 +1019,20 @@ function startPolling() {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
-        showToast('Download complete')
+        showToast('Download complete', 'success')
         fetchHistory()
         fetchLogs()
       } else if (parsed.status === 'error') {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
-        showToast('Download failed')
+        showToast('Download failed', 'error')
         fetchLogs()
       }
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      isPollingActive = false
+    }
   }, 400)
 }
 
@@ -1034,6 +1064,14 @@ function clearSelection() {
   selectedFiles.value = new Set()
 }
 
+function handleItemClick(item) {
+  if (selectedFiles.value.size > 0) {
+    toggleSelect(item.path)
+  } else {
+    openMedia(item.path)
+  }
+}
+
 async function deleteSelected() {
   const count = selectedFiles.value.size
   if (count === 0) return
@@ -1053,11 +1091,11 @@ async function deleteSelected() {
 
   try {
     await runBridge('delete', ...paths)
-    showToast(`Deleted ${paths.length} file${paths.length > 1 ? 's' : ''}`)
+    showToast(`Deleted ${paths.length} file${paths.length > 1 ? 's' : ''}`, 'success')
     fetchHistory()
   } catch (e) {
     historyList.value = prevList
-    showToast('Failed to delete selected files')
+    showToast('Failed to delete selected files', 'error')
     fetchHistory()
   }
 }
@@ -1090,11 +1128,11 @@ async function deleteItem(item) {
 
   try {
     await runBridge('delete', item.path)
-    showToast('File deleted')
+    showToast('File deleted', 'success')
     fetchHistory()
   } catch (e) {
     historyList.value = prevList
-    showToast('Failed to delete file')
+    showToast('Failed to delete file', 'error')
     fetchHistory()
   }
 }
@@ -1105,11 +1143,11 @@ const openingFolder = ref(false)
 async function openMedia(filePath) {
   if (!filePath || openingPath.value) return
   openingPath.value = filePath
-  showToast('Opening media...')
+  showToast('Opening media...', 'info')
   try {
     await openMediaFile(filePath)
   } catch (e) {
-    showToast('Failed to open media')
+    showToast('Failed to open media', 'error')
   } finally {
     openingPath.value = null
   }
@@ -1118,11 +1156,11 @@ async function openMedia(filePath) {
 async function openMediaFolder() {
   if (openingFolder.value) return
   openingFolder.value = true
-  showToast('Opening folder...')
+  showToast('Opening folder...', 'info')
   try {
     await openFolder()
   } catch (e) {
-    showToast('Failed to open folder')
+    showToast('Failed to open folder', 'error')
   } finally {
     openingFolder.value = false
   }
@@ -1130,12 +1168,13 @@ async function openMediaFolder() {
 
 async function toggleAutoDl() {
   const nextState = !autoDl.value
+  autoDl.value = nextState
   try {
     await runBridge('toggle_autodl', nextState ? '1' : '0')
-    autoDl.value = nextState
-    showToast(nextState ? 'Clipboard monitor enabled' : 'Clipboard monitor disabled')
+    showToast(nextState ? 'Clipboard monitor enabled' : 'Clipboard monitor disabled', 'success')
   } catch (e) {
-    showToast('Failed to update setting')
+    autoDl.value = !nextState
+    showToast('Failed to update setting', 'error')
   }
 }
 
@@ -1161,10 +1200,10 @@ async function saveCookies() {
       const res = JSON.parse(raw)
       cookiesActive.value = (res.lines > 0)
       cookiesLines.value = res.lines || 0
-      showToast('Cookies saved')
+      showToast('Cookies saved', 'success')
     }
   } catch (e) {
-    showToast('Failed to save cookies')
+    showToast('Failed to save cookies', 'error')
   }
 }
 
@@ -1177,10 +1216,10 @@ async function pasteCookiesClipboard() {
   }
   if (text && text.trim()) {
     cookiesText.value = text.trim()
-    showToast('Cookies pasted')
+    showToast('Cookies pasted', 'success')
     return
   }
-  showToast('Tap & hold text box to paste')
+  showToast('Tap & hold text box to paste', 'info')
 }
 
 async function clearCookies() {
@@ -1196,9 +1235,9 @@ async function clearCookies() {
     cookiesText.value = ''
     cookiesActive.value = false
     cookiesLines.value = 0
-    showToast('Cookies cleared')
+    showToast('Cookies cleared', 'success')
   } catch (e) {
-    showToast('Failed to clear cookies')
+    showToast('Failed to clear cookies', 'error')
   }
 }
 
@@ -1206,6 +1245,11 @@ async function fetchLogs() {
   try {
     const logs = await runBridge('get_logs')
     logContent.value = logs || 'No log entries recorded yet.'
+    nextTick(() => {
+      if (terminalCard.value) {
+        terminalCard.value.scrollTop = terminalCard.value.scrollHeight
+      }
+    })
   } catch (e) {
     logContent.value = 'Failed to load console logs.'
   }
@@ -1213,17 +1257,17 @@ async function fetchLogs() {
 
 async function copyLogs() {
   if (!logContent.value || logContent.value === 'No log entries recorded yet.') {
-    showToast('No logs to copy')
+    showToast('No logs to copy', 'info')
     return
   }
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(logContent.value)
-      showToast('Logs copied to clipboard')
+      showToast('Logs copied to clipboard', 'success')
       return
     }
   } catch (e) {}
-  showToast('Copied to clipboard')
+  showToast('Copied to clipboard', 'success')
 }
 
 async function clearLogs() {
@@ -1237,9 +1281,9 @@ async function clearLogs() {
   try {
     await runBridge('clear_logs')
     logContent.value = 'No log entries recorded yet.'
-    showToast('Logs cleared')
+    showToast('Logs cleared', 'success')
   } catch (e) {
-    showToast('Failed to clear logs')
+    showToast('Failed to clear logs', 'error')
   }
 }
 
@@ -1261,11 +1305,25 @@ async function loadSystemInfo() {
   } catch (e) {}
 }
 
+async function checkActiveTask() {
+  try {
+    const raw = await runBridge('status')
+    if (!raw || raw === 'bridge_not_found') return
+    const parsed = JSON.parse(raw)
+    if (parsed && (parsed.status === 'downloading' || parsed.status === 'resolving')) {
+      task.value = { ...task.value, ...parsed }
+      isProcessing.value = true
+      startPolling()
+    }
+  } catch (e) {}
+}
+
 onMounted(() => {
   loadSystemInfo()
   fetchHistory()
   loadCookies()
   fetchLogs()
+  checkActiveTask()
 })
 
 onUnmounted(() => {
@@ -1442,6 +1500,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.6);
+  animation: sheet-up 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 .icon-btn {
@@ -1569,24 +1637,15 @@ onUnmounted(() => {
   padding: 12px 0 6px 0;
 }
 
-.sheet-slide-enter-active,
-.sheet-slide-leave-active {
-  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.progress-fill.indeterminate {
+  background: linear-gradient(90deg, var(--surface-container-high) 0%, var(--primary) 50%, var(--surface-container-high) 100%);
+  background-size: 200% 100%;
+  animation: progress-shimmer 1.4s infinite ease-in-out;
 }
 
-.sheet-slide-enter-active .sheet-panel,
-.sheet-slide-leave-active .sheet-panel {
-  transition: transform 0.32s cubic-bezier(0.32, 1, 0.23, 1);
-}
-
-.sheet-slide-enter-from,
-.sheet-slide-leave-to {
-  opacity: 0;
-}
-
-.sheet-slide-enter-from .sheet-panel,
-.sheet-slide-leave-to .sheet-panel {
-  transform: translateY(100%);
+@keyframes progress-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .custom-checkbox {

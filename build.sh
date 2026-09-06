@@ -134,11 +134,12 @@ if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "system/bin/yt-dlp" ]; then
     python3 scripts/optimize_ytdlp.py system/bin/yt-dlp
 fi
 
-mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
+STAGING_DIR="${PROJECT_DIR}/releases"
+mkdir -p "$STAGING_DIR"
+rm -f "$STAGING_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
 
 echo "packaging module zip..."
-zip -qr9 "$OUTPUT_DIR/$ZIP_NAME" \
+zip -qr9 "$STAGING_DIR/$ZIP_NAME" \
     module.prop \
     customize.sh \
     service.sh \
@@ -148,19 +149,27 @@ zip -qr9 "$OUTPUT_DIR/$ZIP_NAME" \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map" "*.py" "*__pycache__*"
 
-cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_ALIAS"
-cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_LATEST"
+cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_ALIAS"
+cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_LATEST"
+
+if [ "$OUTPUT_DIR" != "$STAGING_DIR" ]; then
+    if mkdir -p "$OUTPUT_DIR" 2>/dev/null; then
+        cp -f "$STAGING_DIR"/* "$OUTPUT_DIR/" 2>/dev/null || true
+    else
+        su -c "mkdir -p '$OUTPUT_DIR' && cp -f '$STAGING_DIR'/* '$OUTPUT_DIR/' && chmod 666 '$OUTPUT_DIR'/*" 2>/dev/null || true
+    fi
+fi
 
 if [ -d "/storage/emulated/0/Download" ] && [ "$OUTPUT_DIR" != "/storage/emulated/0/Download" ]; then
-    cp -f "$OUTPUT_DIR/$ZIP_NAME" "/storage/emulated/0/Download/$ZIP_ALIAS"
+    cp -f "$STAGING_DIR/$ZIP_NAME" "/storage/emulated/0/Download/$ZIP_ALIAS" 2>/dev/null || su -c "cp -f '$STAGING_DIR/$ZIP_NAME' '/storage/emulated/0/Download/$ZIP_ALIAS' && chmod 666 '/storage/emulated/0/Download/$ZIP_ALIAS'" 2>/dev/null || true
     am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///storage/emulated/0/Download/$ZIP_ALIAS" >/dev/null 2>&1 || true
 fi
 
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_NAME" >/dev/null 2>&1 || true
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_ALIAS" >/dev/null 2>&1 || true
 
-ZIP_SIZE=$(du -h "$OUTPUT_DIR/$ZIP_NAME" | cut -f1)
-CHECKSUM=$(sha256sum "$OUTPUT_DIR/$ZIP_NAME" | cut -d' ' -f1)
+ZIP_SIZE=$(du -h "$STAGING_DIR/$ZIP_NAME" | cut -f1)
+CHECKSUM=$(sha256sum "$STAGING_DIR/$ZIP_NAME" | cut -d' ' -f1)
 
 echo "=========================================="
 echo "  Build successful!"

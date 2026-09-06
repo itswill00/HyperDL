@@ -435,7 +435,7 @@ static void cmd_delete(int count, char **paths) {
 
 static void cmd_open_folder(void) {
     ensure_directories();
-    system("am start -a android.intent.action.VIEW -d \"content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1 || am start -a android.intent.action.VIEW -d \"file:///storage/emulated/0/Download/HyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1");
+    system("(am start -a android.intent.action.VIEW -d \"content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1 || am start -a android.intent.action.VIEW -d \"file:///storage/emulated/0/Download/HyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1) &");
     printf("{\"success\":true}\n");
 }
 
@@ -602,13 +602,13 @@ static void cmd_open(const char *path) {
     char start_cmd[1200];
     if (media_id > 0) {
         snprintf(start_cmd, sizeof(start_cmd),
-                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%lld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
+                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%lld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1 &",
                  media_id, mime);
         system(start_cmd);
         printf("{\"success\":true,\"mode\":\"content\",\"id\":%lld}\n", media_id);
     } else {
         snprintf(start_cmd, sizeof(start_cmd),
-                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
+                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1 &",
                  enc_path, mime);
         system(start_cmd);
         printf("{\"success\":true,\"mode\":\"file\"}\n");
@@ -623,7 +623,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.1.0";
+    char mod_version[32] = "v1.2.0";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
