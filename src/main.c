@@ -407,18 +407,27 @@ static void cmd_list(void) {
     closedir(d);
 }
 
-static void cmd_delete(const char *path) {
-    if (!path || !*path) {
+static void cmd_delete(int count, char **paths) {
+    if (count <= 0) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
         return;
     }
-    if (unlink(path) == 0) {
-        char scan_cmd[1024];
-        snprintf(scan_cmd, sizeof(scan_cmd),
-                 "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
-                 path);
-        system(scan_cmd);
-        printf("{\"success\":true}\n");
+    int deleted = 0;
+    for (int i = 0; i < count; i++) {
+        const char *path = paths[i];
+        if (!path || !*path) continue;
+        if (unlink(path) == 0) {
+            deleted++;
+            char scan_cmd[1024];
+            snprintf(scan_cmd, sizeof(scan_cmd),
+                     "(content delete --uri content://media/external/file --where \"_data='%s'\" >/dev/null 2>&1; "
+                     "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1) &",
+                     path, path);
+            system(scan_cmd);
+        }
+    }
+    if (deleted > 0) {
+        printf("{\"success\":true,\"deleted\":%d}\n", deleted);
     } else {
         printf("{\"success\":false,\"error\":\"%s\"}\n", strerror(errno));
     }
@@ -824,7 +833,11 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(action, "list") == 0) {
         cmd_list();
     } else if (strcmp(action, "delete") == 0) {
-        cmd_delete(argc > 2 ? argv[2] : "");
+        if (argc > 2) {
+            cmd_delete(argc - 2, argv + 2);
+        } else {
+            printf("{\"success\":false,\"error\":\"missing_path\"}\n");
+        }
     } else if (strcmp(action, "open") == 0) {
         cmd_open(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "open_folder") == 0) {

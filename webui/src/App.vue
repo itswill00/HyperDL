@@ -624,26 +624,25 @@
     </transition>
 
     <!-- Custom In-App Material 3 Confirmation Dialog -->
-    <transition name="dialog-fade">
-      <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
-        <div class="dialog-card">
-          <div class="dialog-title">{{ confirmDialog.title }}</div>
-          <div class="dialog-message">{{ confirmDialog.message }}</div>
-          <div class="dialog-actions">
-            <button class="btn btn-secondary dialog-btn" @click="resolveConfirm(false)">
-              Cancel
-            </button>
-            <button
-              class="btn dialog-btn"
-              :style="confirmDialog.isDestructive ? 'background: var(--error); color: #fff; border-color: var(--error);' : 'background: var(--primary); color: var(--on-primary);'"
-              @click="resolveConfirm(true)"
-            >
-              {{ confirmDialog.confirmText }}
-            </button>
-          </div>
+    <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
+      <div class="dialog-card">
+        <div class="dialog-title">{{ confirmDialog.title }}</div>
+        <div class="dialog-message">{{ confirmDialog.message }}</div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary dialog-btn" type="button" @click.stop="resolveConfirm(false)">
+            Cancel
+          </button>
+          <button
+            class="btn dialog-btn"
+            type="button"
+            :style="confirmDialog.isDestructive ? 'background: var(--error); color: #fff; border-color: var(--error);' : 'background: var(--primary); color: var(--on-primary);'"
+            @click.stop="resolveConfirm(true)"
+          >
+            {{ confirmDialog.confirmText }}
+          </button>
         </div>
       </div>
-    </transition>
+    </div>
 
   </div>
 </template>
@@ -696,10 +695,12 @@ function showConfirm({ title = 'Confirm', message = '', confirmText = 'Confirm',
 }
 
 function resolveConfirm(result) {
-  if (confirmDialog.value.resolve) {
-    confirmDialog.value.resolve(result)
-  }
+  const cb = confirmDialog.value.resolve
   confirmDialog.value.show = false
+  confirmDialog.value.resolve = null
+  if (cb) {
+    cb(result)
+  }
 }
 
 let toastTimer = null
@@ -1045,16 +1046,20 @@ async function deleteSelected() {
   if (!ok) return
 
   const paths = Array.from(selectedFiles.value)
-  let deletedCount = 0
-  for (const p of paths) {
-    try {
-      await runBridge('delete', p)
-      deletedCount++
-    } catch (e) {}
-  }
+  const prevList = [...historyList.value]
+  const toDeleteSet = new Set(paths)
+  historyList.value = historyList.value.filter(i => !toDeleteSet.has(i.path))
   selectedFiles.value = new Set()
-  await fetchHistory()
-  showToast(`Deleted ${deletedCount} file${deletedCount > 1 ? 's' : ''}`)
+
+  try {
+    await runBridge('delete', ...paths)
+    showToast(`Deleted ${paths.length} file${paths.length > 1 ? 's' : ''}`)
+    fetchHistory()
+  } catch (e) {
+    historyList.value = prevList
+    showToast('Failed to delete selected files')
+    fetchHistory()
+  }
 }
 
 async function fetchHistory() {
@@ -1076,15 +1081,21 @@ async function deleteItem(item) {
     isDestructive: true
   })
   if (!ok) return
+
+  const prevList = [...historyList.value]
+  historyList.value = historyList.value.filter(i => i.path !== item.path)
+  const s = new Set(selectedFiles.value)
+  s.delete(item.path)
+  selectedFiles.value = s
+
   try {
     await runBridge('delete', item.path)
-    const s = new Set(selectedFiles.value)
-    s.delete(item.path)
-    selectedFiles.value = s
     showToast('File deleted')
     fetchHistory()
   } catch (e) {
+    historyList.value = prevList
     showToast('Failed to delete file')
+    fetchHistory()
   }
 }
 
@@ -1412,8 +1423,7 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.72);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1626,14 +1636,13 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   padding: 24px;
+  touch-action: none;
 }
 
 .dialog-card {
@@ -1644,7 +1653,7 @@ onUnmounted(() => {
   width: 100%;
   max-width: 320px;
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
-  animation: dialog-pop 0.18s cubic-bezier(0.2, 0, 0, 1);
+  animation: dialog-pop 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
 
 @keyframes dialog-pop {
@@ -1684,15 +1693,5 @@ onUnmounted(() => {
   font-size: 12px;
   min-width: 74px;
   border-radius: 10px;
-}
-
-.dialog-fade-enter-active,
-.dialog-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.dialog-fade-enter-from,
-.dialog-fade-leave-to {
-  opacity: 0;
 }
 </style>
