@@ -1,0 +1,18 @@
+# Build outputs
+*.zip
+*.log
+*.tmp
+*.sock
+*.pid
+
+# WebUI artifacts
+webui/dist/
+webui/node_modules/
+webui/.vite/
+
+# OS & Editors
+.DS_Store
+*.swp
+*.bak
+.vscode/
+.idea/
