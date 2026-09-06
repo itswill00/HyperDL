@@ -4,7 +4,10 @@
 *.tmp
 *.sock
 *.pid
-
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
 # WebUI artifacts
 webui/dist/
 webui/node_modules

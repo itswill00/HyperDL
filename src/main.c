@@ -175,6 +175,7 @@ static void cmd_download(const char *url, const char *fmt) {
     if (sf) {
         fputs("{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\"}\n", sf);
         fclose(sf);
+        chmod(STATUS_FILE, 0666);
     }
 
     pid_t pid = fork();
@@ -184,9 +185,14 @@ static void cmd_download(const char *url, const char *fmt) {
     }
 
     if (pid == 0) {
+        /* Detach from parent session and ignore hangup */
+        setsid();
+        signal(SIGHUP, SIG_IGN);
+
         /* Child Process */
-        int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (log_fd >= 0) {
+            fchmod(log_fd, 0666);
             dup2(log_fd, STDOUT_FILENO);
             dup2(log_fd, STDERR_FILENO);
             close(log_fd);
@@ -200,7 +206,9 @@ static void cmd_download(const char *url, const char *fmt) {
             setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
         }
 
-        execl(python_bin, "python3", engine_py, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+        execl(python_bin, python_bin, engine_py, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+        fprintf(stderr, "HyperDL child exec failed: %s (%s)\n", strerror(errno), python_bin);
+        fflush(stderr);
         _exit(127);
     }
 
@@ -209,6 +217,7 @@ static void cmd_download(const char *url, const char *fmt) {
     if (npf) {
         fprintf(npf, "%d\n", pid);
         fclose(npf);
+        chmod(PID_FILE, 0666);
     }
 
     printf("{\"status\":\"started\",\"pid\":%d}\n", pid);

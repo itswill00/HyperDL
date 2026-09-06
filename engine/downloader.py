@@ -40,6 +40,10 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
         with open(STATUS_FILE, "w") as f:
             json.dump(data, f)
+        try:
+            os.chmod(STATUS_FILE, 0o666)
+        except Exception:
+            pass
     except Exception:
         pass
     print(json.dumps(data), flush=True)
@@ -133,14 +137,26 @@ def solve_tiktok_challenge(html_text):
         return ""
 
 # Streaming File Downloader
-def download_file(url, out_path, title="Media", headers=None):
-    hdrs = {"User-Agent": USER_AGENT}
+def download_file(url, out_path, title="Media", headers=None, emit_error=True):
+    hdrs = {
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*",
+        "Connection": "keep-alive"
+    }
     if headers:
         hdrs.update(headers)
     req = urllib.request.Request(url, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=40) as resp:
-            total_bytes = int(resp.headers.get('content-length', 0))
+            total_bytes = 0
+            cr = resp.headers.get('content-range')
+            if cr and '/' in cr:
+                tot_str = cr.split('/')[-1].strip()
+                if tot_str.isdigit():
+                    total_bytes = int(tot_str)
+            if not total_bytes:
+                total_bytes = int(resp.headers.get('content-length', 0) or 0)
+
             downloaded = 0
             start_time = time.time()
             last_update = 0
@@ -167,12 +183,138 @@ def download_file(url, out_path, title="Media", headers=None):
                         
                         update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title)
 
+            if os.path.exists(out_path) and os.path.getsize(out_path) < 1024:
+                raise RuntimeError("Downloaded file is incomplete or empty")
+
             update_status("completed", percent=100, title=title, file_path=out_path)
             send_android_notification("Download Complete", f"{title} saved to /Download/HyperDL")
             return out_path
     except Exception as e:
-        update_status("error", error=str(e), title=title)
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except Exception:
+                pass
+        if emit_error:
+            update_status("error", error=str(e), title=title)
         raise
+
+# Candidate Stream Downloader with Fallback
+def download_media_candidates(item, out_path, title):
+    candidates = item.get("candidates", [])
+    if "url" in item and not candidates:
+        candidates = [{"url": item["url"], "headers": item.get("headers"), "label": "Primary"}]
+
+    last_err = None
+    for idx, cand in enumerate(candidates, start=1):
+        url = cand.get("url")
+        if not url:
+            continue
+        hdrs = cand.get("headers") or item.get("headers") or {}
+        label = cand.get("label", f"Candidate {idx}")
+        print(f"Attempting stream source [{label}]...", file=sys.stderr)
+        try:
+            return download_file(url, out_path, title=title, headers=hdrs, emit_error=False)
+        except Exception as e:
+            last_err = e
+            print(f"Stream source [{label}] failed: {e}", file=sys.stderr)
+            continue
+
+    # Fallback to alternative mirror resolver if configured
+    fallback_func = item.get("fallback")
+    if callable(fallback_func):
+        print("Direct stream sources failed. Invoking mirror resolver...", file=sys.stderr)
+        update_status("resolving", title="Connecting to mirror stream...")
+        try:
+            fb_item = fallback_func()
+            if fb_item:
+                return download_media_candidates(fb_item, out_path, title)
+        except Exception as fe:
+            last_err = fe
+            print(f"Mirror resolver failed: {fe}", file=sys.stderr)
+
+    raise RuntimeError(f"Unable to download stream: {last_err}")
+
+# TikWM Fallback Resolver
+def fetch_tikwm(clean_url, fmt="video"):
+    endpoints = [
+        "https://www.tikwm.com/api/",
+        "https://tikwm.com/api/"
+    ]
+    last_err = None
+    for ep in endpoints:
+        try:
+            req = urllib.request.Request(
+                ep,
+                data=urllib.parse.urlencode({"url": clean_url, "hd": 1}).encode("utf-8"),
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Referer": "https://www.tikwm.com/"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+            if res.get("code") == 0 and res.get("data"):
+                d = res["data"]
+                title = d.get("title") or "TikTok Media"
+                
+                if fmt == "audio":
+                    music_url = d.get("music") or (d.get("music_info") or {}).get("play")
+                    if music_url:
+                        return {
+                            "title": title,
+                            "ext": "mp3",
+                            "kind": "audio",
+                            "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/"}, "label": "TikWM Audio"}]
+                        }
+                elif fmt == "album" and d.get("images"):
+                    return {
+                        "title": title,
+                        "ext": "jpg",
+                        "kind": "album",
+                        "images": d.get("images"),
+                        "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/"}
+                    }
+                else:
+                    candidates = []
+                    hdplay = d.get("hdplay")
+                    if hdplay:
+                        if hdplay.startswith("/"):
+                            hdplay = "https://www.tikwm.com" + hdplay
+                        candidates.append({
+                            "url": hdplay,
+                            "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/", "Range": "bytes=0-"},
+                            "label": "TikWM HD Mirror"
+                        })
+                    play = d.get("play")
+                    if play:
+                        if play.startswith("/"):
+                            play = "https://www.tikwm.com" + play
+                        candidates.append({
+                            "url": play,
+                            "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/", "Range": "bytes=0-"},
+                            "label": "TikWM Standard Mirror"
+                        })
+                    wmplay = d.get("wmplay")
+                    if wmplay:
+                        if wmplay.startswith("/"):
+                            wmplay = "https://www.tikwm.com" + wmplay
+                        candidates.append({
+                            "url": wmplay,
+                            "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/", "Range": "bytes=0-"},
+                            "label": "TikWM Backup Mirror"
+                        })
+                    if candidates:
+                        return {
+                            "title": title,
+                            "ext": "mp4",
+                            "kind": "video",
+                            "candidates": candidates
+                        }
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"TikWM mirror failed: {last_err}")
 
 # TikTok Resolver
 def resolve_tiktok(url, fmt="video"):
@@ -181,9 +323,12 @@ def resolve_tiktok(url, fmt="video"):
     # 1. Expand shortlinks if needed
     clean_url = url
     if "vt.tiktok.com" in url or "vm.tiktok.com" in url:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=12) as r:
-            clean_url = r.geturl()
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                clean_url = r.geturl()
+        except Exception as e:
+            print(f"Shortlink expansion note: {e}", file=sys.stderr)
 
     cookie_hdr = get_cookie_header("tiktok.com")
     hdrs = {
@@ -195,7 +340,7 @@ def resolve_tiktok(url, fmt="video"):
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
-    # Try Direct SSR Page Rehydration
+    # Try Direct SSR Page Rehydration first
     try:
         req = urllib.request.Request(clean_url, headers=hdrs)
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -210,7 +355,7 @@ def resolve_tiktok(url, fmt="video"):
                 with urllib.request.urlopen(req, timeout=15) as resp2:
                     html = resp2.read().decode("utf-8", errors="ignore")
 
-        m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html, re.S)
+        m = re.search(r'<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html, re.S)
         if m:
             data = json.loads(m.group(1))
             scope = data.get("__DEFAULT_SCOPE__", {})
@@ -229,52 +374,73 @@ def resolve_tiktok(url, fmt="video"):
                         if url_list:
                             images.append(url_list[0])
                     if images:
-                        return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
+                        return {
+                            "images": images,
+                            "title": title,
+                            "ext": "jpg",
+                            "kind": "album",
+                            "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
+                        }
+
+                tt_headers = {
+                    "User-Agent": USER_AGENT,
+                    "Referer": "https://www.tiktok.com/",
+                    "Origin": "https://www.tiktok.com",
+                    "Range": "bytes=0-",
+                    "Accept": "*/*",
+                    "Connection": "keep-alive"
+                }
+                if cookie_hdr:
+                    tt_headers["Cookie"] = cookie_hdr
 
                 # Audio Only
                 if fmt == "audio":
                     music = item.get("music", {})
                     music_url = music.get("playUrl") or music.get("play_url")
                     if music_url:
-                        return {"url": music_url, "title": title, "ext": "mp3", "kind": "audio"}
+                        return {
+                            "title": title,
+                            "ext": "mp3",
+                            "kind": "audio",
+                            "candidates": [{"url": music_url, "headers": tt_headers, "label": "Direct Audio"}],
+                            "fallback": lambda: fetch_tikwm(clean_url, "audio")
+                        }
 
-                # Video
+                # Video Candidates
                 video = item.get("video", {})
-                video_url = video.get("playAddr") or video.get("downloadAddr")
-                bitrates = video.get("bitrateInfo", [])
-                if bitrates and not video_url:
-                    bitrates.sort(key=lambda x: x.get("Bitrate", 0), reverse=True)
-                    url_list = bitrates[0].get("PlayAddr", {}).get("UrlList", [])
-                    if url_list:
-                        video_url = url_list[0]
+                candidates = []
+                seen_urls = set()
 
-                if video_url:
-                    return {"url": video_url, "title": title, "ext": "mp4", "kind": "video", "headers": {"Referer": "https://www.tiktok.com/"}}
+                bitrates = video.get("bitrateInfo", [])
+                if bitrates:
+                    bitrates.sort(key=lambda x: x.get("Bitrate", 0), reverse=True)
+                    for b in bitrates:
+                        p_addr = b.get("PlayAddr") or b.get("playAddr") or {}
+                        if isinstance(p_addr, dict):
+                            for u in p_addr.get("UrlList", []) or p_addr.get("urlList", []):
+                                if u and u not in seen_urls:
+                                    seen_urls.add(u)
+                                    candidates.append({"url": u, "headers": tt_headers, "label": f"Direct Bitrate ({b.get('Bitrate', '')})"})
+
+                for k in ("playAddr", "downloadAddr"):
+                    u = video.get(k)
+                    if u and u not in seen_urls:
+                        seen_urls.add(u)
+                        candidates.append({"url": u, "headers": tt_headers, "label": f"Direct {k}"})
+
+                if candidates:
+                    return {
+                        "title": title,
+                        "ext": "mp4",
+                        "kind": "video",
+                        "candidates": candidates,
+                        "fallback": lambda: fetch_tikwm(clean_url, fmt)
+                    }
     except Exception as e:
-        print(f"Direct TikTok scrape failed: {e}, attempting mirror fallback...", file=sys.stderr)
+        print(f"Direct TikTok scrape note: {e}, using mirror resolver...", file=sys.stderr)
 
     # 2. TikWM Fallback
-    try:
-        req = urllib.request.Request(
-            "https://www.tikwm.com/api/",
-            data=urllib.parse.urlencode({"url": clean_url, "hd": 1}).encode("utf-8"),
-            headers={"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/"}
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            res = json.loads(resp.read().decode("utf-8"))
-        if res.get("code") == 0 and res.get("data"):
-            d = res["data"]
-            title = d.get("title") or "TikTok Video"
-            if fmt == "audio":
-                return {"url": d.get("music"), "title": title, "ext": "mp3", "kind": "audio"}
-            elif fmt == "album" and d.get("images"):
-                return {"images": d.get("images"), "title": title, "ext": "jpg", "kind": "album"}
-            else:
-                return {"url": d.get("play") or d.get("hdplay"), "title": title, "ext": "mp4", "kind": "video"}
-    except Exception as e:
-        print(f"TikWM mirror failed: {e}", file=sys.stderr)
-
-    raise RuntimeError("Unable to resolve TikTok video stream")
+    return fetch_tikwm(clean_url, fmt)
 
 # Instagram Resolver
 def resolve_instagram(url):
@@ -425,12 +591,13 @@ def main():
             for idx, img_url in enumerate(images):
                 img_path = os.path.join(outdir, f"{title}_{idx+1}.{ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
-                download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=hdrs)
+                download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=info.get("headers"), emit_error=True)
             update_status("completed", percent=100, title=title, file_path=outdir)
+            send_android_notification("Download Complete", f"{title} saved ({total} items)")
         else:
             filename = f"{title}_{int(time.time())}.{ext}"
             out_path = os.path.join(outdir, filename)
-            download_file(info["url"], out_path, title=title, headers=hdrs)
+            download_media_candidates(info, out_path, title=title)
 
     except Exception as e:
         print(f"Download Error: {e}", file=sys.stderr)
