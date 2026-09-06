@@ -101,12 +101,51 @@ html, body, #app {
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--on-surface);
+  background: linear-gradient(
+    110deg,
+    rgba(240, 242, 245, 0.82) 0%,
+    rgba(240, 242, 245, 0.82) 35%,
+    #ffffff 50%,
+    rgba(240, 242, 245, 0.82) 65%,
+    rgba(240, 242, 245, 0.82) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: header-sheen 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  display: block;
 }
 
 .page-header-sub {
   font-size: 11px;
   color: var(--on-surface-variant);
   margin-top: 1px;
+  letter-spacing: 0.25px;
+  background: linear-gradient(
+    110deg,
+    rgba(176, 180, 192, 0.7) 0%,
+    rgba(176, 180, 192, 0.7) 35%,
+    rgba(240, 242, 245, 0.95) 50%,
+    rgba(176, 180, 192, 0.7) 65%,
+    rgba(176, 180, 192, 0.7) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: header-sheen 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation-delay: 0.28s;
+  display: block;
+}
+
+@keyframes header-sheen {
+  0% {
+    background-position: 120% 0;
+  }
+  36%, 100% {
+    background-position: -120% 0;
+  }
 }
 
 .content-area {
