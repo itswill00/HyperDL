@@ -26,7 +26,7 @@ case "$1" in
         
         if [ -n "$CLIP" ]; then
           case "$CLIP" in
-            *tiktok.com*|*instagram.com*|*twitter.com*|*x.com*|*youtu.be*|*youtube.com*)
+            *tiktok.com*|*douyin.com*|*instagram.com*|*twitter.com*|*x.com*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*)
               LAST_CLIP="$(cat "$LAST_CLIP_FILE" 2>/dev/null)"
               if [ "$CLIP" != "$LAST_CLIP" ]; then
                 echo "$CLIP" > "$LAST_CLIP_FILE"

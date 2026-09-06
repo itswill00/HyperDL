@@ -472,13 +472,13 @@ const supportedPlatforms = [
 
 const detectedPlatform = computed(() => {
   const u = url.value.toLowerCase()
-  if (u.includes('tiktok.com')) return { name: 'TikTok', id: 'tiktok' }
+  if (u.includes('tiktok.com') || u.includes('douyin.com')) return { name: 'TikTok', id: 'tiktok' }
   if (u.includes('instagram.com') || u.includes('instagr.am')) return { name: 'Instagram', id: 'instagram' }
   if (u.includes('twitter.com') || u.includes('x.com') || u.includes('t.co')) return { name: 'X', id: 'x' }
   if (u.includes('youtube.com') || u.includes('youtu.be')) return { name: 'YouTube', id: 'youtube' }
-  if (u.includes('facebook.com') || u.includes('fb.watch')) return { name: 'Facebook', id: 'facebook' }
-  if (u.includes('reddit.com')) return { name: 'Reddit', id: 'reddit' }
-  if (u.includes('pinterest.com')) return { name: 'Pinterest', id: 'pinterest' }
+  if (u.includes('facebook.com') || u.includes('fb.watch') || u.includes('fb.com')) return { name: 'Facebook', id: 'facebook' }
+  if (u.includes('reddit.com') || u.includes('redd.it')) return { name: 'Reddit', id: 'reddit' }
+  if (u.includes('pinterest.com') || u.includes('pin.it')) return { name: 'Pinterest', id: 'pinterest' }
   return { name: 'Direct link', id: 'link' }
 })
 

@@ -106,10 +106,13 @@ The module packages an isolated ARM64 native runtime, compiled Python bytecode e
 
 | Platform | Format Options | Extraction Strategy | Fallback Engine |
 | :--- | :--- | :--- | :--- |
-| **TikTok** | Video (No Watermark), Audio (MP3), Image Albums | TikWM API | SSR HTML JSON Scrape / yt-dlp |
+| **TikTok** | Video (No Watermark), Audio (MP3), Image Albums | TikWM API | SSR HTML Scrape / yt-dlp |
 | **YouTube** | Video (Best MP4), Audio (M4A/MP3), Shorts | Android Client Bytecode yt-dlp | Embedded Stream Resolver |
-| **Instagram** | Reels, Posts, Carousel Media | GraphQL API / Direct JSON Embed | yt-dlp (Cookie-Aware) |
-| **X (Twitter)** | Videos, GIF Clips | VxTwitter / FxTwitter API | yt-dlp Extractor |
+| **Instagram** | Reels, Posts, Carousel Media | GraphQL API / JSON Embed | yt-dlp (Cookie-Aware) |
+| **Facebook** | Reels, Public Videos, Watch Clips | Direct Progressive Stream Scrape | yt-dlp Extractor |
+| **Pinterest** | Videos, Pins, Story Media, Original Images | PinResource Unauth JSON API | yt-dlp Extractor |
+| **Reddit** | Videos (MP4), Image Galleries, Single Posts | Reddit JSON API / Old Reddit | yt-dlp Extractor |
+| **X (Twitter)** | Videos, Photos, Animated GIFs | GraphQL API / FxTwitter / VxTwitter | yt-dlp Extractor |
 | **Direct URLs** | MP4, WEBM, MP3, M3U8 Streams | Chunked Direct Streamer | Python urllib Pipeline |
 
 ---

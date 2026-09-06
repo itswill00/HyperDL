@@ -211,6 +211,10 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True):
         raise
 
 def download_media_candidates(item, out_path, title):
+    if item.get("direct_ytdlp"):
+        outdir = os.path.dirname(out_path) or "."
+        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False))
+
     candidates = item.get("candidates", [])
     if "url" in item and not candidates:
         candidates = [{"url": item["url"], "headers": item.get("headers"), "label": "Primary"}]
@@ -237,6 +241,9 @@ def download_media_candidates(item, out_path, title):
         try:
             fb_item = fallback_func()
             if fb_item:
+                if fb_item.get("direct_ytdlp"):
+                    outdir = os.path.dirname(out_path) or "."
+                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False))
                 return download_media_candidates(fb_item, out_path, title)
         except Exception as fe:
             last_err = fe
@@ -499,50 +506,378 @@ def resolve_instagram(url):
         print(f"Instagram embed extraction failed: {e}", file=sys.stderr)
 
     try:
-        return resolve_youtube(url, fmt="video")
+        return resolve_ytdlp(url, fmt="video", is_yt=False)
     except Exception as ye:
         print(f"Instagram yt-dlp fallback note: {ye}", file=sys.stderr)
 
     raise RuntimeError("Unable to load Instagram media (try adding cookies in Settings)")
 
-def resolve_twitter(url):
+def resolve_facebook(url, fmt="video"):
+    update_status("resolving", title="Resolving Facebook media...")
+    clean_url = url
+    if "fb.watch" in url or "/share/" in url:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                clean_url = r.geturl()
+        except Exception:
+            pass
+
+    clean_url = clean_url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
+    cookie_hdr = get_cookie_header("facebook.com")
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://www.facebook.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
+    }
+    if cookie_hdr:
+        hdrs["Cookie"] = cookie_hdr
+
+    try:
+        req = urllib.request.Request(clean_url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        hd_m = re.search(r'"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*,\s*"failure_reason"\s*:\s*[^,]+\s*,\s*"metadata"\s*:\s*\{\s*"quality"\s*:\s*"HD"\s*\}', html, re.S)
+        sd_m = re.search(r'"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*,\s*"failure_reason"\s*:\s*[^,]+\s*,\s*"metadata"\s*:\s*\{\s*"quality"\s*:\s*"SD"\s*\}', html, re.S)
+        native_hd_m = re.search(r'"browser_native_hd_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
+        native_sd_m = re.search(r'"browser_native_sd_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
+        playable_hd_m = re.search(r'"playable_url_quality_hd"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
+        playable_sd_m = re.search(r'"playable_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
+
+        def unescape_fb(val):
+            val = val.replace(r"\/", "/").replace(r"\u0026", "&")
+            return re.sub(r'\\u([0-9a-fA-F]{4})', lambda x: chr(int(x.group(1), 16)), val)
+
+        fb_media_hdrs = {"User-Agent": USER_AGENT, "Referer": "https://www.facebook.com/"}
+        candidates = []
+        if hd_m:
+            candidates.append({"url": unescape_fb(hd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
+        if native_hd_m and not hd_m:
+            candidates.append({"url": unescape_fb(native_hd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
+        if playable_hd_m and not hd_m and not native_hd_m:
+            candidates.append({"url": unescape_fb(playable_hd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
+        if sd_m:
+            candidates.append({"url": unescape_fb(sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
+        if native_sd_m and not sd_m:
+            candidates.append({"url": unescape_fb(native_sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
+        if playable_sd_m and not sd_m and not native_sd_m:
+            candidates.append({"url": unescape_fb(playable_sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
+
+        title_m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html) or \
+                  re.search(r'<title[^>]*>(.*?)</title>', html, re.S)
+        title = "Facebook Video"
+        if title_m:
+            import html as pyhtml
+            t = re.sub(r'\s*\|\s*Facebook.*$', '', title_m.group(1), flags=re.I).strip()
+            t = pyhtml.unescape(t)
+            if t and t.lower() not in ("facebook", "watch", "reel"):
+                title = t
+
+        if candidates:
+            return {
+                "title": title,
+                "ext": "mp4",
+                "kind": "video",
+                "candidates": candidates,
+                "fallback": lambda: resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+            }
+    except Exception as e:
+        print(f"Facebook direct scrape note: {e}", file=sys.stderr)
+
+    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+
+def resolve_pinterest(url, fmt="video"):
+    update_status("resolving", title="Resolving Pinterest media...")
+    clean_url = url
+    if "pin.it" in url or "pin." in url:
+        m_short = re.search(r"pin\.[^/]+/([A-Za-z0-9_-]+)", url)
+        if m_short:
+            short_id = m_short.group(1)
+            api_url = f"https://api.pinterest.com/url_shortener/{short_id}/redirect/"
+            try:
+                class NoRedirect(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                        return None
+                opener = urllib.request.build_opener(NoRedirect)
+                req = urllib.request.Request(api_url, headers={"User-Agent": USER_AGENT, "Referer": "https://www.pinterest.com/"})
+                try:
+                    r = opener.open(req)
+                    loc = r.headers.get("Location") or r.headers.get("location")
+                    if loc:
+                        clean_url = loc
+                except urllib.error.HTTPError as e:
+                    loc = e.headers.get("Location") or e.headers.get("location")
+                    if loc:
+                        clean_url = loc
+            except Exception:
+                pass
+        if clean_url == url:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    clean_url = r.geturl()
+            except Exception:
+                pass
+
+    m = re.search(r'pin/(?:[\w-]+--)?(\d+)', clean_url)
+    if m:
+        pin_id = m.group(1)
+        try:
+            headers = {
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+                "Referer": "https://www.pinterest.com/",
+                "X-Pinterest-Pws-Handler": "www/[username].js",
+            }
+            cookie_hdr = get_cookie_header("pinterest.com")
+            if cookie_hdr:
+                headers["Cookie"] = cookie_hdr
+
+            payload = {"options": {"field_set_key": "unauth_react_main_pin", "id": pin_id}}
+            api_url = "https://www.pinterest.com/resource/PinResource/get/?" + urllib.parse.urlencode({"data": json.dumps(payload, separators=(',', ':'))})
+            req = urllib.request.Request(api_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                d = json.loads(resp.read().decode("utf-8"))
+            pin = d.get("resource_response", {}).get("data", {})
+            title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
+
+            videos = pin.get("videos", {}).get("video_list", {})
+            if isinstance(videos, dict) and videos:
+                mp4s = [v.get("url") for k, v in videos.items() if v.get("url") and not str(v.get("url")).endswith(".m3u8")]
+                if mp4s:
+                    return {"url": mp4s[0], "title": title, "ext": "mp4", "kind": "video"}
+                all_vids = [v.get("url") for k, v in videos.items() if v.get("url")]
+                if all_vids:
+                    return {"url": all_vids[0], "title": title, "ext": "mp4", "kind": "video"}
+
+            story = pin.get("story_pin_data", {})
+            if isinstance(story, dict):
+                for page in story.get("pages", []):
+                    for block in page.get("blocks", []):
+                        if int(block.get("block_type") or 0) == 3 and isinstance(block.get("video"), dict):
+                            vlist = block.get("video", {}).get("video_list", {})
+                            for k, v in vlist.items():
+                                if v.get("url") and not str(v.get("url")).endswith(".m3u8"):
+                                    return {"url": v["url"], "title": title, "ext": "mp4", "kind": "video"}
+
+            images = pin.get("images", {})
+            orig = images.get("orig", {}) if isinstance(images, dict) else {}
+            if orig.get("url"):
+                return {"url": orig["url"], "title": title, "ext": "jpg", "kind": "image"}
+        except Exception as e:
+            print(f"Pinterest API note: {e}", file=sys.stderr)
+
+    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+
+def resolve_reddit(url, fmt="video"):
+    update_status("resolving", title="Resolving Reddit media...")
+    clean_url = url
+    if "/s/" in url or "redd.it" in url:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                clean_url = r.geturl()
+        except Exception:
+            pass
+
+    p = urllib.parse.urlparse(clean_url)
+    clean_path = p.path.rstrip("/")
+    if not clean_path.endswith(".json"):
+        clean_path += "/.json"
+
+    cookie_hdr = get_cookie_header("reddit.com")
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json,text/html,*/*",
+        "Referer": "https://www.reddit.com/"
+    }
+    if cookie_hdr:
+        hdrs["Cookie"] = cookie_hdr
+
+    candidates_urls = [
+        f"https://www.reddit.com{clean_path}",
+        f"https://old.reddit.com{clean_path}",
+        f"https://new.reddit.com{clean_path}"
+    ]
+
+    import html as pyhtml
+    for c_url in candidates_urls:
+        try:
+            req = urllib.request.Request(c_url, headers=hdrs)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw_text = resp.read().decode("utf-8", errors="ignore")
+                if not raw_text.strip().startswith(("[", "{")):
+                    continue
+                data = json.loads(raw_text)
+            if isinstance(data, list) and data:
+                post = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
+                title = post.get("title") or "Reddit Media"
+
+                gallery = post.get("media_metadata", {})
+                if isinstance(gallery, dict) and gallery:
+                    images = []
+                    for k, meta in gallery.items():
+                        src = meta.get("s", {}).get("u") or meta.get("s", {}).get("mp4")
+                        if src:
+                            images.append(pyhtml.unescape(src).replace("&amp;", "&"))
+                    if images:
+                        return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
+
+                post_url = pyhtml.unescape(post.get("url") or "")
+                if any(post_url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                    return {"url": post_url, "title": title, "ext": "jpg", "kind": "image"}
+
+                media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
+                rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
+                fallback = rv.get("fallback_url")
+                if fallback:
+                    return {
+                        "url": fallback,
+                        "title": title,
+                        "ext": "mp4",
+                        "kind": "video",
+                        "fallback": lambda: resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+                    }
+        except Exception as e:
+            print(f"Reddit JSON candidate note ({c_url}): {e}", file=sys.stderr)
+
+    try:
+        rs_url = f"https://rapidsave.com/info?url={urllib.parse.quote(clean_url)}"
+        rs_req = urllib.request.Request(rs_url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(rs_req, timeout=10) as r:
+            rs_html = r.read().decode("utf-8", errors="ignore")
+        rs_match = re.search(r'<a[^>]+class=["\'][^"\']*downloadbutton[^"\']*["\'][^>]+href=["\']([^"\']+)["\']', rs_html) or \
+                   re.search(r'<a[^>]+href=["\'](https?://(?:sd|d)\.rapidsave\.com/download\.php\?[^"\']+)["\']', rs_html)
+        if rs_match:
+            dl_url = rs_match.group(1).replace("&amp;", "&")
+            title_m = re.search(r'<title>(.*?)</title>', rs_html)
+            t = title_m.group(1) if title_m else "Reddit Video"
+            t = re.sub(r'\s*-\s*Reddit Video Downloader.*$', '', t, flags=re.I).strip()
+            return {"url": dl_url, "title": t or "Reddit Video", "ext": "mp4", "kind": "video"}
+    except Exception as re_err:
+        print(f"Reddit rapidsave mirror note: {re_err}", file=sys.stderr)
+
+    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+
+def resolve_twitter(url, fmt="video"):
     update_status("resolving", title="Resolving X/Twitter post...")
-    status_id_match = re.search(r'status/(\d+)', url)
-    if not status_id_match:
-        raise RuntimeError("Invalid X/Twitter link")
-    status_id = status_id_match.group(1)
+    clean_url = url
+    if "t.co" in url:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                clean_url = r.geturl()
+        except Exception:
+            pass
 
-    try:
-        req = urllib.request.Request(f"https://api.vxtwitter.com/Twitter/status/{status_id}", headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        
-        title = data.get("text") or f"Post_{status_id}"
-        if data.get("video_url"):
-            return {"url": data.get("video_url"), "title": title, "ext": "mp4", "kind": "video"}
-        elif data.get("mediaURLs"):
-            return {"images": data.get("mediaURLs"), "title": title, "ext": "jpg", "kind": "album"}
-    except Exception as e:
-        print(f"VxTwitter resolution failed: {e}", file=sys.stderr)
+    m = re.search(r'status/(\d+)', clean_url)
+    if not m:
+        return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+    status_id = m.group(1)
 
-    try:
-        req = urllib.request.Request(f"https://api.fxtwitter.com/status/{status_id}", headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        tweet = data.get("tweet", {})
-        media = tweet.get("media", {})
-        videos = media.get("videos", [])
-        if videos and videos[0].get("url"):
-            return {"url": videos[0]["url"], "title": tweet.get("text") or f"Post_{status_id}", "ext": "mp4", "kind": "video"}
-    except Exception as e:
-        print(f"FxTwitter resolution failed: {e}", file=sys.stderr)
+    cookie_hdr = get_cookie_header("x.com") or get_cookie_header("twitter.com")
+    cookies_map = load_cookies("x.com")
+    if not cookies_map:
+        cookies_map = load_cookies("twitter.com")
 
-    try:
-        return resolve_youtube(url, fmt="video")
-    except Exception as ye:
-        print(f"Twitter yt-dlp fallback note: {ye}", file=sys.stderr)
+    csrf = cookies_map.get("ct0")
+    auth = cookies_map.get("auth_token")
 
-    raise RuntimeError("Unable to extract media from this post")
+    if csrf and auth and cookie_hdr:
+        try:
+            bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+            api_endpoint = "https://x.com/i/api/graphql/2ICDjqPd81tulZcYrtpTuQ/TweetResultByRestId"
+            variables = {"tweetId": status_id, "withCommunity": False, "includePromotedContent": False, "withVoice": False}
+            features = {
+                "creator_subscriptions_tweet_preview_api_enabled": True,
+                "tweetypie_unmention_optimization_enabled": True,
+                "responsive_web_edit_tweet_api_enabled": True,
+                "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
+                "view_counts_everywhere_api_enabled": True,
+                "longform_notetweets_consumption_enabled": True,
+                "responsive_web_graphql_exclude_directive_enabled": True,
+                "verified_phone_label_enabled": False,
+                "responsive_web_graphql_timeline_navigation_enabled": True,
+            }
+            query = urllib.parse.urlencode({
+                "variables": json.dumps(variables, separators=(",", ":")),
+                "features": json.dumps(features, separators=(",", ":"))
+            })
+            req_url = f"{api_endpoint}?{query}"
+            gql_hdrs = {
+                "authorization": f"Bearer {bearer}",
+                "x-twitter-auth-type": "OAuth2Session",
+                "x-twitter-client-language": "en",
+                "x-twitter-active-user": "yes",
+                "x-csrf-token": csrf,
+                "cookie": cookie_hdr,
+                "user-agent": USER_AGENT,
+                "accept": "*/*",
+                "referer": "https://x.com/"
+            }
+            req = urllib.request.Request(req_url, headers=gql_hdrs)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            result = ((data.get("data") or {}).get("tweetResult") or {}).get("result") or {}
+            legacy = (result.get("tweet", {}).get("legacy") if isinstance(result.get("tweet"), dict) else result.get("legacy")) or {}
+            media_list = legacy.get("extended_entities", {}).get("media") or legacy.get("entities", {}).get("media") or []
+            if media_list:
+                title = legacy.get("full_text") or f"Tweet_{status_id}"
+                images = []
+                for media in media_list:
+                    mtype = str(media.get("type") or "").lower()
+                    if mtype in ("video", "animated_gif"):
+                        variants = media.get("video_info", {}).get("variants", [])
+                        mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+                        if mp4s:
+                            mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
+                            return {"url": mp4s[0]["url"], "title": title, "ext": "mp4", "kind": "video"}
+                    elif mtype == "photo":
+                        p_url = media.get("media_url_https")
+                        if p_url:
+                            images.append(p_url)
+                if images:
+                    if len(images) == 1:
+                        return {"url": images[0], "title": title, "ext": "jpg", "kind": "image"}
+                    return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
+        except Exception as e:
+            print(f"Twitter GraphQL API note: {e}", file=sys.stderr)
+
+    guest_endpoints = [
+        f"https://api.fxtwitter.com/i/status/{status_id}",
+        f"https://api.vxtwitter.com/Twitter/status/{status_id}"
+    ]
+    for ep in guest_endpoints:
+        try:
+            req = urllib.request.Request(ep, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
+
+            v_url = data.get("video_url")
+            if not v_url and data.get("tweet", {}).get("media", {}).get("videos"):
+                v_url = data["tweet"]["media"]["videos"][0].get("url")
+            if v_url:
+                return {"url": v_url, "title": title, "ext": "mp4", "kind": "video"}
+
+            photos = data.get("mediaURLs")
+            if not photos and data.get("tweet", {}).get("media", {}).get("photos"):
+                photos = [p.get("url") for p in data["tweet"]["media"]["photos"] if p.get("url")]
+            if photos:
+                if len(photos) == 1:
+                    return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image"}
+                return {"images": photos, "title": title, "ext": "jpg", "kind": "album"}
+        except Exception as e:
+            print(f"Twitter guest API note ({ep}): {e}", file=sys.stderr)
+
+    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
 
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
@@ -568,8 +903,7 @@ def get_or_download_ytdlp():
     target_path = os.path.join(target_dir, "yt-dlp")
     tmp_path = target_path + ".downloading"
 
-    update_status("resolving", title="Downloading yt-dlp engine (2.9 MB)...")
-    print(f"Downloading standalone yt-dlp to {target_path}...", file=sys.stderr)
+    update_status("resolving", title="Downloading yt-dlp engine...")
     req = urllib.request.Request(
         YTDLP_DOWNLOAD_URL,
         headers={"User-Agent": "Mozilla/5.0 (Android; Mobile; rv:130.0)"}
@@ -604,12 +938,7 @@ def get_or_download_ytdlp():
     os.replace(tmp_path, target_path)
     return target_path
 
-def resolve_youtube(url, fmt="video"):
-    update_status("resolving", title="Resolving YouTube stream...")
-    import subprocess
-
-    ytdlp_bin = get_or_download_ytdlp()
-
+def get_python_binary():
     py_candidates = [
         "/data/data/com.termux/files/usr/bin/python3",
         "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -617,71 +946,137 @@ def resolve_youtube(url, fmt="video"):
         sys.executable,
         "python3"
     ]
-    py_bin = None
     for p in py_candidates:
         if p and os.path.isfile(p) and os.access(p, os.X_OK):
-            py_bin = p
-            break
-    if not py_bin:
-        py_bin = "python3"
+            return p
+    return "python3"
 
-    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
-    format_arg = ["-f", "ba/b"] if fmt == "audio" else ["-f", "best[ext=mp4]/best"]
-
-    cmd_fast = [
-        py_bin,
-        ytdlp_bin,
-        "--extractor-args",
-        "youtube:player_client=android",
-        "--no-warnings",
-        "--no-check-certificates",
-        "--socket-timeout",
-        "6",
-        "--no-playlist",
-        "-e",
-        "-g",
-    ] + format_arg + cookie_arg + [url]
-
+def get_runtime_env():
     env = dict(os.environ)
     runtime_dir = "/data/adb/modules/hyperdl/runtime"
+    if not os.path.isdir(runtime_dir):
+        candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
+        if os.path.isdir(candidate_dev):
+            runtime_dir = candidate_dev
     if os.path.isdir(runtime_dir):
         env["PATH"] = f"{runtime_dir}/bin:" + env.get("PATH", "/system/bin")
         env["LD_LIBRARY_PATH"] = f"{runtime_dir}/lib"
         env["PYTHONHOME"] = runtime_dir
         env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload"
         env["SSL_CERT_FILE"] = f"{runtime_dir}/lib/cacert.pem"
+    return env
 
-    res = subprocess.run(cmd_fast, env=env, capture_output=True, text=True, timeout=25)
-    if res.returncode == 0 and res.stdout.strip():
-        lines = [l.strip() for l in res.stdout.strip().split("\n") if l.strip()]
-        title = lines[0] if len(lines) > 1 else "YouTube Media"
-        stream_url = lines[1] if len(lines) > 1 else lines[0]
-        ext = "mp3" if fmt == "audio" else "mp4"
-        return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
+def resolve_ytdlp(url, fmt="video", is_yt=False):
+    update_status("resolving", title="Resolving media stream...")
+    import subprocess
 
-    cmd_fallback = [
+    ytdlp_bin = get_or_download_ytdlp()
+    py_bin = get_python_binary()
+
+    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
+    format_arg = ["-f", "ba/b"] if fmt == "audio" else ["-f", "best[ext=mp4]/best"]
+    yt_args = ["--extractor-args", "youtube:player_client=android"] if is_yt else []
+
+    cmd = [
         py_bin,
         ytdlp_bin,
         "--no-warnings",
         "--no-check-certificates",
         "--socket-timeout",
-        "8",
+        "15",
         "--no-playlist",
         "-e",
         "-g",
-    ] + format_arg + cookie_arg + [url]
+    ] + yt_args + format_arg + cookie_arg + [url]
 
-    res_fb = subprocess.run(cmd_fallback, env=env, capture_output=True, text=True, timeout=30)
-    if res_fb.returncode == 0 and res_fb.stdout.strip():
-        lines = [l.strip() for l in res_fb.stdout.strip().split("\n") if l.strip()]
-        title = lines[0] if len(lines) > 1 else "Media"
-        stream_url = lines[1] if len(lines) > 1 else lines[0]
-        ext = "mp3" if fmt == "audio" else "mp4"
-        return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
+    env = get_runtime_env()
+    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+    if res.returncode == 0 and res.stdout.strip():
+        lines = [l.strip() for l in res.stdout.strip().split("\n") if l.strip()]
+        if len(lines) == 2:
+            title = lines[0]
+            stream_url = lines[1]
+            ext = "mp3" if fmt == "audio" else "mp4"
+            return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
 
-    err = res.stderr.strip() or res_fb.stderr.strip() or "Failed to resolve stream"
-    print(f"yt-dlp error: {err}", file=sys.stderr)
-    raise RuntimeError(f"Resolution failed: {err[-200:]}")
+    return {
+        "direct_ytdlp": True,
+        "url": url,
+        "fmt": fmt,
+        "is_yt": is_yt,
+        "title": "Media"
+    }
+
+def resolve_youtube(url, fmt="video"):
+    return resolve_ytdlp(url, fmt=fmt, is_yt=True)
+
+def download_with_ytdlp_direct(url, outdir, fmt="video", is_yt=False):
+    import subprocess
+    ytdlp_bin = get_or_download_ytdlp()
+    py_bin = get_python_binary()
+
+    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
+    yt_args = ["--extractor-args", "youtube:player_client=android"] if is_yt else []
+    format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "mp3"] if fmt == "audio" else ["-f", "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"]
+
+    os.makedirs(outdir, exist_ok=True)
+    out_tpl = os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
+
+    cmd = [
+        py_bin,
+        ytdlp_bin,
+        "--no-warnings",
+        "--no-check-certificates",
+        "--no-playlist",
+        "--newline",
+        "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
+        "-o", out_tpl,
+    ] + yt_args + format_arg + cookie_arg + [url]
+
+    env = get_runtime_env()
+    update_status("downloading", percent=0, title="Downloading via engine...")
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    title = "Media"
+    downloaded_file = None
+    for line in proc.stdout:
+        line = line.strip()
+        if "|" in line:
+            parts = line.split("|")
+            pct_str = parts[0].replace("%", "").strip()
+            try:
+                pct = int(float(pct_str))
+            except Exception:
+                pct = 50
+            dl_str = parts[1].strip() if len(parts) > 1 else ""
+            tot_str = parts[2].strip() if len(parts) > 2 else ""
+            spd_str = parts[3].strip() if len(parts) > 3 else ""
+            update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title)
+        elif "[download] Destination:" in line:
+            downloaded_file = line.replace("[download] Destination:", "").strip()
+            title = os.path.splitext(os.path.basename(downloaded_file))[0]
+        elif "[Merger] Merging formats into" in line:
+            downloaded_file = line.replace("[Merger] Merging formats into", "").strip().strip('"')
+
+    proc.wait()
+    if proc.returncode != 0:
+        err = proc.stderr.read().strip()
+        raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
+
+    if not downloaded_file or not os.path.exists(downloaded_file):
+        files = [os.path.join(outdir, f) for f in os.listdir(outdir)]
+        if files:
+            files.sort(key=os.path.getmtime, reverse=True)
+            downloaded_file = files[0]
+            title = os.path.splitext(os.path.basename(downloaded_file))[0]
+
+    if downloaded_file and os.path.exists(downloaded_file):
+        scan_media_file(downloaded_file)
+        update_status("completed", percent=100, title=title, file_path=downloaded_file)
+        send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
+        return downloaded_file
+
+    raise RuntimeError("File not found after engine download")
 
 def main():
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
@@ -697,20 +1092,29 @@ def main():
     try:
         update_status("resolving", title="Connecting to platform...")
         low_url = url.lower()
-        if "tiktok.com" in low_url:
+        if "tiktok.com" in low_url or "douyin.com" in low_url:
             info = resolve_tiktok(url, fmt)
         elif "twitter.com" in low_url or "x.com" in low_url:
-            info = resolve_twitter(url)
-        elif "instagram.com" in low_url:
+            info = resolve_twitter(url, fmt)
+        elif "instagram.com" in low_url or "instagr.am" in low_url:
             info = resolve_instagram(url)
+        elif "facebook.com" in low_url or "fb.watch" in low_url or "fb.com" in low_url:
+            info = resolve_facebook(url, fmt)
+        elif "pinterest.com" in low_url or "pin.it" in low_url:
+            info = resolve_pinterest(url, fmt)
+        elif "reddit.com" in low_url or "redd.it" in low_url:
+            info = resolve_reddit(url, fmt)
         elif "youtube.com" in low_url or "youtu.be" in low_url:
             info = resolve_youtube(url, fmt)
         else:
-            info = resolve_youtube(url, fmt)
+            info = resolve_ytdlp(url, fmt, is_yt=False)
+
+        if info.get("direct_ytdlp"):
+            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt), is_yt=info.get("is_yt", False))
+            return
 
         title = sanitize_filename(info.get("title", "Media"))
         ext = info.get("ext", "mp4")
-        hdrs = info.get("headers", {})
 
         if info.get("kind") == "album" and info.get("images"):
             images = info["images"]
