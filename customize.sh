@@ -29,4 +29,5 @@ if [ -f "$MODPATH/webroot/index.html" ]; then
     ui_print "- WebUI configured."
 fi
 
-ui_print "- Done. Open your root manager to access the WebUI."
+ui_print "- Installation complete."
+ui_print "- Please reboot your device to activate HyperDL."
