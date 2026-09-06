@@ -43,13 +43,17 @@ HyperDL/
 ├── customize.sh             # On-device module installer
 ├── service.sh               # Boot service initialization
 ├── uninstall.sh             # Cleanup script
+├── scripts/
+│   ├── bundle_engine.py     # Python engine bytecode & C header bundler
+│   └── bundle_runtime.py    # Standalone Python 3 runtime packager
 ├── src/
 │   └── main.c               # Native C bridge implementation
 ├── system/bin/
-│   └── libhyperdl.so        # Stripped 64-bit native ELF binary (15 KB)
+│   ├── libhyperdl.so        # Stripped 64-bit native ELF binary
+│   ├── hyperdl.bundle       # Compiled bytecode Python engine bundle
+│   └── hyperdl_daemon       # Background clipboard listener daemon
 ├── engine/
-│   ├── downloader.py        # Core extraction and streaming logic
-│   └── clipboard_daemon.sh  # Background clipboard monitoring daemon
+│   └── downloader.py        # Core extraction and streaming source
 ├── webroot/
 │   └── index.html           # Inlined single-file WebUI distribution
 └── webui/

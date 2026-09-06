@@ -14,5 +14,7 @@ rm -f /data/local/tmp/hyperdl_status.json /data/local/tmp/hyperdl.pid 2>/dev/nul
 
 # Auto-start clipboard daemon if enabled in config
 if [ -f /data/adb/hyperdl/autodl.enabled ]; then
-    sh "$MODDIR/engine/clipboard_daemon.sh" start >/dev/null 2>&1 &
+    if [ -x "$MODDIR/system/bin/hyperdl_daemon" ]; then
+        sh "$MODDIR/system/bin/hyperdl_daemon" start >/dev/null 2>&1 &
+    fi
 fi

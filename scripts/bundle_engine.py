@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""
+HyperDL Engine Bundler
+Compiles and bundles the Python engine into:
+1. system/bin/hyperdl.bundle (Zipapp archive with compiled .pyc bytecode)
+2. src/embedded_engine.h (Compressed, base64-encoded C header for libhyperdl.so)
+"""
+
+import os
+import sys
+import zlib
+import base64
+import shutil
+import tempfile
+import subprocess
+
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_PY = os.path.join(PROJECT_DIR, "engine", "downloader.py")
+OUT_BUNDLE = os.path.join(PROJECT_DIR, "system", "bin", "hyperdl.bundle")
+OUT_HEADER = os.path.join(PROJECT_DIR, "src", "embedded_engine.h")
+
+def main():
+    if not os.path.exists(SRC_PY):
+        print(f"error: {SRC_PY} not found", file=sys.stderr)
+        sys.exit(1)
+
+    os.makedirs(os.path.dirname(OUT_BUNDLE), exist_ok=True)
+    os.makedirs(os.path.dirname(OUT_HEADER), exist_ok=True)
+
+    with open(SRC_PY, "rb") as f:
+        code = f.read()
+
+    # 1. Generate C header with compressed payload
+    compressed = base64.b64encode(zlib.compress(code, 9)).decode("ascii")
+    header_content = f"""/* Auto-generated embedded Python engine payload */
+#ifndef EMBEDDED_ENGINE_H
+#define EMBEDDED_ENGINE_H
+
+static const char EMBEDDED_ENGINE_B64[] = "{compressed}";
+
+#endif /* EMBEDDED_ENGINE_H */
+"""
+    with open(OUT_HEADER, "w") as f:
+        f.write(header_content)
+    print(f"Generated C embedded engine header: {len(compressed)} bytes")
+
+    # 2. Package Zipapp archive
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with open(os.path.join(tmpdir, "__main__.py"), "w") as f:
+            f.write("from downloader import main\nif __name__ == '__main__':\n    main()\n")
+        
+        shutil.copy(SRC_PY, os.path.join(tmpdir, "downloader.py"))
+        subprocess.run([sys.executable, "-m", "compileall", "-b", "-q", tmpdir], check=True)
+        os.remove(os.path.join(tmpdir, "downloader.py"))
+
+        if os.path.exists(OUT_BUNDLE):
+            os.remove(OUT_BUNDLE)
+        subprocess.run([sys.executable, "-m", "zipapp", tmpdir, "-c", "-o", OUT_BUNDLE], check=True)
+        os.chmod(OUT_BUNDLE, 0o755)
+
+    print(f"Generated Python bytecode bundle: {os.path.getsize(OUT_BUNDLE)} bytes ({OUT_BUNDLE})")
+
+if __name__ == "__main__":
+    main()

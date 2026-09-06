@@ -13,12 +13,14 @@ mkdir -p /data/local/tmp 2>/dev/null
 ui_print "- Setting file permissions..."
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm_recursive "$MODPATH/system/bin" 0 0 0755 0755
-set_perm_recursive "$MODPATH/engine" 0 0 0755 0755
+set_perm_recursive "$MODPATH/runtime/bin" 0 0 0755 0755
+set_perm_recursive "$MODPATH/runtime/lib" 0 0 0755 0755
 chmod 755 "$MODPATH/system/bin/libhyperdl.so" 2>/dev/null
+chmod 755 "$MODPATH/system/bin/hyperdl.bundle" 2>/dev/null
+chmod 755 "$MODPATH/system/bin/hyperdl_daemon" 2>/dev/null
+chmod 755 "$MODPATH/runtime/bin/python3" 2>/dev/null
 chmod 755 "$MODPATH/service.sh" 2>/dev/null
-chmod 755 "$MODPATH/engine/bridge.sh" 2>/dev/null
-chmod 755 "$MODPATH/engine/downloader.py" 2>/dev/null
-chmod 755 "$MODPATH/engine/clipboard_daemon.sh" 2>/dev/null
+chmod 755 "$MODPATH/uninstall.sh" 2>/dev/null
 
 if [ -f "$MODPATH/webroot/index.html" ]; then
     ui_print "- WebUI configured."

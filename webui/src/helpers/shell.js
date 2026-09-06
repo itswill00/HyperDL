@@ -76,8 +76,16 @@ export async function openMediaFile(filePath) {
   if (!filePath) return
   const safePath = filePath.replace(/"/g, '\\"')
   try {
-    const mime = filePath.endsWith('.mp3') ? 'audio/*' : 'video/*'
-    await execCommand(`am start -a android.intent.action.VIEW -d "file://${safePath}" -t "${mime}" --grant-read-uri-permission 2>&1`)
+    const cmd = `sh -c '
+      if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then
+        /data/adb/modules/hyperdl/system/bin/libhyperdl.so open "${safePath}"
+      elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then
+        /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open "${safePath}"
+      else
+        am start -a android.intent.action.VIEW -d "file://${safePath}" --grant-read-uri-permission -f 0x10000000
+      fi
+    '`
+    await execCommand(cmd)
   } catch (e) {
     console.error('Failed to open media:', e)
   }
@@ -85,8 +93,18 @@ export async function openMediaFile(filePath) {
 
 export async function openFolder(folderPath = '/storage/emulated/0/Download/HyperDL') {
   try {
-    await execCommand(`am start -a android.intent.action.VIEW -d "content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL" -t "resource/folder" 2>&1`)
+    const cmd = `sh -c '
+      if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then
+        /data/adb/modules/hyperdl/system/bin/libhyperdl.so open_folder
+      elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then
+        /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open_folder
+      else
+        am start -a android.intent.action.VIEW -d "content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL" -t "resource/folder" -f 0x10000000
+      fi
+    '`
+    await execCommand(cmd)
   } catch (e) {
     console.error('Failed to open folder:', e)
   }
 }
+

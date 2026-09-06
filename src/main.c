@@ -19,6 +19,7 @@
 #include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include "embedded_engine.h"
 
 #define STATUS_FILE    "/data/local/tmp/hyperdl_status.json"
 #define PID_FILE       "/data/local/tmp/hyperdl.pid"
@@ -30,10 +31,14 @@
 #define OUTDIR         "/storage/emulated/0/Download/HyperDL"
 
 static const char *PYTHON_PATHS[] = {
+    "/data/adb/modules/hyperdl/runtime/bin/python3",
+    "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
     "/data/data/com.termux/files/usr/bin/python3",
+    "/data/adb/modules/python/bin/python3",
+    "/data/adb/py2droid/usr/bin/python3",
+    "/data/adb/modules/py2droid/system/bin/python3",
     "/system/bin/python3",
     "/system/xbin/python3",
-    "/data/adb/modules/python/bin/python3",
     "/data/adb/ap/bin/python3",
     "/data/adb/ksu/bin/python3",
     NULL
@@ -162,12 +167,12 @@ static void cmd_download(const char *url, const char *fmt) {
         return;
     }
 
-    /* Resolve path to downloader.py */
-    char engine_py[512];
-    if (access("/data/adb/modules/hyperdl/engine/downloader.py", R_OK) == 0) {
-        snprintf(engine_py, sizeof(engine_py), "/data/adb/modules/hyperdl/engine/downloader.py");
-    } else {
-        snprintf(engine_py, sizeof(engine_py), "/data/data/com.termux/files/home/HyperDL_Module/engine/downloader.py");
+    /* Check for standalone compiled Python bundle */
+    const char *bundle_path = NULL;
+    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
     }
 
     /* Set resolving status */
@@ -199,14 +204,43 @@ static void cmd_download(const char *url, const char *fmt) {
         }
 
         /* Export clean runtime environment */
-        if (strstr(python_bin, "com.termux")) {
+        if (strstr(python_bin, "runtime")) {
+            char moddir[512];
+            const char *p = strstr(python_bin, "/bin/python3");
+            if (p) {
+                size_t len = p - python_bin;
+                snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
+                char libdir[550], pypath[650], cacert[550];
+                snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
+                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
+                snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+
+                setenv("PYTHONHOME", moddir, 1);
+                setenv("PYTHONPATH", pypath, 1);
+                setenv("LD_LIBRARY_PATH", libdir, 1);
+                setenv("SSL_CERT_FILE", cacert, 1);
+            }
+        } else if (strstr(python_bin, "com.termux")) {
             setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
             setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
             setenv("HOME", "/data/data/com.termux/files/home", 1);
             setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
+        } else if (strstr(python_bin, "py2droid")) {
+            setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
+            setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
+            setenv("LD_LIBRARY_PATH", "/data/adb/py2droid/usr/lib", 1);
+            setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
         }
 
-        execl(python_bin, python_bin, engine_py, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+        if (bundle_path) {
+            execl(python_bin, python_bin, bundle_path, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+        } else {
+            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
+            snprintf(launcher, sizeof(launcher),
+                     "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
+                     EMBEDDED_ENGINE_B64);
+            execl(python_bin, python_bin, "-c", launcher, url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+        }
         fprintf(stderr, "HyperDL child exec failed: %s (%s)\n", strerror(errno), python_bin);
         fflush(stderr);
         _exit(127);
@@ -266,6 +300,111 @@ static void cmd_delete(const char *path) {
         printf("{\"success\":true}\n");
     } else {
         printf("{\"success\":false,\"error\":\"%s\"}\n", strerror(errno));
+    }
+}
+
+static void cmd_open_folder(void) {
+    ensure_directories();
+    system("am start -a android.intent.action.VIEW -d \"content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1 || am start -a android.intent.action.VIEW -d \"file:///storage/emulated/0/Download/HyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1");
+    printf("{\"success\":true}\n");
+}
+
+static void cmd_open(const char *path) {
+    if (!path || !*path) {
+        printf("{\"success\":false,\"error\":\"missing_path\"}\n");
+        return;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        printf("{\"success\":false,\"error\":\"file_not_found\"}\n");
+        return;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        cmd_open_folder();
+        return;
+    }
+
+    chmod(path, 0666);
+
+    const char *mime = "video/*";
+    const char *dot = strrchr(path, '.');
+    if (dot) {
+        if (strcasecmp(dot, ".mp3") == 0 || strcasecmp(dot, ".m4a") == 0 ||
+            strcasecmp(dot, ".aac") == 0 || strcasecmp(dot, ".ogg") == 0 ||
+            strcasecmp(dot, ".flac") == 0 || strcasecmp(dot, ".wav") == 0) {
+            mime = "audio/*";
+        } else if (strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0 ||
+                   strcasecmp(dot, ".png") == 0 || strcasecmp(dot, ".webp") == 0) {
+            mime = "image/*";
+        }
+    }
+
+    char enc_path[1024];
+    size_t ei = 0;
+    for (size_t i = 0; path[i] && ei < sizeof(enc_path) - 4; i++) {
+        unsigned char c = (unsigned char)path[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == '-') {
+            enc_path[ei++] = (char)c;
+        } else {
+            snprintf(&enc_path[ei], 4, "%%%02X", c);
+            ei += 3;
+        }
+    }
+    enc_path[ei] = '\0';
+
+    char scan_cmd[1200];
+    snprintf(scan_cmd, sizeof(scan_cmd),
+             "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
+             enc_path);
+    system(scan_cmd);
+
+    char sql_path[1024];
+    size_t si = 0;
+    for (size_t i = 0; path[i] && si < sizeof(sql_path) - 2; i++) {
+        if (path[i] == '\'') {
+            sql_path[si++] = '\'';
+            sql_path[si++] = '\'';
+        } else {
+            sql_path[si++] = path[i];
+        }
+    }
+    sql_path[si] = '\0';
+
+    char query_cmd[1200];
+    snprintf(query_cmd, sizeof(query_cmd),
+             "content query --uri content://media/external/file --projection _id --where \"_data='%s'\" 2>/dev/null",
+             sql_path);
+
+    FILE *qp = popen(query_cmd, "r");
+    long media_id = -1;
+    if (qp) {
+        char qbuf[512];
+        while (fgets(qbuf, sizeof(qbuf), qp)) {
+            char *p = strstr(qbuf, "_id=");
+            if (p) {
+                media_id = strtol(p + 4, NULL, 10);
+                if (media_id > 0) break;
+            }
+        }
+        pclose(qp);
+    }
+
+    char start_cmd[1200];
+    if (media_id > 0) {
+        snprintf(start_cmd, sizeof(start_cmd),
+                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%ld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
+                 media_id, mime);
+        system(start_cmd);
+        printf("{\"success\":true,\"mode\":\"content\",\"id\":%ld}\n", media_id);
+    } else {
+        snprintf(start_cmd, sizeof(start_cmd),
+                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
+                 enc_path, mime);
+        system(start_cmd);
+        printf("{\"success\":true,\"mode\":\"file\"}\n");
     }
 }
 
@@ -427,6 +566,10 @@ int main(int argc, char *argv[]) {
         cmd_list();
     } else if (strcmp(action, "delete") == 0) {
         cmd_delete(argc > 2 ? argv[2] : "");
+    } else if (strcmp(action, "open") == 0) {
+        cmd_open(argc > 2 ? argv[2] : "");
+    } else if (strcmp(action, "open_folder") == 0) {
+        cmd_open_folder();
     } else if (strcmp(action, "info") == 0) {
         cmd_info();
     } else if (strcmp(action, "get_cookies") == 0) {

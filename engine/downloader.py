@@ -49,8 +49,21 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
     print(json.dumps(data), flush=True)
 
 def sanitize_filename(name):
-    clean = re.sub(r'[/\\:*?"<>|\n\r\t]', '_', name).strip()
-    return clean[:70] if clean else "Media"
+    if not name:
+        return "Media"
+    clean = name.replace('#', ' ')
+    clean = re.sub(r'[/\\:*?"<>|\n\r\t%&+=`$\'{}\[\]@;]', ' ', clean)
+    clean = re.sub(r'\s+', ' ', clean).strip(' ._-')
+    return clean[:60] if clean else "Media"
+
+def scan_media_file(file_path):
+    if not file_path or not os.path.exists(file_path):
+        return
+    try:
+        quoted = urllib.parse.quote(file_path)
+        os.system(f'am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://{quoted}" >/dev/null 2>&1')
+    except Exception:
+        pass
 
 def send_android_notification(title, text):
     try:
@@ -186,8 +199,15 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True):
             if os.path.exists(out_path) and os.path.getsize(out_path) < 1024:
                 raise RuntimeError("Downloaded file is incomplete or empty")
 
+            try:
+                os.chmod(out_path, 0o666)
+            except Exception:
+                pass
+
+            scan_media_file(out_path)
+
             update_status("completed", percent=100, title=title, file_path=out_path)
-            send_android_notification("Download Complete", f"{title} saved to /Download/HyperDL")
+            send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
             return out_path
     except Exception as e:
         if os.path.exists(out_path):
@@ -593,7 +613,7 @@ def main():
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
                 download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=info.get("headers"), emit_error=True)
             update_status("completed", percent=100, title=title, file_path=outdir)
-            send_android_notification("Download Complete", f"{title} saved ({total} items)")
+            send_android_notification("Download complete", f"{title} saved ({total} items)")
         else:
             filename = f"{title}_{int(time.time())}.{ext}"
             out_path = os.path.join(outdir, filename)
