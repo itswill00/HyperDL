@@ -413,6 +413,11 @@ static void cmd_delete(const char *path) {
         return;
     }
     if (unlink(path) == 0) {
+        char scan_cmd[1024];
+        snprintf(scan_cmd, sizeof(scan_cmd),
+                 "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
+                 path);
+        system(scan_cmd);
         printf("{\"success\":true}\n");
     } else {
         printf("{\"success\":false,\"error\":\"%s\"}\n", strerror(errno));
@@ -769,6 +774,29 @@ static void cmd_get_autodl(void) {
     printf("{\"autodl\":%s}\n", active ? "true" : "false");
 }
 
+static void cmd_cancel(void) {
+    FILE *pf = fopen(PID_FILE, "r");
+    pid_t old_pid = 0;
+    if (pf) {
+        if (fscanf(pf, "%d", &old_pid) == 1 && old_pid > 1) {
+            kill(-old_pid, SIGTERM);
+            kill(old_pid, SIGTERM);
+            usleep(30000);
+            kill(-old_pid, SIGKILL);
+            kill(old_pid, SIGKILL);
+        }
+        fclose(pf);
+        unlink(PID_FILE);
+    }
+    FILE *sf = fopen(STATUS_FILE, "w");
+    if (sf) {
+        fputs("{\"status\":\"idle\",\"percent\":0,\"title\":\"\",\"speed\":\"\",\"downloaded\":\"\",\"total\":\"\",\"file_path\":\"\",\"error\":\"\"}\n", sf);
+        fclose(sf);
+        chmod(STATUS_FILE, 0666);
+    }
+    printf("{\"success\":true,\"cancelled\":true}\n");
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s <action> [args...]\n", argv[0]);
@@ -789,6 +817,8 @@ int main(int argc, char *argv[]) {
             else if (strncmp(argv[i], "--height=", 9) == 0) height = argv[i] + 9;
         }
         cmd_download(url, fmt, format_id, height);
+    } else if (strcmp(action, "cancel") == 0) {
+        cmd_cancel();
     } else if (strcmp(action, "probe") == 0) {
         cmd_probe(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {

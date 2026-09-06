@@ -909,7 +909,7 @@ def get_or_download_ytdlp():
     target_path = os.path.join(target_dir, "yt-dlp")
     tmp_path = target_path + ".downloading"
 
-    update_status("resolving", title="Downloading yt-dlp engine...")
+    update_status("resolving", title="Downloading utility components...")
     req = urllib.request.Request(
         YTDLP_DOWNLOAD_URL,
         headers={"User-Agent": "Mozilla/5.0 (Android; Mobile; rv:130.0)"}
@@ -1136,7 +1136,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
         return downloaded_file
 
-    raise RuntimeError("File not found after engine download")
+    raise RuntimeError("Media file not found after download completed")
 
 def probe_resolutions(url):
     import subprocess
@@ -1162,11 +1162,11 @@ def probe_resolutions(url):
     cmd = [
         py_bin, ytdlp_bin,
         "-J", "--no-warnings", "--no-check-certificates",
-        "--no-playlist", "--socket-timeout", "20",
+        "--no-playlist", "--no-check-formats", "--socket-timeout", "15",
     ] + js_arg + ffmpeg_arg + cookie_arg + [url]
 
     env = get_runtime_env()
-    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=40)
+    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
     if res.returncode != 0 or not res.stdout.strip():
         return []
 
