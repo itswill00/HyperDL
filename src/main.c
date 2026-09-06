@@ -766,20 +766,71 @@ static void cmd_clear_logs(void) {
     printf("{\"success\":true}\n");
 }
 
+static void run_daemon_cmd(const char *action) {
+    pid_t p = fork();
+    if (p == 0) {
+        setsid();
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO) close(devnull);
+        }
+        const char *daemon_paths[] = {
+            "/data/adb/modules/hyperdl/system/bin/hyperdl_daemon",
+            "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl_daemon",
+            "/system/bin/hyperdl_daemon",
+            NULL
+        };
+        for (int i = 0; daemon_paths[i]; i++) {
+            if (access(daemon_paths[i], X_OK) == 0) {
+                execl("/system/bin/sh", "sh", daemon_paths[i], action, (char *)NULL);
+            }
+        }
+        _exit(0);
+    } else if (p > 0) {
+        if (strcmp(action, "stop") == 0) {
+            waitpid(p, NULL, 0);
+        }
+    }
+}
+
 static void cmd_toggle_autodl(const char *val) {
     ensure_directories();
     if (val && (strcmp(val, "1") == 0 || strcmp(val, "on") == 0)) {
         int fd = open(AUTODL_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) close(fd);
+        run_daemon_cmd("start");
         printf("{\"autodl\":true}\n");
     } else {
         unlink(AUTODL_FILE);
+        run_daemon_cmd("stop");
         printf("{\"autodl\":false}\n");
     }
 }
 
 static void cmd_get_autodl(void) {
     int active = (access(AUTODL_FILE, F_OK) == 0);
+    if (active) {
+        FILE *pf = fopen("/data/local/tmp/hyperdl_clip.pid", "r");
+        int running = 0;
+        if (pf) {
+            pid_t pid = 0;
+            if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
+                if (kill(pid, 0) == 0) {
+                    running = 1;
+                }
+            }
+            fclose(pf);
+        }
+        if (!running) {
+            run_daemon_cmd("start");
+        }
+    }
     printf("{\"autodl\":%s}\n", active ? "true" : "false");
 }
 

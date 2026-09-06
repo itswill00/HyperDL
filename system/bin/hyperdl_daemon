@@ -3,51 +3,104 @@
 
 PID_FILE="/data/local/tmp/hyperdl_clip.pid"
 LAST_CLIP_FILE="/data/local/tmp/hyperdl_last_clip.txt"
+MODDIR="${0%/*}/.."
+
+find_jar() {
+    for j in \
+        /data/adb/modules/hyperdl/system/bin/clip.jar \
+        /data/adb/hyperdl/clip.jar \
+        /system/bin/clip.jar \
+        "$MODDIR/system/bin/clip.jar" \
+        /data/data/com.termux/files/home/HyperDL_Module/system/bin/clip.jar; do
+        if [ -f "$j" ]; then
+            echo "$j"
+            return 0
+        fi
+    done
+    echo ""
+}
 
 find_bridge() {
-    if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then
-        echo "/data/adb/modules/hyperdl/system/bin/libhyperdl.so"
-    elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then
-        echo "/data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so"
-    else
-        echo ""
+    for b in \
+        /data/adb/modules/hyperdl/system/bin/libhyperdl.so \
+        /system/bin/libhyperdl.so \
+        "$MODDIR/system/bin/libhyperdl.so" \
+        /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so; do
+        if [ -x "$b" ]; then
+            echo "$b"
+            return 0
+        fi
+    done
+    echo ""
+}
+
+get_clipboard() {
+    JAR="$(find_jar)"
+    if [ -n "$JAR" ]; then
+        ANDROID_ROOT=/system ANDROID_DATA=/data CLASSPATH="$JAR" app_process /system/bin Clip 2>/dev/null
+    elif command -v termux-clipboard-get >/dev/null 2>&1; then
+        termux-clipboard-get 2>/dev/null
     fi
 }
 
 case "$1" in
   start)
-    if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE" 2>/dev/null) 2>/dev/null; then
-      exit 0
+    if [ -f "$PID_FILE" ]; then
+      OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
+      if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        exit 0
+      fi
     fi
-    
+
     (
       while true; do
-        CLIP="$(cmd clipboard get 2>/dev/null)"
-        
+        if [ ! -f /data/adb/hyperdl/autodl.enabled ]; then
+          break
+        fi
+
+        CLIP="$(get_clipboard)"
+
         if [ -n "$CLIP" ]; then
           case "$CLIP" in
             *tiktok.com*|*douyin.com*|*instagram.com*|*twitter.com*|*x.com*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*)
               LAST_CLIP="$(cat "$LAST_CLIP_FILE" 2>/dev/null)"
               if [ "$CLIP" != "$LAST_CLIP" ]; then
                 echo "$CLIP" > "$LAST_CLIP_FILE"
+
+                # Extract first valid URL from clipboard text
+                CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
+                [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
+
+                # If a download is already in progress, wait briefly
+                if [ -f /data/local/tmp/hyperdl.pid ]; then
+                  DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
+                  if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
+                    sleep 5
+                  fi
+                fi
+
                 cmd notification post -S bigtext -t "HyperDL" "Link detected" "Downloading media from clipboard..." >/dev/null 2>&1
                 BRIDGE="$(find_bridge)"
                 if [ -n "$BRIDGE" ]; then
-                  "$BRIDGE" download "$CLIP" video >/dev/null 2>&1
+                  "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
                 fi
               fi
               ;;
           esac
         fi
-        sleep 3
+        sleep 2
       done
+      rm -f "$PID_FILE"
     ) &
     echo $! > "$PID_FILE"
     ;;
 
   stop)
     if [ -f "$PID_FILE" ]; then
-      kill -9 $(cat "$PID_FILE" 2>/dev/null) 2>/dev/null
+      OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
+      if [ -n "$OLD_PID" ]; then
+        kill -9 "$OLD_PID" 2>/dev/null || true
+      fi
       rm -f "$PID_FILE"
     fi
     ;;

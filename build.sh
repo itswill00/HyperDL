@@ -204,6 +204,9 @@ if [ "$DEPLOY" = "true" ]; then
         cp -f system/bin/libhyperdl.so \"\$MOD_TARGET/system/bin/libhyperdl.so\"
         cp -f system/bin/hyperdl.bundle \"\$MOD_TARGET/system/bin/hyperdl.bundle\"
         cp -f system/bin/hyperdl_daemon \"\$MOD_TARGET/system/bin/hyperdl_daemon\"
+        [ -f system/bin/clip.jar ] && cp -f system/bin/clip.jar \"\$MOD_TARGET/system/bin/clip.jar\"
+        mkdir -p /data/adb/hyperdl
+        [ -f system/bin/clip.jar ] && cp -f system/bin/clip.jar /data/adb/hyperdl/clip.jar
         [ -f system/bin/yt-dlp ] && cp -f system/bin/yt-dlp \"\$MOD_TARGET/system/bin/yt-dlp\"
         cp -f webroot/index.html \"\$MOD_TARGET/webroot/index.html\"
 
