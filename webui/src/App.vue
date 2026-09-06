@@ -179,7 +179,7 @@
 
           <!-- Progress Metrics -->
           <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
-            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? 'Connecting to source...' : '') }}</span>
+            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? (task.title || 'Connecting to source...') : '') }}</span>
             <span>{{ task.speed ? task.speed : '' }}</span>
           </div>
 
@@ -620,7 +620,7 @@ function startPolling() {
         fetchLogs()
       }
     } catch (e) {}
-  }, 1000)
+  }, 400)
 }
 
 async function fetchHistory() {

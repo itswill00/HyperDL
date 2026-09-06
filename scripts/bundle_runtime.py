@@ -77,7 +77,7 @@ def main():
         shutil.copy(f, dst)
         os.chmod(dst, 0o755)
 
-    # 5. Package standard library into minimal compressed python314.zip
+    # 5. Package standard library into bytecode-compiled python314.zip for fast imports
     zip_path = os.path.join(lib_dir, "python314.zip")
     src_stdlib = f"{TERMUX_USR}/lib/python3.14"
     skip_dirs = {
@@ -86,16 +86,29 @@ def main():
         "_pyrepl", "unittest", "ensurepip", "__pycache__"
     }
 
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    import tempfile, compileall
+    with tempfile.TemporaryDirectory() as tmp_stdlib:
         for root, dirs, files in os.walk(src_stdlib):
             dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith("__")]
             if any(s in root for s in skip_dirs):
                 continue
+            rel_dir = os.path.relpath(root, src_stdlib)
+            dst_dir = os.path.join(tmp_stdlib, rel_dir) if rel_dir != "." else tmp_stdlib
+            os.makedirs(dst_dir, exist_ok=True)
             for f in files:
                 if f.endswith(".py") and not f.endswith("_test.py") and not f.startswith("test_"):
-                    full = os.path.join(root, f)
-                    rel = os.path.relpath(full, src_stdlib)
-                    z.write(full, rel)
+                    shutil.copy2(os.path.join(root, f), os.path.join(dst_dir, f))
+
+        # Compile all .py to .pyc in-place (legacy=True puts .pyc in same dir without __pycache__)
+        compileall.compile_dir(tmp_stdlib, force=True, quiet=1, legacy=True)
+
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+            for root, dirs, files in os.walk(tmp_stdlib):
+                for f in files:
+                    if f.endswith(".pyc"):
+                        full = os.path.join(root, f)
+                        rel = os.path.relpath(full, tmp_stdlib)
+                        z.write(full, rel)
 
     # 6. Self-test verified runtime
     env = {

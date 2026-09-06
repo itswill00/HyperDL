@@ -133,7 +133,19 @@ if [ ! -f "runtime/bin/python3" ] && [ -f "scripts/bundle_runtime.py" ]; then
     python3 scripts/bundle_runtime.py
 fi
 
-# 5. Package Standalone Module Zip
+# 5. Fetch and Bytecode-Optimize Standalone yt-dlp
+if [ ! -f "system/bin/yt-dlp" ]; then
+    echo "fetching latest standalone yt-dlp..."
+    curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o system/bin/yt-dlp
+    chmod 755 system/bin/yt-dlp
+fi
+
+if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "system/bin/yt-dlp" ]; then
+    python3 scripts/optimize_ytdlp.py system/bin/yt-dlp
+fi
+
+
+# 6. Package Standalone Module Zip
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
 
@@ -173,7 +185,7 @@ echo "            ${OUTPUT_DIR}/${ZIP_LATEST}"
 echo "  SHA-256:  ${CHECKSUM}"
 echo "=========================================="
 
-# 6. Live Deployment if requested
+# 7. Live Deployment if requested
 if [ "$DEPLOY" = "true" ]; then
     echo "deploying to live device modules..."
     if su -c "
@@ -199,6 +211,7 @@ if [ "$DEPLOY" = "true" ]; then
         cp -f system/bin/libhyperdl.so \"\$MOD_TARGET/system/bin/libhyperdl.so\"
         cp -f system/bin/hyperdl.bundle \"\$MOD_TARGET/system/bin/hyperdl.bundle\"
         cp -f system/bin/hyperdl_daemon \"\$MOD_TARGET/system/bin/hyperdl_daemon\"
+        [ -f system/bin/yt-dlp ] && cp -f system/bin/yt-dlp \"\$MOD_TARGET/system/bin/yt-dlp\"
         cp -f webroot/index.html \"\$MOD_TARGET/webroot/index.html\"
 
         rm -rf \"\$MOD_TARGET/runtime\"

@@ -20,3 +20,4 @@ webui/.vite/
 .vscode/
 .idea/
 runtime/
+system/bin/yt-dlp
