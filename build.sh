@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Copyright (C) 2026 @itswill00
+# Copyright (C) 2026 @noticesa
 # Licensed under the GNU General Public License v3.0
 
 set -e
@@ -83,7 +83,7 @@ if [ "$CLEAN" = "true" ]; then
 fi
 
 if [ -f "scripts/bundle_engine.py" ]; then
-    echo "bundling python engine..."
+    echo "bundling python extractor..."
     python3 scripts/bundle_engine.py
 fi
 
