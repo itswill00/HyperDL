@@ -1,35 +1,101 @@
 #!/system/bin/sh
-
-PROJECT_DIR="/data/data/com.termux/files/home/HyperDL_Module"
-OUTPUT_DIR="/storage/emulated/0/Download"
+# HyperDL Build and Deployment Engine
+# Minimal, robust, and zero-dependency build pipeline.
+#
+# Copyright (C) 2026 @itswill00
+# Licensed under the GNU General Public License v3.0
 
 set -e
 
+PROJECT_DIR="/data/data/com.termux/files/home/HyperDL_Module"
 cd "$PROJECT_DIR"
 
+# Parse command line options
+DEPLOY=false
+CLEAN=false
+CUSTOM_OUTPUT=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d|--deploy)
+            DEPLOY=true
+            shift
+            ;;
+        -o|--output)
+            CUSTOM_OUTPUT="$2"
+            shift 2
+            ;;
+        -c|--clean)
+            CLEAN=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: ./build.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -d, --deploy       Deploy module directly to /data/adb/modules/hyperdl"
+            echo "  -o, --output DIR   Specify custom output directory for zip releases"
+            echo "  -c, --clean        Clean build caches (dist, bundles, runtime) before build"
+            echo "  -h, --help         Show this help information"
+            exit 0
+            ;;
+        *)
+            echo "error: unrecognized option '$1' (use -h for help)"
+            exit 1
+            ;;
+    esac
+done
+
 if [ ! -f "module.prop" ]; then
-    echo "error: module.prop not found"
+    echo "error: module.prop not found in $PROJECT_DIR"
     exit 1
 fi
 
 VERSION=$(grep '^version=' module.prop | cut -d= -f2)
 VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
-ZIP_OUT="HyperDL-${VERSION}.zip"
 
-echo "building hyperdl ${VERSION} (${VERSION_CODE})"
+# Determine output directory
+if [ -n "$CUSTOM_OUTPUT" ]; then
+    OUTPUT_DIR="$CUSTOM_OUTPUT"
+elif [ -d "/sdcard" ]; then
+    OUTPUT_DIR="/sdcard/HyperDL_Releases"
+elif [ -d "/storage/emulated/0" ]; then
+    OUTPUT_DIR="/storage/emulated/0/Download/HyperDL_Releases"
+else
+    OUTPUT_DIR="${PROJECT_DIR}/releases"
+fi
 
-for tool in clang zip node python3; do
+ZIP_NAME="HyperDL-${VERSION}-b${VERSION_CODE}-Standalone.zip"
+ZIP_ALIAS="HyperDL-${VERSION}.zip"
+ZIP_LATEST="HyperDL-latest.zip"
+
+echo "=========================================="
+echo "  HyperDL Build Pipeline"
+echo "  Version: ${VERSION} (b${VERSION_CODE})"
+echo "  Target:  ${OUTPUT_DIR}/${ZIP_NAME}"
+echo "=========================================="
+
+# Check toolchain prerequisites
+for tool in clang zip node npm python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "error: $tool is not installed"
+        echo "error: required tool '$tool' is not installed"
         exit 1
     fi
 done
 
+# Clean caches if requested
+if [ "$CLEAN" = "true" ]; then
+    echo "cleaning build artifacts and caches..."
+    rm -rf webui/dist webroot/index.html system/bin/libhyperdl.so system/bin/hyperdl.bundle runtime
+fi
+
+# 1. Bundle Python Engine into Bytecode Zipapp & Embedded C Header
 if [ -f "scripts/bundle_engine.py" ]; then
     echo "bundling python engine..."
     python3 scripts/bundle_engine.py
 fi
 
+# 2. Compile Native C Bridge Binary
 if [ -f "src/main.c" ]; then
     echo "compiling c native bridge..."
     mkdir -p system/bin
@@ -40,7 +106,13 @@ fi
 
 chmod 755 system/bin/* 2>/dev/null || true
 
+# 3. Compile Standalone WebUI (Ensure 100% independence from HyperCore)
 if [ -d "webui" ]; then
+    if [ ! -d "webui/node_modules" ]; then
+        echo "installing webui dependencies..."
+        (cd webui && npm install --no-audit --no-fund)
+    fi
+
     echo "compiling webui..."
     if ! (cd webui && node ./node_modules/vite/bin/vite.js build); then
         echo "error: vite build failed"
@@ -56,15 +128,17 @@ if [ -d "webui" ]; then
     cp webui/dist/index.html webroot/index.html
 fi
 
+# 4. Bundle Standalone Python Runtime if missing
 if [ ! -f "runtime/bin/python3" ] && [ -f "scripts/bundle_runtime.py" ]; then
     python3 scripts/bundle_runtime.py
 fi
 
+# 5. Package Standalone Module Zip
 mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR/$ZIP_OUT"
+rm -f "$OUTPUT_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
 
 echo "packaging module zip..."
-zip -qr9 "$OUTPUT_DIR/$ZIP_OUT" \
+zip -qr9 "$OUTPUT_DIR/$ZIP_NAME" \
     module.prop \
     customize.sh \
     service.sh \
@@ -74,11 +148,44 @@ zip -qr9 "$OUTPUT_DIR/$ZIP_OUT" \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map" "*.py" "*__pycache__*"
 
-echo "build complete: $OUTPUT_DIR/$ZIP_OUT"
+# Create standard aliases
+cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_ALIAS"
+cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_LATEST"
 
-if [ "$1" = "--deploy" ]; then
+# Also sync to Download folder for legacy convenience if accessible
+if [ -d "/storage/emulated/0/Download" ] && [ "$OUTPUT_DIR" != "/storage/emulated/0/Download" ]; then
+    cp -f "$OUTPUT_DIR/$ZIP_NAME" "/storage/emulated/0/Download/$ZIP_ALIAS"
+    am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///storage/emulated/0/Download/$ZIP_ALIAS" >/dev/null 2>&1 || true
+fi
+
+# Notify Android MediaStore so file managers immediately index the new release
+am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_NAME" >/dev/null 2>&1 || true
+am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_ALIAS" >/dev/null 2>&1 || true
+
+ZIP_SIZE=$(du -h "$OUTPUT_DIR/$ZIP_NAME" | cut -f1)
+CHECKSUM=$(sha256sum "$OUTPUT_DIR/$ZIP_NAME" | cut -d' ' -f1)
+
+echo "=========================================="
+echo "  Build successful!"
+echo "  Package:  ${OUTPUT_DIR}/${ZIP_NAME} (${ZIP_SIZE})"
+echo "  Aliases:  ${OUTPUT_DIR}/${ZIP_ALIAS}"
+echo "            ${OUTPUT_DIR}/${ZIP_LATEST}"
+echo "  SHA-256:  ${CHECKSUM}"
+echo "=========================================="
+
+# 6. Live Deployment if requested
+if [ "$DEPLOY" = "true" ]; then
     echo "deploying to live device modules..."
     if su -c "
+        if [ -f /data/local/tmp/hyperdl_clip.pid ]; then
+            kill -9 $(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
+            rm -f /data/local/tmp/hyperdl_clip.pid
+        fi
+        if [ -f /data/local/tmp/hyperdl.pid ]; then
+            kill -9 $(cat /data/local/tmp/hyperdl.pid 2>/dev/null) 2>/dev/null || true
+            rm -f /data/local/tmp/hyperdl.pid
+        fi
+
         MOD_TARGET=\"/data/adb/modules/hyperdl\"
         mkdir -p \"\$MOD_TARGET/system/bin\"
         mkdir -p \"\$MOD_TARGET/webroot\"
@@ -102,8 +209,12 @@ if [ "$1" = "--deploy" ]; then
         chmod 755 \"\$MOD_TARGET/runtime/bin/\"* 2>/dev/null || true
         chmod 755 \"\$MOD_TARGET/service.sh\" \"\$MOD_TARGET/uninstall.sh\"
         chmod 644 \"\$MOD_TARGET/module.prop\" \"\$MOD_TARGET/webroot/index.html\"
+
+        if [ -f /data/adb/hyperdl/autodl.enabled ]; then
+            sh \"\$MOD_TARGET/system/bin/hyperdl_daemon\" start >/dev/null 2>&1 &
+        fi
     "; then
-        echo "deploy complete"
+        echo "deploy complete: live module updated successfully"
     else
         echo "error: deploy failed"
         exit 1
