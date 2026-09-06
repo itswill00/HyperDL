@@ -178,6 +178,16 @@
                 {{ task.percent }}%
               </span>
               <button
+                v-if="task.status === 'resolving' || task.status === 'downloading'"
+                class="btn btn-secondary"
+                style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
+                @click="cancelDownload"
+                title="Cancel download"
+              >
+                <Icons name="close" :size="12" />
+                <span>Cancel</span>
+              </button>
+              <button
                 v-if="task.status === 'completed' || task.status === 'error'"
                 class="icon-btn"
                 style="width: 26px; height: 26px; font-size: 11px;"
@@ -270,11 +280,32 @@
         </div>
 
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-          <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
-          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
-            <Icons name="refresh" :size="12" />
-            Refresh
-          </button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
+            <span v-if="selectedFiles.size > 0" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
+              {{ selectedFiles.size }} selected
+            </span>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <template v-if="selectedFiles.size > 0">
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); gap: 4px;" @click="deleteSelected">
+                <Icons name="trash" :size="12" />
+                Delete ({{ selectedFiles.size }})
+              </button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="clearSelection">
+                Cancel
+              </button>
+            </template>
+            <template v-else>
+              <button v-if="historyList.length > 0" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;" @click="toggleSelectAll">
+                Select all
+              </button>
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
+                <Icons name="refresh" :size="12" />
+                Refresh
+              </button>
+            </template>
+          </div>
         </div>
 
         <div class="md3-list-group" v-if="historyList.length > 0">
@@ -282,7 +313,23 @@
             v-for="item in historyList"
             :key="item.path"
             class="md3-list-row"
+            :class="{ 'row-selected': selectedFiles.has(item.path) }"
+            style="display: flex; align-items: center; gap: 10px;"
           >
+            <!-- Multi-select checkbox -->
+            <label class="custom-checkbox" @click.stop>
+              <input
+                type="checkbox"
+                :checked="selectedFiles.has(item.path)"
+                @change="toggleSelect(item.path)"
+              />
+              <span class="checkbox-box">
+                <svg v-if="selectedFiles.has(item.path)" viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="3" fill="none">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </span>
+            </label>
+
             <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
               <div class="icon-badge secondary">
                 <Icons :name="getExtIcon(item.ext)" :size="16" />
@@ -298,10 +345,10 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 6px;">
-              <button class="btn btn-icon" :disabled="openingPath === item.path" @click="openMedia(item.path)" title="Play media">
+              <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Play media">
                 <Icons name="play" :size="14" />
               </button>
-              <button class="btn btn-icon" style="color: var(--error);" @click="deleteItem(item)" title="Delete">
+              <button class="btn btn-icon" style="color: var(--error);" @click.stop="deleteItem(item)" title="Delete">
                 <Icons name="trash" :size="14" />
               </button>
             </div>
@@ -426,7 +473,7 @@
               <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-detecting...' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
-              <span style="color: var(--on-surface-variant);">Audio engine</span>
+              <span style="color: var(--on-surface-variant);">Audio encoder</span>
               <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
@@ -444,8 +491,37 @@
           </div>
         </section>
 
+        <div class="section-title">Community & Support</div>
+        <div class="md3-list-group">
+          <a class="md3-list-row clickable" href="https://t.me/noticesa" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="telegram" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Telegram</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">@noticesa · Updates & Discussion</div>
+              </div>
+            </div>
+            <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
+          </a>
+
+          <a class="md3-list-row clickable" href="https://sociabuzz.com/noticesa/tribe" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="heart" :size="18" style="color: #ff6b81;" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Support Development</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">Donate via SociaBuzz Tribe</div>
+              </div>
+            </div>
+            <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
+          </a>
+        </div>
+
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-          <div class="section-title" style="margin: 0;">Engine log</div>
+          <div class="section-title" style="margin: 0;">Activity log</div>
           <div style="display: flex; gap: 6px;">
             <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
               <Icons name="refresh" :size="12" />
@@ -468,8 +544,21 @@
 
       </div>
 
-            <div style="text-align: center; font-size: 11px; opacity: 0.45; padding: 24px 0 12px 0;">
-        HyperDL · by @itswill00
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0 16px 0;">
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 11px;">
+          <a href="https://t.me/noticesa" target="_blank" rel="noopener noreferrer" style="color: var(--on-surface-variant); text-decoration: none; display: flex; align-items: center; gap: 5px;">
+            <Icons name="telegram" :size="13" />
+            <span>@noticesa</span>
+          </a>
+          <span style="color: var(--outline-variant);">·</span>
+          <a href="https://sociabuzz.com/noticesa/tribe" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: none; display: flex; align-items: center; gap: 5px; font-weight: 500;">
+            <Icons name="heart" :size="13" style="color: #ff6b81;" />
+            <span>Donate</span>
+          </a>
+        </div>
+        <div style="font-size: 11px; opacity: 0.5;">
+          HyperDL · Maintained by @noticesa
+        </div>
       </div>
 
     </main>
@@ -484,11 +573,11 @@
         <transition name="sheet-slide">
       <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
         <div class="sheet-panel">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select resolution</span>
               <span v-if="isProbingResolutions" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
-                Checking...
+                Scanning streams...
               </span>
             </div>
             <button class="icon-btn" @click="closeResolutionPicker">
@@ -496,28 +585,16 @@
             </button>
           </div>
 
-          <!-- Loading skeleton while probing -->
-          <div v-if="isProbingResolutions" class="probe-loading-area">
-            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 0 16px 0;">
-              <div class="spin-loader">
-                <Icons name="refresh" :size="16" />
-              </div>
-              <span style="font-size: 13px; color: var(--on-surface-variant);">Scanning available resolutions...</span>
+          <!-- Subtle non-intrusive stream scan status -->
+          <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 6px 10px; background: var(--surface-container); border-radius: 8px; margin-bottom: 12px;">
+            <div class="spin-loader" style="display: flex; align-items: center;">
+              <Icons name="refresh" :size="13" />
             </div>
-            <div class="skeleton-list">
-              <div class="skeleton-row" style="animation-delay: 0s;"></div>
-              <div class="skeleton-row" style="animation-delay: 0.15s;"></div>
-              <div class="skeleton-row" style="animation-delay: 0.3s;"></div>
-            </div>
-            <div style="margin-top: 14px;">
-              <button class="btn btn-secondary" style="width: 100%; height: 38px; font-size: 12px;" @click="closeResolutionPicker">
-                Cancel
-              </button>
-            </div>
+            <span>Detecting exact file sizes & high-res streams...</span>
           </div>
 
-          <!-- Loaded resolution list -->
-          <div v-else-if="resolutions.length > 0" class="resolution-list">
+          <!-- Loaded resolution list (instant presets or probed streams) -->
+          <div v-if="resolutions.length > 0" class="resolution-list">
             <button
               v-for="r in resolutions"
               :key="r.height || r.format_id"
@@ -529,22 +606,17 @@
                 <span>{{ r.label || (r.height + 'p') }}</span>
                 <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
               </span>
-              <span class="res-size">{{ formatFileSize(r.filesize) || 'Best quality' }}</span>
+              <span class="res-size">{{ formatFileSize(r.filesize) || (r.isPreset ? 'Instant Select' : 'Best quality') }}</span>
             </button>
-            <div style="margin-top: 6px;">
-              <button class="btn btn-secondary" style="width: 100%; height: 38px; font-size: 12px;" @click="downloadWithResolution(null)">
-                Download Default (Best Quality)
-              </button>
-            </div>
           </div>
 
-          <!-- Empty fallback -->
-          <div v-else class="probe-empty-area">
-            <p style="color: var(--on-surface-variant); font-size: 12px; margin-bottom: 12px; text-align: center;">
-              Could not detect specific stream formats.
-            </p>
-            <button class="btn btn-primary" style="width: 100%; height: 42px;" @click="downloadWithResolution(null)">
-              Download Default Quality
+          <!-- Action buttons: Best Quality & Cancel -->
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-secondary" style="flex: 1; height: 38px; font-size: 12px;" @click="downloadWithResolution(null)">
+              Best Available Quality
+            </button>
+            <button class="btn btn-secondary" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click="closeResolutionPicker">
+              Cancel
             </button>
           </div>
         </div>
@@ -732,6 +804,13 @@ async function pasteClipboard() {
   showToast('Tap & hold input box to paste')
 }
 
+const STANDARD_RESOLUTIONS = [
+  { height: 1080, format_id: '1080', label: '1080p Full HD', ext: 'mp4', isPreset: true },
+  { height: 720, format_id: '720', label: '720p HD', ext: 'mp4', isPreset: true },
+  { height: 480, format_id: '480', label: '480p SD', ext: 'mp4', isPreset: true },
+  { height: 360, format_id: '360', label: '360p', ext: 'mp4', isPreset: true }
+]
+
 function needsResolutionPicker(u) {
   const l = u.toLowerCase()
   return l.includes('youtube.com') || l.includes('youtu.be')
@@ -750,19 +829,21 @@ function closeResolutionPicker() {
 }
 
 async function startDownload() {
-  if (!url.value.trim() || isProcessing.value || isProbingResolutions.value) return
+  if (!url.value.trim() || isProcessing.value) return
 
   const clean = extractUrl(url.value)
   url.value = clean
   const u = clean
 
   if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
-    isProbingResolutions.value = true
-    showResolutionPicker.value = true
-    resolutions.value = []
     pendingUrl.value = u
-    try {
-      const raw = await runBridge('probe', u)
+    resolutions.value = [...STANDARD_RESOLUTIONS]
+    showResolutionPicker.value = true
+    isProbingResolutions.value = true
+
+    // Non-blocking stream probe to enrich list with detected streams & sizes
+    runBridge('probe', u).then((raw) => {
+      if (!showResolutionPicker.value) return
       let parsed = null
       try {
         const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
@@ -770,13 +851,10 @@ async function startDownload() {
       } catch (e) {}
       if (parsed && parsed.resolutions && parsed.resolutions.length > 0) {
         resolutions.value = parsed.resolutions
-        isProbingResolutions.value = false
-        return
       }
-    } catch (e) {}
-    isProbingResolutions.value = false
-    if (!showResolutionPicker.value) return
-    showToast('Could not fetch resolutions, tap below to continue')
+    }).catch(() => {}).finally(() => {
+      isProbingResolutions.value = false
+    })
     return
   }
 
@@ -785,6 +863,7 @@ async function startDownload() {
 
 async function downloadWithResolution(r) {
   showResolutionPicker.value = false
+  isProbingResolutions.value = false
   let extraArg = null
   if (r && r.height) {
     extraArg = `--height=${r.height}`
@@ -792,6 +871,31 @@ async function downloadWithResolution(r) {
     extraArg = `--format-id=${r.format_id}`
   }
   await doDownload(pendingUrl.value, selectedFormat.value, extraArg)
+}
+
+async function cancelDownload() {
+  try {
+    await runBridge('cancel')
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+    task.value = {
+      status: 'idle',
+      percent: 0,
+      speed: '',
+      downloaded: '',
+      total: '',
+      title: '',
+      file_path: '',
+      error: ''
+    }
+    isProcessing.value = false
+    showToast('Download cancelled')
+    fetchLogs()
+  } catch (e) {
+    showToast('Failed to cancel download')
+  }
 }
 
 async function doDownload(u, fmt, extraArg) {
@@ -850,11 +954,59 @@ function startPolling() {
   }, 400)
 }
 
+const selectedFiles = ref(new Set())
+
+const isAllSelected = computed(() => {
+  return historyList.value.length > 0 && selectedFiles.value.size === historyList.value.length
+})
+
+function toggleSelect(path) {
+  const s = new Set(selectedFiles.value)
+  if (s.has(path)) {
+    s.delete(path)
+  } else {
+    s.add(path)
+  }
+  selectedFiles.value = s
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    selectedFiles.value = new Set()
+  } else {
+    selectedFiles.value = new Set(historyList.value.map(i => i.path))
+  }
+}
+
+function clearSelection() {
+  selectedFiles.value = new Set()
+}
+
+async function deleteSelected() {
+  const count = selectedFiles.value.size
+  if (count === 0) return
+  if (!confirm(`Delete ${count} selected media file${count > 1 ? 's' : ''}?`)) return
+
+  const paths = Array.from(selectedFiles.value)
+  let deletedCount = 0
+  for (const p of paths) {
+    try {
+      await runBridge('delete', p)
+      deletedCount++
+    } catch (e) {}
+  }
+  selectedFiles.value = new Set()
+  await fetchHistory()
+  showToast(`Deleted ${deletedCount} file${deletedCount > 1 ? 's' : ''}`)
+}
+
 async function fetchHistory() {
   try {
     const raw = await runBridge('list')
     if (raw && raw.startsWith('[')) {
       historyList.value = JSON.parse(raw)
+      const currentPaths = new Set(historyList.value.map(i => i.path))
+      selectedFiles.value = new Set([...selectedFiles.value].filter(p => currentPaths.has(p)))
     }
   } catch (e) {}
 }
@@ -863,6 +1015,9 @@ async function deleteItem(item) {
   if (!confirm(`Delete ${item.name}?`)) return
   try {
     await runBridge('delete', item.path)
+    const s = new Set(selectedFiles.value)
+    s.delete(item.path)
+    selectedFiles.value = s
     showToast('File deleted')
     fetchHistory()
   } catch (e) {
@@ -992,7 +1147,7 @@ async function copyLogs() {
 }
 
 async function clearLogs() {
-  if (!confirm('Clear all daemon engine logs?')) return
+  if (!confirm('Clear all activity logs?')) return
   try {
     await runBridge('clear_logs')
     logContent.value = 'No log entries recorded yet.'
@@ -1347,5 +1502,46 @@ onUnmounted(() => {
 .sheet-slide-enter-from .sheet-panel,
 .sheet-slide-leave-to .sheet-panel {
   transform: translateY(100%);
+}
+
+.custom-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+  position: relative;
+}
+
+.custom-checkbox input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.checkbox-box {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--outline);
+  background: var(--surface-container);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-primary);
+  transition: all 0.15s ease;
+}
+
+.custom-checkbox input:checked ~ .checkbox-box {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.row-selected {
+  background: rgba(255, 255, 255, 0.05);
 }
 </style>
