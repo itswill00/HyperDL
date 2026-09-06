@@ -623,6 +623,28 @@
       </div>
     </transition>
 
+    <!-- Custom In-App Material 3 Confirmation Dialog -->
+    <transition name="dialog-fade">
+      <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
+        <div class="dialog-card">
+          <div class="dialog-title">{{ confirmDialog.title }}</div>
+          <div class="dialog-message">{{ confirmDialog.message }}</div>
+          <div class="dialog-actions">
+            <button class="btn btn-secondary dialog-btn" @click="resolveConfirm(false)">
+              Cancel
+            </button>
+            <button
+              class="btn dialog-btn"
+              :style="confirmDialog.isDestructive ? 'background: var(--error); color: #fff; border-color: var(--error);' : 'background: var(--primary); color: var(--on-primary);'"
+              @click="resolveConfirm(true)"
+            >
+              {{ confirmDialog.confirmText }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
   </div>
 </template>
 
@@ -650,6 +672,35 @@ const cookiesLines = ref(0)
 
 const sysInfo = ref({ python: '', storage_free: '' })
 const logContent = ref('Loading console log...')
+
+const confirmDialog = ref({
+  show: false,
+  title: 'Confirm',
+  message: '',
+  confirmText: 'Confirm',
+  isDestructive: true,
+  resolve: null
+})
+
+function showConfirm({ title = 'Confirm', message = '', confirmText = 'Confirm', isDestructive = true }) {
+  return new Promise((resolve) => {
+    confirmDialog.value = {
+      show: true,
+      title,
+      message,
+      confirmText,
+      isDestructive,
+      resolve
+    }
+  })
+}
+
+function resolveConfirm(result) {
+  if (confirmDialog.value.resolve) {
+    confirmDialog.value.resolve(result)
+  }
+  confirmDialog.value.show = false
+}
 
 let toastTimer = null
 let pollTimer = null
@@ -985,7 +1036,13 @@ function clearSelection() {
 async function deleteSelected() {
   const count = selectedFiles.value.size
   if (count === 0) return
-  if (!confirm(`Delete ${count} selected media file${count > 1 ? 's' : ''}?`)) return
+  const ok = await showConfirm({
+    title: 'Delete Media',
+    message: `Are you sure you want to delete ${count} selected media file${count > 1 ? 's' : ''}?`,
+    confirmText: 'Delete',
+    isDestructive: true
+  })
+  if (!ok) return
 
   const paths = Array.from(selectedFiles.value)
   let deletedCount = 0
@@ -1012,7 +1069,13 @@ async function fetchHistory() {
 }
 
 async function deleteItem(item) {
-  if (!confirm(`Delete ${item.name}?`)) return
+  const ok = await showConfirm({
+    title: 'Delete File',
+    message: `Are you sure you want to delete "${item.name}"?`,
+    confirmText: 'Delete',
+    isDestructive: true
+  })
+  if (!ok) return
   try {
     await runBridge('delete', item.path)
     const s = new Set(selectedFiles.value)
@@ -1110,7 +1173,13 @@ async function pasteCookiesClipboard() {
 }
 
 async function clearCookies() {
-  if (!confirm('Clear all stored cookies?')) return
+  const ok = await showConfirm({
+    title: 'Clear Cookies',
+    message: 'Are you sure you want to clear all stored cookies?',
+    confirmText: 'Clear',
+    isDestructive: true
+  })
+  if (!ok) return
   try {
     await runBridge('clear_cookies')
     cookiesText.value = ''
@@ -1147,7 +1216,13 @@ async function copyLogs() {
 }
 
 async function clearLogs() {
-  if (!confirm('Clear all activity logs?')) return
+  const ok = await showConfirm({
+    title: 'Clear Activity Logs',
+    message: 'Are you sure you want to clear all activity logs?',
+    confirmText: 'Clear',
+    isDestructive: true
+  })
+  if (!ok) return
   try {
     await runBridge('clear_logs')
     logContent.value = 'No log entries recorded yet.'
@@ -1543,5 +1618,81 @@ onUnmounted(() => {
 
 .row-selected {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+}
+
+.dialog-card {
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 20px;
+  padding: 20px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+  animation: dialog-pop 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes dialog-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--on-surface);
+  margin-bottom: 8px;
+}
+
+.dialog-message {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  line-height: 1.5;
+  margin-bottom: 20px;
+  word-break: break-word;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-btn {
+  padding: 8px 16px;
+  font-size: 12px;
+  min-width: 74px;
+  border-radius: 10px;
+}
+
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.dialog-fade-enter-from,
+.dialog-fade-leave-to {
+  opacity: 0;
 }
 </style>
