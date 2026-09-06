@@ -141,7 +141,7 @@ def solve_tiktok_challenge(html_text):
         print(f"PoW challenge solver error: {e}", file=sys.stderr)
         return ""
 
-def download_file(url, out_path, title="Media", headers=None, emit_error=True):
+def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
     hdrs = {
         "User-Agent": USER_AGENT,
         "Accept": "*/*",
@@ -197,8 +197,9 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True):
 
             scan_media_file(out_path)
 
-            update_status("completed", percent=100, title=title, file_path=out_path)
-            send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
+            if emit_complete:
+                update_status("completed", percent=100, title=title, file_path=out_path)
+                send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
             return out_path
     except Exception as e:
         if os.path.exists(out_path):
@@ -278,17 +279,22 @@ def fetch_tikwm(clean_url, fmt="video"):
                     if music_url:
                         return {
                             "title": title,
-                            "ext": "mp3",
+                            "ext": "flac",
                             "kind": "audio",
-                            "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/"}, "label": "TikWM Audio"}]
+                            "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}, "label": "TikWM Audio"}]
                         }
-                elif fmt == "album" and d.get("images"):
+                elif d.get("images"):
+                    img_list = []
+                    for im in d.get("images", []):
+                        if im.startswith("/"):
+                            im = "https://www.tikwm.com" + im
+                        img_list.append(im)
                     return {
                         "title": title,
                         "ext": "jpg",
                         "kind": "album",
-                        "images": d.get("images"),
-                        "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tikwm.com/"}
+                        "images": img_list,
+                        "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
                     }
                 else:
                     candidates = []
@@ -415,7 +421,7 @@ def resolve_tiktok(url, fmt="video"):
                     if music_url:
                         return {
                             "title": title,
-                            "ext": "mp3",
+                            "ext": "flac",
                             "kind": "audio",
                             "candidates": [{"url": music_url, "headers": tt_headers, "label": "Direct Audio"}],
                             "fallback": lambda: fetch_tikwm(clean_url, "audio")
@@ -510,7 +516,7 @@ def resolve_instagram(url):
     except Exception as ye:
         print(f"Instagram yt-dlp fallback note: {ye}", file=sys.stderr)
 
-    raise RuntimeError("Unable to load Instagram media (try adding cookies in Settings)")
+    raise RuntimeError("Instagram is currently restricted by Meta anti-bot (IG is still not working / requires session cookies in Settings)")
 
 def resolve_facebook(url, fmt="video"):
     update_status("resolving", title="Resolving Facebook media...")
@@ -966,6 +972,22 @@ def get_runtime_env():
         env["SSL_CERT_FILE"] = f"{runtime_dir}/lib/cacert.pem"
     return env
 
+def get_ffmpeg_binary():
+    import shutil
+    candidates = [
+        "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg",
+        "/data/adb/modules/hyperdl/system/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/ffmpeg",
+        "/data/data/com.termux/files/usr/bin/ffmpeg",
+        "/system/bin/ffmpeg",
+        "/system/xbin/ffmpeg",
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return shutil.which("ffmpeg")
+
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     update_status("resolving", title="Resolving media stream...")
     import subprocess
@@ -975,7 +997,9 @@ def resolve_ytdlp(url, fmt="video", is_yt=False):
 
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
     format_arg = ["-f", "ba/b"] if fmt == "audio" else ["-f", "best[ext=mp4]/best"]
-    yt_args = ["--extractor-args", "youtube:player_client=android"] if is_yt else []
+
+    ffmpeg_bin = get_ffmpeg_binary()
+    ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
 
     cmd = [
         py_bin,
@@ -987,7 +1011,7 @@ def resolve_ytdlp(url, fmt="video", is_yt=False):
         "--no-playlist",
         "-e",
         "-g",
-    ] + yt_args + format_arg + cookie_arg + [url]
+    ] + ffmpeg_arg + format_arg + cookie_arg + [url]
 
     env = get_runtime_env()
     res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
@@ -996,7 +1020,7 @@ def resolve_ytdlp(url, fmt="video", is_yt=False):
         if len(lines) == 2:
             title = lines[0]
             stream_url = lines[1]
-            ext = "mp3" if fmt == "audio" else "mp4"
+            ext = "flac" if fmt == "audio" else "mp4"
             return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
 
     return {
@@ -1008,16 +1032,48 @@ def resolve_ytdlp(url, fmt="video", is_yt=False):
     }
 
 def resolve_youtube(url, fmt="video"):
-    return resolve_ytdlp(url, fmt=fmt, is_yt=True)
+    return {
+        "direct_ytdlp": True,
+        "url": url,
+        "fmt": fmt,
+        "is_yt": True,
+        "title": "YouTube Media"
+    }
 
-def download_with_ytdlp_direct(url, outdir, fmt="video", is_yt=False):
+def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None):
     import subprocess
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
 
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
-    yt_args = ["--extractor-args", "youtube:player_client=android"] if is_yt else []
-    format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "mp3"] if fmt == "audio" else ["-f", "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"]
+    ffmpeg_bin = get_ffmpeg_binary()
+    ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
+
+    node_bin = None
+    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+        if os.path.isfile(nc) and os.access(nc, os.X_OK):
+            node_bin = nc
+            break
+    if not node_bin:
+        import shutil
+        node_bin = shutil.which("node")
+    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
+
+    if fmt == "audio":
+        format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "flac", "--audio-quality", "0"]
+    elif format_id and not height:
+        format_arg = ["-f", format_id]
+    elif height:
+        h = int(height)
+        if ffmpeg_bin:
+            format_arg = ["-f", f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={h}]+bestaudio/best[height<={h}]/best", "--merge-output-format", "mp4"]
+        else:
+            format_arg = ["-f", f"best[height<={h}][ext=mp4]/best[height<={h}]/best"]
+    else:
+        if ffmpeg_bin:
+            format_arg = ["-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best", "--merge-output-format", "mp4"]
+        else:
+            format_arg = ["-f", "best[ext=mp4]/best"]
 
     os.makedirs(outdir, exist_ok=True)
     out_tpl = os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
@@ -1031,10 +1087,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", is_yt=False):
         "--newline",
         "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
         "-o", out_tpl,
-    ] + yt_args + format_arg + cookie_arg + [url]
+    ] + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
 
     env = get_runtime_env()
-    update_status("downloading", percent=0, title="Downloading via engine...")
+    update_status("downloading", percent=0, title="Downloading...")
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     title = "Media"
@@ -1057,6 +1113,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", is_yt=False):
             title = os.path.splitext(os.path.basename(downloaded_file))[0]
         elif "[Merger] Merging formats into" in line:
             downloaded_file = line.replace("[Merger] Merging formats into", "").strip().strip('"')
+            title = os.path.splitext(os.path.basename(downloaded_file))[0]
+        elif "[ExtractAudio] Destination:" in line:
+            downloaded_file = line.replace("[ExtractAudio] Destination:", "").strip().strip('"')
+            title = os.path.splitext(os.path.basename(downloaded_file))[0]
 
     proc.wait()
     if proc.returncode != 0:
@@ -1078,20 +1138,161 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", is_yt=False):
 
     raise RuntimeError("File not found after engine download")
 
+def probe_resolutions(url):
+    import subprocess
+    m_url = re.search(r'https?://[^\s<>"]+', url)
+    if m_url:
+        url = m_url.group(0)
+    ytdlp_bin = get_or_download_ytdlp()
+    py_bin = get_python_binary()
+    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
+    ffmpeg_bin = get_ffmpeg_binary()
+    ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
+
+    node_bin = None
+    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+        if os.path.isfile(nc) and os.access(nc, os.X_OK):
+            node_bin = nc
+            break
+    if not node_bin:
+        import shutil
+        node_bin = shutil.which("node")
+    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
+
+    cmd = [
+        py_bin, ytdlp_bin,
+        "-J", "--no-warnings", "--no-check-certificates",
+        "--no-playlist", "--socket-timeout", "20",
+    ] + js_arg + ffmpeg_arg + cookie_arg + [url]
+
+    env = get_runtime_env()
+    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=40)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+
+    try:
+        data = json.loads(res.stdout)
+    except Exception:
+        return []
+
+    duration = data.get("duration") or 0
+    formats = data.get("formats") or []
+
+    best_audio_size = 0
+    for f in formats:
+        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
+            asize = f.get("filesize") or f.get("filesize_approx") or 0
+            if asize == 0 and duration > 0:
+                abr = f.get("abr") or f.get("tbr") or 128
+                asize = int((abr * 1024 / 8) * duration)
+            if asize > best_audio_size:
+                best_audio_size = asize
+
+    by_height = {}
+    for f in formats:
+        h = f.get("height")
+        if not h or h < 144:
+            continue
+        vcodec = f.get("vcodec", "none")
+        if vcodec == "none":
+            continue
+        note = str(f.get("format_note", "")).lower()
+        if "premium" in note:
+            continue
+
+        vsize = f.get("filesize") or f.get("filesize_approx") or 0
+        tbr = f.get("tbr") or 0
+        vbr = f.get("vbr") or 0
+        fps = f.get("fps") or 30
+        if vsize == 0 and duration > 0:
+            br = vbr or tbr
+            if br:
+                vsize = int((br * 1024 / 8) * duration)
+
+        if h not in by_height or vsize > by_height[h]["vsize"]:
+            by_height[h] = {"height": h, "vsize": vsize, "fps": fps}
+
+    if not by_height:
+        return []
+
+    labels = {
+        4320: "8K Ultra HD",
+        2160: "4K Ultra HD",
+        1440: "2K QHD",
+        1080: "1080p Full HD",
+        720: "720p HD",
+        480: "480p SD",
+        360: "360p",
+        240: "240p",
+        144: "144p"
+    }
+
+    results = []
+    for h in sorted(by_height.keys(), reverse=True):
+        entry = by_height[h]
+        tot = entry["vsize"] + best_audio_size
+        lbl = labels.get(h, f"{h}p")
+        results.append({
+            "height": h,
+            "format_id": str(h),
+            "label": lbl,
+            "ext": "mp4",
+            "filesize": tot,
+            "fps": entry["fps"]
+        })
+
+    return results
+
 def main():
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
-    parser.add_argument("url", help="Media link")
-    parser.add_argument("--format", default="video", choices=["video", "audio", "album"], help="Output format")
-    parser.add_argument("--outdir", default=DEFAULT_OUTDIR, help="Output directory")
-    args = parser.parse_args()
+    subparsers = parser.add_subparsers(dest="action")
+
+    dl_parser = subparsers.add_parser("download")
+    dl_parser.add_argument("url", help="Media link")
+    dl_parser.add_argument("--format", default="video", choices=["video", "audio", "album"])
+    dl_parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
+    dl_parser.add_argument("--height", default=None, help="Max height for video")
+    dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
+
+    probe_parser = subparsers.add_parser("probe")
+    probe_parser.add_argument("url", help="Media link")
+
+    args, _ = parser.parse_known_args()
+
+    if args.action == "probe":
+        try:
+            resolutions = probe_resolutions(args.url.strip())
+            print(json.dumps({"resolutions": resolutions}), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": str(e)}), flush=True)
+            sys.exit(1)
+        return
+
+    if args.action != "download" and args.action is not None:
+        print(json.dumps({"error": "unknown_action"}), flush=True)
+        sys.exit(1)
+
+    if not hasattr(args, 'url') or not args.url:
+        parser.print_help()
+        sys.exit(1)
 
     url = args.url.strip()
+    m_url = re.search(r'https?://[^\s<>"]+', url)
+    if m_url:
+        url = m_url.group(0)
     fmt = args.format
     outdir = args.outdir
+    height = args.height if hasattr(args, 'height') else None
+    format_id = args.format_id if hasattr(args, 'format_id') else None
 
     try:
         update_status("resolving", title="Connecting to platform...")
         low_url = url.lower()
+
+        if format_id or height:
+            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height)
+            return
+
         if "tiktok.com" in low_url or "douyin.com" in low_url:
             info = resolve_tiktok(url, fmt)
         elif "twitter.com" in low_url or "x.com" in low_url:
@@ -1110,7 +1311,7 @@ def main():
             info = resolve_ytdlp(url, fmt, is_yt=False)
 
         if info.get("direct_ytdlp"):
-            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt), is_yt=info.get("is_yt", False))
+            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt))
             return
 
         title = sanitize_filename(info.get("title", "Media"))
@@ -1122,10 +1323,34 @@ def main():
             for idx, img_url in enumerate(images):
                 img_path = os.path.join(outdir, f"{title}_{idx+1}.{ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
-                download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=info.get("headers"), emit_error=True)
+                hdrs = dict(info.get("headers") or {})
+                if "tikwm.com" in img_url:
+                    hdrs["Referer"] = "https://www.tikwm.com/"
+                download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
             update_status("completed", percent=100, title=title, file_path=outdir)
             send_android_notification("Download complete", f"{title} saved ({total} items)")
         else:
+            if fmt == "audio":
+                ffmpeg_bin = get_ffmpeg_binary()
+                if ffmpeg_bin:
+                    tmp_raw = os.path.join(outdir, f".tmp_{int(time.time())}_{title}.raw")
+                    download_media_candidates(info, tmp_raw, title=title)
+                    out_path = os.path.join(outdir, f"{title}_{int(time.time())}.flac")
+                    update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
+                    subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
+                    if os.path.exists(tmp_raw):
+                        try:
+                            os.remove(tmp_raw)
+                        except Exception:
+                            pass
+                    try:
+                        os.chmod(out_path, 0o666)
+                    except Exception:
+                        pass
+                    scan_media_file(out_path)
+                    update_status("completed", percent=100, title=title, file_path=out_path)
+                    send_android_notification("Download complete", f"{title} saved as FLAC HD")
+                    return
             filename = f"{title}_{int(time.time())}.{ext}"
             out_path = os.path.join(outdir, filename)
             download_media_candidates(info, out_path, title=title)
