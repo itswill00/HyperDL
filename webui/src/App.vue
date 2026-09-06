@@ -5,11 +5,11 @@
     <header class="page-header">
       <div>
         <div class="page-header-title">HyperDL</div>
-        <div class="page-header-sub">Media Downloader</div>
+        <div class="page-header-sub">Media downloader</div>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
         <span class="badge-pill" v-if="storageFree">
-          {{ storageFree }} Free
+          {{ storageFree }} free
         </span>
         <span class="badge-pill active">
           v1.0.0
@@ -56,8 +56,8 @@
         <!-- Media Input Card -->
         <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-            <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New Download</span>
-            <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Unknown' }" style="font-size: 10px;">
+            <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New download</span>
+            <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Direct link' }" style="font-size: 10px;">
               {{ detectedPlatform.name }}
             </span>
           </div>
@@ -93,7 +93,7 @@
           <!-- Format Options -->
           <div style="margin-top: 14px;">
             <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
-              FORMAT
+              Format
             </div>
             <div class="chips-row">
               <div
@@ -102,7 +102,7 @@
                 @click="selectedFormat = 'video'"
               >
                 <Icons name="video" :size="14" />
-                <span>Video (HD)</span>
+                <span>Video</span>
               </div>
               <div
                 class="chip-item"
@@ -110,7 +110,7 @@
                 @click="selectedFormat = 'audio'"
               >
                 <Icons name="music" :size="14" />
-                <span>Audio (MP3)</span>
+                <span>Audio</span>
               </div>
               <div
                 class="chip-item"
@@ -171,18 +171,18 @@
 
           <!-- Error Message -->
           <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
-            {{ task.error || 'Failed to complete download' }}
+            {{ task.error || 'Download failed' }}
           </div>
 
           <!-- Completion Actions -->
           <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-primary" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
               <Icons name="play" :size="14" />
-              Open Media
+              Open media
             </button>
             <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
               <Icons name="folder" :size="14" />
-              Show in Folder
+              Open folder
             </button>
           </div>
         </section>
@@ -196,8 +196,8 @@
                 <Icons name="clipboard" :size="18" />
               </div>
               <div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard Monitoring</div>
-                <div style="font-size: 11px; color: var(--on-surface-variant);">Automatically download supported links when copied</div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard monitor</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">Download supported links automatically when copied</div>
               </div>
             </div>
             <label class="md3-switch">
@@ -214,7 +214,7 @@
                 <Icons name="folder" :size="18" />
               </div>
               <div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination Folder</div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination folder</div>
                 <div style="font-size: 11px; color: var(--on-surface-variant); font-family: var(--font-mono);">/Download/HyperDL</div>
               </div>
             </div>
@@ -224,7 +224,7 @@
 
         <!-- Recent Downloads -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-          <div class="section-title" style="margin: 0;">Recent Downloads ({{ historyList.length }})</div>
+          <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
           <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
             <Icons name="refresh" :size="12" />
             Refresh
@@ -246,13 +246,13 @@
                   {{ item.name }}
                 </div>
                 <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
-                  {{ item.size }} · {{ item.ext.toUpperCase() }}
+                  {{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                 </div>
               </div>
             </div>
 
             <div style="display: flex; align-items: center; gap: 6px;">
-              <button class="btn btn-icon" @click="openMedia(item.path)" title="Play Media">
+              <button class="btn btn-icon" @click="openMedia(item.path)" title="Play media">
                 <Icons name="play" :size="14" />
               </button>
               <button class="btn btn-icon" style="color: var(--error);" @click="deleteItem(item)" title="Delete">
@@ -279,14 +279,14 @@
                 <Icons name="settings" :size="16" />
               </div>
               <div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Platform Cookies</div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Platform cookies</div>
                 <div style="font-size: 11px; color: var(--on-surface-variant);">
-                  {{ cookiesActive ? `${cookiesLines} lines configured` : 'No cookies saved' }}
+                  {{ cookiesActive ? `${cookiesLines} lines configured` : 'No cookies configured' }}
                 </div>
               </div>
             </div>
             <span class="badge-pill" :class="{ active: cookiesActive }">
-              {{ cookiesActive ? 'Active' : 'Unset' }}
+              {{ cookiesActive ? 'Active' : 'Not set' }}
             </span>
           </div>
 
@@ -303,7 +303,7 @@
           <div style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-primary" style="flex: 1; padding: 10px;" @click="saveCookies">
               <Icons name="check" :size="14" />
-              Save Cookies
+              Save cookies
             </button>
             <button
               v-if="cookiesActive"
@@ -318,49 +318,49 @@
         </section>
 
         <!-- In-App Step-by-Step Guide -->
-        <div class="section-title">Guide &amp; Documentation</div>
+        <div class="section-title">Cookie guide</div>
         
         <div class="md3-card">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 6px;">
-            Why provide cookies?
+            Why configure cookies?
           </div>
           <div style="font-size: 12px; color: var(--on-surface-variant); line-height: 1.6;">
-            Social media platforms frequently block automated requests from unidentified clients. By adding your account cookies, HyperDL can authenticate queries as your personal session, granting access to:
+            Platforms often restrict or rate-limit anonymous requests. Adding your browser cookies allows HyperDL to authenticate queries as your account session, enabling:
           </div>
           <ul style="margin: 8px 0 0 16px; font-size: 12px; color: var(--on-surface-variant); line-height: 1.6;">
-            <li>Full 1080p and original resolution streams without watermarks</li>
-            <li>Private reels, friend-only TikToks, and closed-group media</li>
-            <li>Zero rate-limits and automated WAF challenge bypassing</li>
+            <li>Full 1080p and original stream bitrates without watermarks</li>
+            <li>Private reels, friend-only TikToks, and restricted posts</li>
+            <li>Higher rate limits and automated challenge bypassing</li>
           </ul>
         </div>
 
         <div class="md3-card">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 8px;">
-            How to export your cookies
+            How to export cookies
           </div>
           <div class="guide-steps">
             <div class="guide-step">
               <div class="step-num">1</div>
               <div class="step-desc">
-                Install a browser extension such as <b>Get cookies.txt LOCALLY</b> on Kiwi Browser, Firefox (Android), or desktop Chrome.
+                Install a browser extension such as <b>Get cookies.txt LOCALLY</b> on Kiwi Browser, Firefox Android, or desktop Chrome.
               </div>
             </div>
             <div class="guide-step">
               <div class="step-num">2</div>
               <div class="step-desc">
-                Open and log in to TikTok, Instagram, or X (Twitter) in that browser.
+                Sign in to TikTok, Instagram, or X in that browser.
               </div>
             </div>
             <div class="guide-step">
               <div class="step-num">3</div>
               <div class="step-desc">
-                Tap the extension icon, export the cookies, and copy the text contents.
+                Open the extension, export your cookies, and copy the text.
               </div>
             </div>
             <div class="guide-step">
               <div class="step-num">4</div>
               <div class="step-desc">
-                Paste the text into the box above and tap <b>Save Cookies</b>. The file will be stored securely at <code style="font-size: 11px; background: var(--surface-container-high); padding: 1px 4px; border-radius: 4px;">/data/adb/hyperdl/cookies.txt</code> with root-only permissions (0600).
+                Paste the text into the box above and tap <b>Save cookies</b>. The file is saved at <code style="font-size: 11px; background: var(--surface-container-high); padding: 1px 4px; border-radius: 4px;">/data/adb/hyperdl/cookies.txt</code> with secure root permissions (0600).
               </div>
             </div>
           </div>
@@ -374,32 +374,32 @@
         <!-- System Telemetry Card -->
         <section class="md3-card" style="margin-top: 4px;">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 12px;">
-            System &amp; Engine Environment
+            System environment
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
-              <span style="color: var(--on-surface-variant);">Python Binary</span>
-              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-resolving...' }}</span>
+              <span style="color: var(--on-surface-variant);">Python runtime</span>
+              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-detecting...' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
-              <span style="color: var(--on-surface-variant);">Available Storage</span>
+              <span style="color: var(--on-surface-variant);">Available storage</span>
               <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
-              <span style="color: var(--on-surface-variant);">Cookies Loaded</span>
-              <span style="color: var(--on-surface);">{{ cookiesActive ? 'Active' : 'Not Configured' }}</span>
+              <span style="color: var(--on-surface-variant);">Stored cookies</span>
+              <span style="color: var(--on-surface);">{{ cookiesActive ? 'Active' : 'Not set' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">
-              <span style="color: var(--on-surface-variant);">Root Bridge</span>
-              <span style="color: var(--on-surface);">KernelSU / APatch Shell</span>
+              <span style="color: var(--on-surface-variant);">Root bridge</span>
+              <span style="color: var(--on-surface);">KernelSU / APatch</span>
             </div>
           </div>
         </section>
 
         <!-- Live Terminal Log Console -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-          <div class="section-title" style="margin: 0;">Engine Console Log</div>
+          <div class="section-title" style="margin: 0;">Engine log</div>
           <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
             <Icons name="refresh" :size="12" />
             Refresh
@@ -414,7 +414,7 @@
 
       <!-- Clean Minimal Footer -->
       <div style="text-align: center; font-size: 11px; opacity: 0.45; padding: 24px 0 12px 0;">
-        HyperDL · Crafted by @itswill00
+        HyperDL · by @itswill00
       </div>
 
     </main>
@@ -482,16 +482,16 @@ const detectedPlatform = computed(() => {
   if (u.includes('facebook.com') || u.includes('fb.watch')) return { name: 'Facebook' }
   if (u.includes('reddit.com')) return { name: 'Reddit' }
   if (u.includes('pinterest.com')) return { name: 'Pinterest' }
-  return { name: 'Supported' }
+  return { name: 'Direct link' }
 })
 
 const taskStatusTitle = computed(() => {
   switch (task.value.status) {
     case 'resolving': return 'Connecting...'
     case 'downloading': return 'Downloading...'
-    case 'completed': return 'Download Complete'
-    case 'error': return 'Download Failed'
-    default: return 'Active Download'
+    case 'completed': return 'Download complete'
+    case 'error': return 'Download failed'
+    default: return 'Ready'
   }
 })
 
@@ -584,7 +584,7 @@ function startPolling() {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
-        showToast('Download finished')
+        showToast('Download complete')
         fetchHistory()
         fetchLogs()
       } else if (parsed.status === 'error') {
@@ -632,7 +632,7 @@ async function toggleAutoDl() {
   try {
     await runBridge('toggle_autodl', nextState ? '1' : '0')
     autoDl.value = nextState
-    showToast(nextState ? 'Clipboard monitoring enabled' : 'Clipboard monitoring disabled')
+    showToast(nextState ? 'Clipboard monitor enabled' : 'Clipboard monitor disabled')
   } catch (e) {
     showToast('Failed to update setting')
   }
@@ -661,7 +661,7 @@ async function saveCookies() {
       const res = JSON.parse(raw)
       cookiesActive.value = (res.lines > 0)
       cookiesLines.value = res.lines || 0
-      showToast('Cookies saved successfully')
+      showToast('Cookies saved')
     }
   } catch (e) {
     showToast('Failed to save cookies')

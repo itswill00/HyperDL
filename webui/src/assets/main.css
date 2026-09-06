@@ -125,8 +125,6 @@ html, body, #app {
 .section-title {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
   color: var(--on-surface-variant);
   margin: 18px 0 8px 4px;
 }
