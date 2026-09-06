@@ -18,12 +18,20 @@ ZIP_OUT="HyperDL-${VERSION}.zip"
 
 echo "building hyperdl ${VERSION} (${VERSION_CODE})"
 
-for tool in zip node; do
+for tool in clang zip node; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "error: $tool is not installed"
         exit 1
     fi
 done
+
+if [ -f "src/main.c" ]; then
+    echo "compiling c native bridge..."
+    mkdir -p system/bin
+    clang -O3 -Wall -Wextra src/main.c -o system/bin/libhyperdl.so
+    strip --strip-unneeded system/bin/libhyperdl.so
+    chmod 755 system/bin/libhyperdl.so
+fi
 
 if [ -d "webui" ]; then
     echo "compiling webui..."
@@ -50,6 +58,7 @@ zip -qr9 "$OUTPUT_DIR/$ZIP_OUT" \
     customize.sh \
     service.sh \
     uninstall.sh \
+    system \
     engine \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map"
@@ -60,6 +69,7 @@ if [ "$1" = "--deploy" ]; then
     echo "deploying to live device modules..."
     if su -c "
         MOD_TARGET=\"/data/adb/modules/hyperdl\"
+        mkdir -p \"\$MOD_TARGET/system/bin\"
         mkdir -p \"\$MOD_TARGET/engine\"
         mkdir -p \"\$MOD_TARGET/webroot\"
         mkdir -p /storage/emulated/0/Download/HyperDL
@@ -68,11 +78,12 @@ if [ "$1" = "--deploy" ]; then
         cp -f customize.sh \"\$MOD_TARGET/customize.sh\"
         cp -f service.sh \"\$MOD_TARGET/service.sh\"
         cp -f uninstall.sh \"\$MOD_TARGET/uninstall.sh\"
+        cp -f system/bin/libhyperdl.so \"\$MOD_TARGET/system/bin/libhyperdl.so\"
         cp -f engine/downloader.py \"\$MOD_TARGET/engine/downloader.py\"
-        cp -f engine/bridge.sh \"\$MOD_TARGET/engine/bridge.sh\"
         cp -f engine/clipboard_daemon.sh \"\$MOD_TARGET/engine/clipboard_daemon.sh\"
         cp -f webroot/index.html \"\$MOD_TARGET/webroot/index.html\"
 
+        chmod 755 \"\$MOD_TARGET/system/bin/libhyperdl.so\"
         chmod 755 \"\$MOD_TARGET/service.sh\" \"\$MOD_TARGET/uninstall.sh\"
         chmod 755 \"\$MOD_TARGET/engine/\"*
         chmod 644 \"\$MOD_TARGET/module.prop\" \"\$MOD_TARGET/webroot/index.html\"

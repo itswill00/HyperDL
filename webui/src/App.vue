@@ -502,17 +502,17 @@ function getExtIcon(ext) {
   return 'image'
 }
 
-/* Bridge Execution Runner */
+/* Native Binary Execution Runner */
 async function runBridge(action, ...args) {
   const params = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')
   
   const cmd = `sh -c '
-    if [ -f /data/adb/modules/hyperdl/engine/bridge.sh ]; then
-      sh /data/adb/modules/hyperdl/engine/bridge.sh ${action} ${params}
-    elif [ -f /data/data/com.termux/files/home/HyperDL_Module/engine/bridge.sh ]; then
-      sh /data/data/com.termux/files/home/HyperDL_Module/engine/bridge.sh ${action} ${params}
+    if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then
+      /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${action} ${params}
+    elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then
+      /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${action} ${params}
     else
-      echo "bridge_not_found"
+      echo "binary_not_found"
     fi
   '`
   

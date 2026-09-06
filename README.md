@@ -43,18 +43,21 @@ HyperDL/
 ├── customize.sh             # On-device module installer
 ├── service.sh               # Boot service initialization
 ├── uninstall.sh             # Cleanup script
+├── src/
+│   └── main.c               # Native C bridge implementation
+├── system/bin/
+│   └── libhyperdl.so        # Stripped 64-bit native ELF binary (15 KB)
 ├── engine/
 │   ├── downloader.py        # Core extraction and streaming logic
-│   ├── bridge.sh            # Shell interface between WebUI and system
 │   └── clipboard_daemon.sh  # Background clipboard monitoring daemon
 ├── webroot/
 │   └── index.html           # Inlined single-file WebUI distribution
 └── webui/
     ├── src/
-    │   ├── App.vue          # Main layout and view state
+    │   ├── App.vue          # Multi-tab view (Downloader, Cookies, Console)
     │   ├── assets/main.css  # Monochrome design tokens and styles
     │   ├── components/      # Vector icons and UI elements
-    │   └── helpers/shell.js # KernelSU / APatch execution bridge
+    │   └── helpers/shell.js # KernelSU / APatch native bridge
     ├── package.json
     └── vite.config.js       # Single-file build configuration
 ```
