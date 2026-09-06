@@ -19,6 +19,7 @@
 #include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <dlfcn.h>
 #include "embedded_engine.h"
 
 #define STATUS_FILE    "/data/local/tmp/hyperdl_status.json"
@@ -308,6 +309,77 @@ static void cmd_open_folder(void) {
     printf("{\"success\":true}\n");
 }
 
+typedef void sqlite3;
+typedef void sqlite3_stmt;
+
+typedef int (*fn_open_v2)(const char *, sqlite3 **, int, const char *);
+typedef int (*fn_prepare_v2)(sqlite3 *, const char *, int, sqlite3_stmt **, const char **);
+typedef int (*fn_bind_text)(sqlite3_stmt *, int, const char *, int, void(*)(void*));
+typedef int (*fn_step)(sqlite3_stmt *);
+typedef long long (*fn_col_int64)(sqlite3_stmt *, int);
+typedef int (*fn_finalize)(sqlite3_stmt *);
+typedef int (*fn_close)(sqlite3 *);
+
+static long long query_sqlite_media_id(const char *path) {
+    static const char *lib_paths[] = {
+        "/system/lib64/libsqlite.so",
+        "/system/lib/libsqlite.so",
+        "/apex/com.android.runtime/lib64/bionic/libsqlite.so",
+        "/apex/com.android.runtime/lib/bionic/libsqlite.so",
+        NULL
+    };
+
+    void *lib = NULL;
+    for (int i = 0; lib_paths[i]; i++) {
+        lib = dlopen(lib_paths[i], RTLD_NOW);
+        if (lib) break;
+    }
+    if (!lib) return -1;
+
+    fn_open_v2 s_open = (fn_open_v2)dlsym(lib, "sqlite3_open_v2");
+    fn_prepare_v2 s_prep = (fn_prepare_v2)dlsym(lib, "sqlite3_prepare_v2");
+    fn_bind_text s_bind = (fn_bind_text)dlsym(lib, "sqlite3_bind_text");
+    fn_step s_step = (fn_step)dlsym(lib, "sqlite3_step");
+    fn_col_int64 s_col = (fn_col_int64)dlsym(lib, "sqlite3_column_int64");
+    fn_finalize s_fin = (fn_finalize)dlsym(lib, "sqlite3_finalize");
+    fn_close s_close = (fn_close)dlsym(lib, "sqlite3_close");
+
+    if (!s_open || !s_prep || !s_bind || !s_step || !s_col || !s_fin || !s_close) {
+        dlclose(lib);
+        return -1;
+    }
+
+    static const char *dbs[] = {
+        "/data/data/com.google.android.providers.media.module/databases/external.db",
+        "/data/data/com.android.providers.media.module/databases/external.db",
+        "/data/data/com.android.providers.media/databases/external.db",
+        "/data/user_de/0/com.google.android.providers.media.module/databases/external.db",
+        "/data/user_de/0/com.android.providers.media.module/databases/external.db",
+        NULL
+    };
+
+    long long id = -1;
+    for (int i = 0; dbs[i]; i++) {
+        sqlite3 *db = NULL;
+        if (s_open(dbs[i], &db, 0x00000001, NULL) == 0 && db) {
+            sqlite3_stmt *stmt = NULL;
+            const char *sql = "SELECT _id FROM files WHERE _data = ? LIMIT 1;";
+            if (s_prep(db, sql, -1, &stmt, NULL) == 0 && stmt) {
+                s_bind(stmt, 1, path, -1, (void*)0);
+                if (s_step(stmt) == 100) {
+                    id = s_col(stmt, 0);
+                }
+                s_fin(stmt);
+            }
+            s_close(db);
+            if (id > 0) break;
+        }
+    }
+
+    dlclose(lib);
+    return id;
+}
+
 static void cmd_open(const char *path) {
     if (!path || !*path) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
@@ -340,6 +412,9 @@ static void cmd_open(const char *path) {
         }
     }
 
+    /* 1. Ultra-fast SQLite query (~1ms) */
+    long long media_id = query_sqlite_media_id(path);
+
     char enc_path[1024];
     size_t ei = 0;
     for (size_t i = 0; path[i] && ei < sizeof(enc_path) - 4; i++) {
@@ -354,50 +429,56 @@ static void cmd_open(const char *path) {
     }
     enc_path[ei] = '\0';
 
-    char scan_cmd[1200];
-    snprintf(scan_cmd, sizeof(scan_cmd),
-             "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
-             enc_path);
-    system(scan_cmd);
-
-    char sql_path[1024];
-    size_t si = 0;
-    for (size_t i = 0; path[i] && si < sizeof(sql_path) - 2; i++) {
-        if (path[i] == '\'') {
-            sql_path[si++] = '\'';
-            sql_path[si++] = '\'';
-        } else {
-            sql_path[si++] = path[i];
-        }
+    /* 2. If not indexed yet, broadcast scan and retry SQLite once */
+    if (media_id <= 0) {
+        char scan_cmd[1200];
+        snprintf(scan_cmd, sizeof(scan_cmd),
+                 "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
+                 enc_path);
+        system(scan_cmd);
+        media_id = query_sqlite_media_id(path);
     }
-    sql_path[si] = '\0';
 
-    char query_cmd[1200];
-    snprintf(query_cmd, sizeof(query_cmd),
-             "content query --uri content://media/external/file --projection _id --where \"_data='%s'\" 2>/dev/null",
-             sql_path);
-
-    FILE *qp = popen(query_cmd, "r");
-    long media_id = -1;
-    if (qp) {
-        char qbuf[512];
-        while (fgets(qbuf, sizeof(qbuf), qp)) {
-            char *p = strstr(qbuf, "_id=");
-            if (p) {
-                media_id = strtol(p + 4, NULL, 10);
-                if (media_id > 0) break;
+    /* 3. If still not found, fallback to content query CLI */
+    if (media_id <= 0) {
+        char sql_path[1024];
+        size_t si = 0;
+        for (size_t i = 0; path[i] && si < sizeof(sql_path) - 2; i++) {
+            if (path[i] == '\'') {
+                sql_path[si++] = '\'';
+                sql_path[si++] = '\'';
+            } else {
+                sql_path[si++] = path[i];
             }
         }
-        pclose(qp);
+        sql_path[si] = '\0';
+
+        char query_cmd[1200];
+        snprintf(query_cmd, sizeof(query_cmd),
+                 "content query --uri content://media/external/file --projection _id --where \"_data='%s'\" 2>/dev/null",
+                 sql_path);
+
+        FILE *qp = popen(query_cmd, "r");
+        if (qp) {
+            char qbuf[512];
+            while (fgets(qbuf, sizeof(qbuf), qp)) {
+                char *p = strstr(qbuf, "_id=");
+                if (p) {
+                    media_id = strtoll(p + 4, NULL, 10);
+                    if (media_id > 0) break;
+                }
+            }
+            pclose(qp);
+        }
     }
 
     char start_cmd[1200];
     if (media_id > 0) {
         snprintf(start_cmd, sizeof(start_cmd),
-                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%ld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
+                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%lld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",
                  media_id, mime);
         system(start_cmd);
-        printf("{\"success\":true,\"mode\":\"content\",\"id\":%ld}\n", media_id);
+        printf("{\"success\":true,\"mode\":\"content\",\"id\":%lld}\n", media_id);
     } else {
         snprintf(start_cmd, sizeof(start_cmd),
                  "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1",

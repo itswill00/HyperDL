@@ -176,13 +176,13 @@
 
           <!-- Completion Actions -->
           <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
-            <button class="btn btn-primary" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
+            <button class="btn btn-primary" :disabled="openingPath === task.file_path" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
               <Icons name="play" :size="14" />
-              Open media
+              {{ openingPath === task.file_path ? 'Opening...' : 'Open media' }}
             </button>
-            <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
+            <button class="btn btn-secondary" :disabled="openingFolder" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
               <Icons name="folder" :size="14" />
-              Open folder
+              {{ openingFolder ? 'Opening...' : 'Open folder' }}
             </button>
           </div>
         </section>
@@ -252,7 +252,7 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 6px;">
-              <button class="btn btn-icon" @click="openMedia(item.path)" title="Play media">
+              <button class="btn btn-icon" :disabled="openingPath === item.path" @click="openMedia(item.path)" title="Play media">
                 <Icons name="play" :size="14" />
               </button>
               <button class="btn btn-icon" style="color: var(--error);" @click="deleteItem(item)" title="Delete">
@@ -618,13 +618,33 @@ async function deleteItem(item) {
   }
 }
 
-function openMedia(filePath) {
-  if (!filePath) return
-  openMediaFile(filePath)
+const openingPath = ref(null)
+const openingFolder = ref(false)
+
+async function openMedia(filePath) {
+  if (!filePath || openingPath.value) return
+  openingPath.value = filePath
+  showToast('Opening media...')
+  try {
+    await openMediaFile(filePath)
+  } catch (e) {
+    showToast('Failed to open media')
+  } finally {
+    openingPath.value = null
+  }
 }
 
-function openMediaFolder() {
-  openFolder()
+async function openMediaFolder() {
+  if (openingFolder.value) return
+  openingFolder.value = true
+  showToast('Opening folder...')
+  try {
+    await openFolder()
+  } catch (e) {
+    showToast('Failed to open folder')
+  } finally {
+    openingFolder.value = false
+  }
 }
 
 async function toggleAutoDl() {
