@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""
-HyperDL Standalone Python Runtime Packager
-Copies and bundles a minimal, self-contained Python 3 runtime from Termux
-directly into the HyperDL module (runtime/).
-"""
-
 import os
 import sys
 import glob
 import shutil
 import zipfile
 import subprocess
+import tempfile
+import compileall
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TARGET_DIR = os.path.join(PROJECT_DIR, "runtime")
@@ -18,10 +14,10 @@ TERMUX_USR = "/data/data/com.termux/files/usr"
 
 def main():
     if not os.path.exists(f"{TERMUX_USR}/bin/python3"):
-        print("error: Termux python3 not found in system", file=sys.stderr)
+        print("error: Termux python3 not found", file=sys.stderr)
         sys.exit(1)
 
-    print("packaging standalone python runtime from Termux...")
+    print("packaging standalone python runtime...")
     shutil.rmtree(TARGET_DIR, ignore_errors=True)
 
     bin_dir = os.path.join(TARGET_DIR, "bin")
@@ -32,11 +28,9 @@ def main():
     os.makedirs(lib_dir, exist_ok=True)
     os.makedirs(dyn_dir, exist_ok=True)
 
-    # 1. Copy python3 binary
     shutil.copy(f"{TERMUX_USR}/bin/python3", f"{bin_dir}/python3")
     os.chmod(f"{bin_dir}/python3", 0o755)
 
-    # 2. Copy core shared libraries
     core_libs = ["libpython3.14.so", "libandroid-support.so", "libcrypto.so.3", "libssl.so.3"]
     for lib in core_libs:
         src = f"{TERMUX_USR}/lib/{lib}"
@@ -44,7 +38,6 @@ def main():
             shutil.copy(src, f"{lib_dir}/{lib}")
             os.chmod(f"{lib_dir}/{lib}", 0o755)
 
-    # 3. Copy SSL certificate bundle
     ca_candidates = [
         f"{TERMUX_USR}/etc/tls/cert.pem",
         f"{TERMUX_USR}/etc/ssl/cert.pem",
@@ -55,7 +48,6 @@ def main():
             shutil.copy(ca, f"{lib_dir}/cacert.pem")
             break
 
-    # 4. Copy dynamic extension modules (excluding test and non-essential modules)
     dyn_src = f"{TERMUX_USR}/lib/python3.14/lib-dynload"
     skip_dyn = (
         "_test",
@@ -77,7 +69,6 @@ def main():
         shutil.copy(f, dst)
         os.chmod(dst, 0o755)
 
-    # 5. Package standard library into bytecode-compiled python314.zip for fast imports
     zip_path = os.path.join(lib_dir, "python314.zip")
     src_stdlib = f"{TERMUX_USR}/lib/python3.14"
     skip_dirs = {
@@ -86,7 +77,6 @@ def main():
         "_pyrepl", "unittest", "ensurepip", "__pycache__"
     }
 
-    import tempfile, compileall
     with tempfile.TemporaryDirectory() as tmp_stdlib:
         for root, dirs, files in os.walk(src_stdlib):
             dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith("__")]
@@ -99,7 +89,6 @@ def main():
                 if f.endswith(".py") and not f.endswith("_test.py") and not f.startswith("test_"):
                     shutil.copy2(os.path.join(root, f), os.path.join(dst_dir, f))
 
-        # Compile all .py to .pyc in-place (legacy=True puts .pyc in same dir without __pycache__)
         compileall.compile_dir(tmp_stdlib, force=True, quiet=1, legacy=True)
 
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
@@ -110,7 +99,6 @@ def main():
                         rel = os.path.relpath(full, tmp_stdlib)
                         z.write(full, rel)
 
-    # 6. Self-test verified runtime
     env = {
         "PATH": f"{bin_dir}:/system/bin",
         "LD_LIBRARY_PATH": lib_dir,
@@ -125,7 +113,7 @@ def main():
         sys.exit(1)
 
     total_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, d, files in os.walk(TARGET_DIR) for f in files)
-    print(f"Standalone Python runtime bundled successfully! ({total_bytes / (1024*1024):.1f} MB in {TARGET_DIR})")
+    print(f"Standalone Python runtime bundled ({total_bytes / (1024*1024):.1f} MB in {TARGET_DIR})")
 
 if __name__ == "__main__":
     main()

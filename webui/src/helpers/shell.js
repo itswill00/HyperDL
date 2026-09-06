@@ -30,7 +30,6 @@ export function execCommand(cmd, timeoutMs = 60000) {
         .then(r => resolve(typeof r === 'object' ? (r.stdout || r.stderr || '') : String(r)))
         .catch(reject)
     } else {
-      /* Fallback for local browser dev */
       fetch('/api/exec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

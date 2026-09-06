@@ -44,7 +44,6 @@ static const char *PYTHON_PATHS[] = {
     NULL
 };
 
-/* Base64 Encoding Table */
 static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static char *base64_encode(const unsigned char *data, size_t input_len) {
@@ -127,8 +126,6 @@ static void format_file_size(off_t bytes, char *buf, size_t buf_len) {
     }
 }
 
-/* Actions */
-
 static void cmd_status(void) {
     FILE *f = fopen(STATUS_FILE, "r");
     if (!f) {
@@ -145,7 +142,6 @@ static void cmd_status(void) {
 static void cmd_download(const char *url, const char *fmt) {
     ensure_directories();
 
-    /* Kill previous running download instance */
     FILE *pf = fopen(PID_FILE, "r");
     if (pf) {
         pid_t old_pid = 0;
@@ -167,7 +163,6 @@ static void cmd_download(const char *url, const char *fmt) {
         return;
     }
 
-    /* Check for standalone compiled Python bundle */
     const char *bundle_path = NULL;
     if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
         bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
@@ -175,7 +170,6 @@ static void cmd_download(const char *url, const char *fmt) {
         bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
     }
 
-    /* Set resolving status */
     FILE *sf = fopen(STATUS_FILE, "w");
     if (sf) {
         fputs("{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\"}\n", sf);
@@ -190,11 +184,9 @@ static void cmd_download(const char *url, const char *fmt) {
     }
 
     if (pid == 0) {
-        /* Detach from parent session and ignore hangup */
         setsid();
         signal(SIGHUP, SIG_IGN);
 
-        /* Child Process */
         int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (log_fd >= 0) {
             fchmod(log_fd, 0666);
@@ -203,7 +195,6 @@ static void cmd_download(const char *url, const char *fmt) {
             close(log_fd);
         }
 
-        /* Export clean runtime environment */
         if (strstr(python_bin, "runtime")) {
             char moddir[512];
             const char *p = strstr(python_bin, "/bin/python3");
@@ -246,7 +237,6 @@ static void cmd_download(const char *url, const char *fmt) {
         _exit(127);
     }
 
-    /* Parent Process */
     FILE *npf = fopen(PID_FILE, "w");
     if (npf) {
         fprintf(npf, "%d\n", pid);
@@ -412,7 +402,6 @@ static void cmd_open(const char *path) {
         }
     }
 
-    /* 1. Ultra-fast SQLite query (~1ms) */
     long long media_id = query_sqlite_media_id(path);
 
     char enc_path[1024];
@@ -429,7 +418,6 @@ static void cmd_open(const char *path) {
     }
     enc_path[ei] = '\0';
 
-    /* 2. If not indexed yet, broadcast scan and retry SQLite once */
     if (media_id <= 0) {
         char scan_cmd[1200];
         snprintf(scan_cmd, sizeof(scan_cmd),
@@ -439,7 +427,6 @@ static void cmd_open(const char *path) {
         media_id = query_sqlite_media_id(path);
     }
 
-    /* 3. If still not found, fallback to content query CLI */
     if (media_id <= 0) {
         char sql_path[1024];
         size_t si = 0;
@@ -594,7 +581,6 @@ static void cmd_get_logs(void) {
         return;
     }
 
-    /* Print tail 60 lines */
     char line[1024];
     char ring[60][1024];
     int count = 0;

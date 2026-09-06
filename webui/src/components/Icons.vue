@@ -10,114 +10,95 @@
     stroke-linejoin="round"
     style="flex-shrink: 0;"
   >
-    <!-- Download -->
     <g v-if="name === 'download'">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
     </g>
 
-    <!-- Paste / Clipboard -->
     <g v-else-if="name === 'clipboard'">
       <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
       <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
     </g>
 
-    <!-- Check -->
     <g v-else-if="name === 'check'">
       <polyline points="20 6 9 17 4 12" />
     </g>
 
-    <!-- Video -->
     <g v-else-if="name === 'video'">
       <polygon points="23 7 16 12 23 17 23 7" />
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
     </g>
 
-    <!-- Music / Audio -->
     <g v-else-if="name === 'music'">
       <path d="M9 18V5l12-2v13" />
       <circle cx="6" cy="18" r="3" />
       <circle cx="18" cy="16" r="3" />
     </g>
 
-    <!-- Image / Photos -->
     <g v-else-if="name === 'image'">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
       <circle cx="8.5" cy="8.5" r="1.5" />
       <polyline points="21 15 16 10 5 21" />
     </g>
 
-    <!-- Folder -->
     <g v-else-if="name === 'folder'">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </g>
 
-    <!-- Play -->
     <g v-else-if="name === 'play'">
       <polygon points="5 3 19 12 5 21 5 3" />
     </g>
 
-    <!-- Trash / Delete -->
     <g v-else-if="name === 'trash'">
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </g>
 
-    <!-- Refresh / Sync -->
     <g v-else-if="name === 'refresh'">
       <polyline points="23 4 23 10 17 10" />
       <polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </g>
 
-    <!-- Settings -->
     <g v-else-if="name === 'settings'">
       <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </g>
 
-    <!-- Info / Alert -->
     <g v-else-if="name === 'info'">
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="16" x2="12" y2="12" />
       <line x1="12" y1="8" x2="12.01" y2="8" />
     </g>
 
-    <!-- Chevron Right -->
     <g v-else-if="name === 'chevron-right'">
       <polyline points="9 18 15 12 9 6" />
     </g>
 
-    <!-- TikTok -->
     <g v-else-if="name === 'tiktok'">
       <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5" />
     </g>
 
-    <!-- Instagram -->
     <g v-else-if="name === 'instagram'">
       <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
       <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
       <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
     </g>
 
-    <!-- X / Twitter -->
     <g v-else-if="name === 'x' || name === 'twitter'">
       <path d="M18.9 3H22l-6.8 7.8L22.5 21h-3.4l-5.3-6.9-6.1 6.9H4.6l7.3-8.3L4 3h3.5l4.8 6.3zm-1.2 16.2h1.9L8.6 4.7H6.6z" fill="currentColor" stroke="none" />
     </g>
 
-    <!-- YouTube -->
     <g v-else-if="name === 'youtube'">
       <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
       <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill="currentColor" />
     </g>
 
-    <!-- Facebook -->
     <g v-else-if="name === 'facebook'">
       <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
     </g>
 
-    <!-- Reddit -->
     <g v-else-if="name === 'reddit'">
       <circle cx="12" cy="12" r="9" />
       <circle cx="9" cy="11.5" r="1" fill="currentColor" />
@@ -126,14 +107,12 @@
       <path d="M14 6l2-2h2" />
     </g>
 
-    <!-- Pinterest -->
     <g v-else-if="name === 'pinterest'">
       <line x1="12" y1="9" x2="12" y2="21" />
       <path d="M8 12a4 4 0 1 1 8 0c0 3-2 5-4 5s-2-2-2-4" />
       <circle cx="12" cy="5" r="1" fill="currentColor" />
     </g>
 
-    <!-- Generic Link -->
     <g v-else-if="name === 'link'">
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />

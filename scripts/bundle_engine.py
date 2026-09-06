@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-HyperDL Engine Bundler
-Compiles and bundles the Python engine into:
-1. system/bin/hyperdl.bundle (Zipapp archive with compiled .pyc bytecode)
-2. src/embedded_engine.h (Compressed, base64-encoded C header for libhyperdl.so)
-"""
-
 import os
 import sys
 import zlib
@@ -30,7 +23,6 @@ def main():
     with open(SRC_PY, "rb") as f:
         code = f.read()
 
-    # 1. Generate C header with compressed payload (byte array for strict ISO C99 compliance)
     compressed = base64.b64encode(zlib.compress(code, 9)).decode("ascii")
     byte_vals = [f"0x{b:02x}" for b in compressed.encode("ascii")] + ["0x00"]
     chunk_size = 16
@@ -40,21 +32,18 @@ def main():
     ]
     array_content = "\n".join(lines)
 
-    header_content = f"""/* Auto-generated embedded Python engine payload */
-#ifndef EMBEDDED_ENGINE_H
+    header_content = f"""#ifndef EMBEDDED_ENGINE_H
 #define EMBEDDED_ENGINE_H
 
 static const char EMBEDDED_ENGINE_B64[] = {{
 {array_content}
 }};
 
-#endif /* EMBEDDED_ENGINE_H */
+#endif
 """
     with open(OUT_HEADER, "w") as f:
         f.write(header_content)
-    print(f"Generated C embedded engine header: {len(compressed)} bytes")
 
-    # 2. Package Zipapp archive
     with tempfile.TemporaryDirectory() as tmpdir:
         with open(os.path.join(tmpdir, "__main__.py"), "w") as f:
             f.write("from downloader import main\nif __name__ == '__main__':\n    main()\n")
@@ -68,7 +57,7 @@ static const char EMBEDDED_ENGINE_B64[] = {{
         subprocess.run([sys.executable, "-m", "zipapp", tmpdir, "-c", "-o", OUT_BUNDLE], check=True)
         os.chmod(OUT_BUNDLE, 0o755)
 
-    print(f"Generated Python bytecode bundle: {os.path.getsize(OUT_BUNDLE)} bytes ({OUT_BUNDLE})")
+    print(f"Bundled: {os.path.getsize(OUT_BUNDLE)} bytes ({OUT_BUNDLE})")
 
 if __name__ == "__main__":
     main()

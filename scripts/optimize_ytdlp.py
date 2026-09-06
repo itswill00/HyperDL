@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-HyperDL yt-dlp Bytecode Optimizer
-Compiles raw yt-dlp zipapp into pure .pyc bytecode zipapp.
-Dramatically reduces startup time on ARM64 Android (11s -> 1.5s).
-"""
-
 import os
 import sys
 import zipfile
@@ -15,7 +9,6 @@ def optimize_ytdlp(ytdlp_path):
     if not os.path.isfile(ytdlp_path):
         return False
 
-    # Check if already bytecode compiled
     try:
         with zipfile.ZipFile(ytdlp_path, "r") as z:
             names = z.namelist()

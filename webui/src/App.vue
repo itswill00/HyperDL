@@ -1,8 +1,7 @@
 <template>
   <div class="app-shell">
     
-    <!-- Top Header -->
-    <header class="page-header">
+        <header class="page-header">
       <div>
         <div class="page-header-title">HyperDL</div>
         <div class="page-header-sub">Media downloader</div>
@@ -17,8 +16,7 @@
       </div>
     </header>
 
-    <!-- Navigation Tabs (Monochrome Segmented Control) -->
-    <div style="padding: 10px 16px 0 16px; background: var(--bg);">
+        <div style="padding: 10px 16px 0 16px; background: var(--bg);">
       <div class="tabs-control">
         <button
           class="tab-btn"
@@ -47,14 +45,11 @@
       </div>
     </div>
 
-    <!-- Main Content Area -->
-    <main class="content-area">
+        <main class="content-area">
 
-      <!-- TAB 1: DOWNLOADER -->
-      <div v-show="activeTab === 'download'">
+            <div v-show="activeTab === 'download'">
         
-        <!-- Media Input Card -->
-        <section class="md3-card" style="margin-top: 4px;">
+                <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New download</span>
             <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Direct link' }" style="font-size: 10px;">
@@ -63,8 +58,7 @@
             </span>
           </div>
 
-          <!-- URL Input Field with Clear & Paste -->
-          <div class="text-input-wrapper">
+                    <div class="text-input-wrapper">
             <input
               type="url"
               class="text-input"
@@ -91,8 +85,7 @@
             </button>
           </div>
 
-          <!-- Supported Platforms -->
-          <div class="platform-chips-row">
+                    <div class="platform-chips-row">
             <div
               v-for="p in supportedPlatforms"
               :key="p.id"
@@ -104,8 +97,7 @@
             </div>
           </div>
 
-          <!-- Format Options -->
-          <div style="margin-top: 14px;">
+                    <div style="margin-top: 14px;">
             <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
               Format
             </div>
@@ -137,8 +129,7 @@
             </div>
           </div>
 
-          <!-- Download Action Button -->
-          <div style="margin-top: 16px;">
+                    <div style="margin-top: 16px;">
             <button
               class="btn btn-primary"
               style="width: 100%; height: 44px; font-size: 14px;"
@@ -151,8 +142,7 @@
           </div>
         </section>
 
-        <!-- Active Progress Card -->
-        <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
+                <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <div class="icon-badge">
@@ -172,24 +162,20 @@
             </span>
           </div>
 
-          <!-- Progress Bar -->
-          <div class="progress-track">
+                    <div class="progress-track">
             <div class="progress-fill" :style="{ width: task.percent + '%' }"></div>
           </div>
 
-          <!-- Progress Metrics -->
-          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
             <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? (task.title || 'Connecting to source...') : '') }}</span>
             <span>{{ task.speed ? task.speed : '' }}</span>
           </div>
 
-          <!-- Error Message -->
-          <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
+                    <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
             {{ task.error || 'Download failed' }}
           </div>
 
-          <!-- Completion Actions -->
-          <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
+                    <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-primary" :disabled="openingPath === task.file_path" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
               <Icons name="play" :size="14" />
               {{ openingPath === task.file_path ? 'Opening...' : 'Open media' }}
@@ -201,8 +187,7 @@
           </div>
         </section>
 
-        <!-- Automation Section -->
-        <div class="section-title">Automation</div>
+                <div class="section-title">Automation</div>
         <div class="md3-list-group">
           <div class="md3-list-row">
             <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
@@ -236,8 +221,7 @@
           </div>
         </div>
 
-        <!-- Recent Downloads -->
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
           <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
           <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
             <Icons name="refresh" :size="12" />
@@ -282,11 +266,9 @@
         </div>
       </div>
 
-      <!-- TAB 2: COOKIES MANAGER & GUIDE -->
-      <div v-show="activeTab === 'cookies'">
+            <div v-show="activeTab === 'cookies'">
         
-        <!-- Cookies Status Card -->
-        <section class="md3-card" style="margin-top: 4px;">
+                <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <div class="icon-badge" :class="cookiesActive ? '' : 'secondary'">
@@ -304,8 +286,7 @@
             </span>
           </div>
 
-          <!-- Cookies Textarea -->
-          <div style="margin-top: 10px;">
+                    <div style="margin-top: 10px;">
             <textarea
               class="cookies-textarea"
               v-model="cookiesText"
@@ -313,8 +294,7 @@
             ></textarea>
           </div>
 
-          <!-- Actions -->
-          <div style="display: flex; gap: 8px; margin-top: 12px;">
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-primary" style="flex: 1; padding: 10px;" @click="saveCookies">
               <Icons name="check" :size="14" />
               Save cookies
@@ -331,8 +311,7 @@
           </div>
         </section>
 
-        <!-- In-App Step-by-Step Guide -->
-        <div class="section-title">Cookie guide</div>
+                <div class="section-title">Cookie guide</div>
         
         <div class="md3-card">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 6px;">
@@ -382,11 +361,9 @@
 
       </div>
 
-      <!-- TAB 3: CONSOLE & TELEMETRY -->
-      <div v-show="activeTab === 'console'">
+            <div v-show="activeTab === 'console'">
         
-        <!-- System Telemetry Card -->
-        <section class="md3-card" style="margin-top: 4px;">
+                <section class="md3-card" style="margin-top: 4px;">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 12px;">
             System environment
           </div>
@@ -411,8 +388,7 @@
           </div>
         </section>
 
-        <!-- Live Terminal Log Console -->
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
           <div class="section-title" style="margin: 0;">Engine log</div>
           <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
             <Icons name="refresh" :size="12" />
@@ -426,15 +402,13 @@
 
       </div>
 
-      <!-- Clean Minimal Footer -->
-      <div style="text-align: center; font-size: 11px; opacity: 0.45; padding: 24px 0 12px 0;">
+            <div style="text-align: center; font-size: 11px; opacity: 0.45; padding: 24px 0 12px 0;">
         HyperDL · by @itswill00
       </div>
 
     </main>
 
-    <!-- Toast Notification -->
-    <transition name="toast-fade">
+        <transition name="toast-fade">
       <div v-if="toastMsg" class="toast-pill">
         <Icons name="check" :size="14" style="color: var(--primary);" />
         <span>{{ toastMsg }}</span>
@@ -486,7 +460,6 @@ function showToast(msg) {
   toastTimer = setTimeout(() => { toastMsg.value = '' }, 2500)
 }
 
-/* Supported Platforms */
 const supportedPlatforms = [
   { id: 'tiktok', name: 'TikTok' },
   { id: 'instagram', name: 'Instagram' },
@@ -497,7 +470,6 @@ const supportedPlatforms = [
   { id: 'pinterest', name: 'Pinterest' }
 ]
 
-/* Platform detection */
 const detectedPlatform = computed(() => {
   const u = url.value.toLowerCase()
   if (u.includes('tiktok.com')) return { name: 'TikTok', id: 'tiktok' }
@@ -527,7 +499,6 @@ function getExtIcon(ext) {
   return 'image'
 }
 
-/* Native Binary Execution Runner */
 async function runBridge(action, ...args) {
   const params = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')
   
@@ -683,7 +654,6 @@ async function toggleAutoDl() {
   }
 }
 
-/* Cookies Management */
 async function loadCookies() {
   try {
     const raw = await runBridge('get_cookies')
@@ -726,7 +696,6 @@ async function clearCookies() {
   }
 }
 
-/* Diagnostics & Logs */
 async function fetchLogs() {
   try {
     const logs = await runBridge('get_logs')

@@ -4,107 +4,206 @@
   <img src="https://img.shields.io/badge/License-GPL_v3-black.svg" alt="License">
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
-  <img src="https://img.shields.io/badge/UI-Monochrome%20WebUI-black.svg" alt="UI">
+  <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
   <img src="https://img.shields.io/badge/Release-v1.0.0-black.svg" alt="Release">
 </p>
 
 <p align="center">
-  <i>A minimalist, ad-free local media downloader module for rooted Android devices.</i><br>
-  <i>Crafted by @itswill00</i>
+  <i>Autonomous, zero-dependency local media extraction module for rooted Android devices.</i><br>
+  <i>Maintained by @itswill00</i>
 </p>
 
 ---
 
 ## Overview
 
-**HyperDL** is a lightweight root module that provides a local, private media downloading utility accessible directly through your root manager (KernelSU, APatch, or MMRL). 
+HyperDL is an autonomous, on-device media downloader root module designed for KernelSU, APatch, and Magisk environments. Unlike cloud-based download utilities that route media queries through third-party proxies, log request metadata, or impose bandwidth throttling, HyperDL executes entirely on the local device hardware.
 
-Unlike public downloader services that require subscriptions, show intrusive redirects, or log requests through third-party servers, HyperDL executes directly on your hardware. Downloads are saved directly to your local storage without storage access framework (SAF) overhead or rate limits.
-
----
-
-## Key Features
-
-- **Multi-Platform Support**: Streamlined resolution for TikTok (watermark-free video, audio, and photo albums), Instagram (reels and posts), X (Twitter), and YouTube.
-- **Monochrome WebUI**: Clean, single-page interface built with Vue 3, following modern Material Design 3 and KernelSU design guidelines.
-- **Root Bridge Integration**: Direct communication with the Android environment via native KernelSU and APatch shell bridges (`ksu.exec`).
-- **Background Clipboard Monitoring**: Optional automated service that captures copied media links in the background and saves them silently.
-- **Direct Storage Pipeline**: Saves all media directly to `/storage/emulated/0/Download/HyperDL/` with built-in intent launching to open files in your default player.
-- **Zero Third-Party Relays**: Direct client-to-platform fetching without external telemetry or intermediate logging servers.
+The module packages an isolated ARM64 native runtime, compiled Python bytecode engines, and an embedded single-page WebUI to provide instantaneous media resolution and direct filesystem storage without relying on external system packages or Termux environments.
 
 ---
 
-## Repository Structure
+## Architecture
+
+```
+                       +-------------------------------+
+                       |    Root Manager / WebUI       |
+                       |    (KernelSU / APatch / MMRL) |
+                       +---------------+---------------+
+                                       |
+                           ksu.exec() / IPC
+                                       |
+                                       v
+                       +---------------+---------------+
+                       |   Native C Bridge Binary      |
+                       |   (system/bin/libhyperdl.so)  |
+                       +-------+---------------+-------+
+                               |               |
+              Direct SQLite DL |               | Dynamic Spawning
+              MediaStore Index |               |
+                               v               v
+               +---------------+---+   +---------------+---------------+
+               | /system/lib64/    |   | Standalone Python 3 Runtime   |
+               | libsqlite.so      |   | (runtime/bin/python3)         |
+               +-------------------+   +---------------+---------------+
+                                                       |
+                                        +--------------+--------------+
+                                        |                             |
+                                        v                             v
+                        +---------------+-------+     +---------------+-------+
+                        | Compiled Engine       |     | Optimized yt-dlp      |
+                        | (hyperdl.bundle .pyc) |     | (.pyc zipapp archive) |
+                        +-----------------------+     +-----------------------+
+                                        |                             |
+                                        +--------------+--------------+
+                                                       |
+                                          Streaming / Chunked I/O
+                                                       |
+                                                       v
+                                      +-------------------------------+
+                                      | /storage/emulated/0/          |
+                                      | Download/HyperDL/             |
+                                      +-------------------------------+
+```
+
+### Core Components
+
+1. **Native C Bridge (`system/bin/libhyperdl.so`)**:
+   - Compiled C99 ELF binary with full compiler optimization (`-O3`).
+   - Direct integration with `/system/lib64/libsqlite.so` to query Android MediaStore databases in under 1ms, replacing legacy `content query` JVM invocations that require up to 1.4s.
+   - Self-healing embedded engine fallback: compressed Base64 Python engine payload compiled into `.rodata` for recovery if external bundles are missing or corrupted.
+   - Non-blocking background session manager with POSIX process detachment and atomic PID tracking.
+
+2. **Standalone ARM64 Python Runtime (`runtime/`)**:
+   - Self-contained Python 3 environment targeting Android Bionic libc.
+   - Standard library packed into a deflated, bytecode-compiled archive (`runtime/lib/python314.zip`) for near-instant import resolution.
+   - Stripped shared dependencies (`libpython3.14.so`, `libcrypto.so.3`, `libssl.so.3`, `libandroid-support.so`) with local CA certificate bundle.
+   - Zero dependence on Termux, system Python, or external package managers.
+
+3. **Bytecode Extraction Engine (`system/bin/hyperdl.bundle`)**:
+   - Packaged zipapp containing precompiled Python bytecode (`.pyc`).
+   - Zero cold-start compilation latency.
+   - Custom HTTP chunk streaming pipeline with resume capabilities and transient network recovery.
+
+4. **Optimized yt-dlp Engine (`system/bin/yt-dlp`)**:
+   - Dedicated fallback and YouTube extraction pipeline.
+   - Bytecode-compiled archive reducing cold startup from 11.0s to 1.5s on ARM64.
+   - Android client emulation (`youtube:player_client=android`) to eliminate playback throttling and solve client validation challenges.
+
+5. **Material 3 Monochrome WebUI (`webroot/index.html`)**:
+   - Built with Vue 3 and Vite, bundled into a single standalone HTML artifact.
+   - Integrated platform detection badges with visual feedback.
+   - Netscape HTTP cookie manager for authenticated and age-gated media downloads.
+   - Live execution console with status tracking and native media player intent triggers.
+
+6. **Clipboard Monitoring Service (`system/bin/hyperdl_daemon`)**:
+   - Background daemon utilizing Android system clipboard events via `cmd clipboard get`.
+   - Automatic regex-based link validation and hands-free media capture.
+
+---
+
+## Platform Support Matrix
+
+| Platform | Format Options | Extraction Strategy | Fallback Engine |
+| :--- | :--- | :--- | :--- |
+| **TikTok** | Video (No Watermark), Audio (MP3), Image Albums | TikWM API | SSR HTML JSON Scrape / yt-dlp |
+| **YouTube** | Video (Best MP4), Audio (M4A/MP3), Shorts | Android Client Bytecode yt-dlp | Embedded Stream Resolver |
+| **Instagram** | Reels, Posts, Carousel Media | GraphQL API / Direct JSON Embed | yt-dlp (Cookie-Aware) |
+| **X (Twitter)** | Videos, GIF Clips | VxTwitter / FxTwitter API | yt-dlp Extractor |
+| **Direct URLs** | MP4, WEBM, MP3, M3U8 Streams | Chunked Direct Streamer | Python urllib Pipeline |
+
+---
+
+## Directory Layout
 
 ```
 HyperDL/
-├── build.sh                 # Minimal Unix build and deploy script
+├── build.sh                 # Zero-dependency build, package, and deploy script
 ├── module.prop              # Magisk and KernelSU module metadata
-├── customize.sh             # On-device module installer
-├── service.sh               # Boot service initialization
-├── uninstall.sh             # Cleanup script
+├── customize.sh             # On-device module installation script
+├── service.sh               # Late-start service initialization script
+├── uninstall.sh             # Module removal and cache purge script
 ├── scripts/
-│   ├── bundle_engine.py     # Python engine bytecode & C header bundler
-│   └── bundle_runtime.py    # Standalone Python 3 runtime packager
+│   ├── bundle_engine.py     # Compiles engine into .pyc bundle and C header
+│   ├── bundle_runtime.py    # Bundles standalone ARM64 Python runtime
+│   └── optimize_ytdlp.py    # Optimizes yt-dlp into pure bytecode archive
 ├── src/
-│   └── main.c               # Native C bridge implementation
+│   └── main.c               # High-performance native C bridge
 ├── system/bin/
-│   ├── libhyperdl.so        # Stripped 64-bit native ELF binary
-│   ├── hyperdl.bundle       # Compiled bytecode Python engine bundle
-│   └── hyperdl_daemon       # Background clipboard listener daemon
+│   ├── libhyperdl.so        # Native 64-bit ELF bridge binary
+│   ├── hyperdl.bundle       # Compiled bytecode Python engine
+│   ├── hyperdl_daemon       # Background clipboard listener daemon
+│   └── yt-dlp               # Bytecode-optimized standalone yt-dlp
 ├── engine/
-│   └── downloader.py        # Core extraction and streaming source
+│   └── downloader.py        # Core extraction algorithms and stream pipelines
 ├── webroot/
 │   └── index.html           # Inlined single-file WebUI distribution
 └── webui/
     ├── src/
-    │   ├── App.vue          # Multi-tab view (Downloader, Cookies, Console)
-    │   ├── assets/main.css  # Monochrome design tokens and styles
-    │   ├── components/      # Vector icons and UI elements
-    │   └── helpers/shell.js # KernelSU / APatch native bridge
+    │   ├── App.vue          # Multi-tab view (Downloader, Cookies, Terminal)
+    │   ├── assets/main.css  # Material Design 3 monochrome theme
+    │   ├── components/      # Vector icons and platform chips
+    │   └── helpers/shell.js # KernelSU / APatch execution bridge
     ├── package.json
-    └── vite.config.js       # Single-file build configuration
+    └── vite.config.js       # Vite single-file configuration
 ```
 
 ---
 
 ## Installation
 
-### Method 1: Flashing Module (Recommended)
-1. Download `HyperDL-v1.0.0.zip` from the latest release.
-2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
-3. Navigate to **Modules** &rarr; **Install from storage**.
-4. Select the zip file and reboot if prompted, or launch the WebUI directly.
+### Method 1: Flashing via Root Manager (Recommended)
 
-### Method 2: Live Local Deploy
-If developing locally in Termux or an ADB root shell:
+1. Download the latest release package (`HyperDL-v1.0.0-Standalone.zip`) from the Releases page.
+2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
+3. Navigate to **Modules** > **Install from storage**.
+4. Select the zip file and confirm installation.
+5. Launch the module WebUI directly from your root manager.
+
+### Method 2: Live Local Deployment
+
+For local development or testing directly on the device:
 
 ```sh
 ./build.sh --deploy
 ```
 
-The script will compile the WebUI bundle, package the module, and deploy it straight to `/data/adb/modules/hyperdl`.
+This compiles the native C binary, packages the WebUI, syncs the standalone runtime, and updates `/data/adb/modules/hyperdl` live without requiring a reboot.
 
 ---
 
-## Building from Source
+## Build System
 
-### Prerequisites
-- Node.js (`node`) and `npm`
-- `zip` utility
-- Python 3 (`python3`)
+### Requirements
 
-### Compilation
+The build pipeline runs entirely in Termux on Android or any Linux environment with ARM64 cross-compilers:
 
-Clone the repository and run the build script:
+- `clang`
+- `zip`
+- `node` and `npm`
+- `python3`
 
-```sh
-git clone https://github.com/itswill00/HyperDL.git
-cd HyperDL
-./build.sh
+### Command Line Options
+
+```
+Usage: ./build.sh [OPTIONS]
+
+Options:
+  -d, --deploy       Deploy module directly to /data/adb/modules/hyperdl
+  -o, --output DIR   Specify custom output directory for zip releases
+  -c, --clean        Clean build caches before build
+  -h, --help         Show this help information
 ```
 
-The compiled, flashable zip file will be generated at `/storage/emulated/0/Download/HyperDL-v1.0.0.zip`.
+### Build Targets
+
+By default, compilation outputs to `/sdcard/HyperDL_Releases/`:
+
+- `HyperDL-v1.0.0-b1000-Standalone.zip`: Canonical release package with full embedded runtime.
+- `HyperDL-v1.0.0.zip`: Standard version alias.
+- `HyperDL-latest.zip`: Latest build alias for update distribution.
+
+Upon completion, `build.sh` issues an Android MediaStore broadcast (`MEDIA_SCANNER_SCAN_FILE`) to make the package immediately visible to system file managers.
 
 ---
 
@@ -112,4 +211,4 @@ The compiled, flashable zip file will be generated at `/storage/emulated/0/Downl
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).
 
-Developed with precision by [@itswill00](https://github.com/itswill00).
+Developed and maintained by [@itswill00](https://github.com/itswill00).

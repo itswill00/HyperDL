@@ -1,7 +1,4 @@
 #!/system/bin/sh
-# HyperDL Build and Deployment Engine
-# Minimal, robust, and zero-dependency build pipeline.
-#
 # Copyright (C) 2026 @itswill00
 # Licensed under the GNU General Public License v3.0
 
@@ -10,7 +7,6 @@ set -e
 PROJECT_DIR="/data/data/com.termux/files/home/HyperDL_Module"
 cd "$PROJECT_DIR"
 
-# Parse command line options
 DEPLOY=false
 CLEAN=false
 CUSTOM_OUTPUT=""
@@ -35,7 +31,7 @@ while [ $# -gt 0 ]; do
             echo "Options:"
             echo "  -d, --deploy       Deploy module directly to /data/adb/modules/hyperdl"
             echo "  -o, --output DIR   Specify custom output directory for zip releases"
-            echo "  -c, --clean        Clean build caches (dist, bundles, runtime) before build"
+            echo "  -c, --clean        Clean build caches before build"
             echo "  -h, --help         Show this help information"
             exit 0
             ;;
@@ -54,7 +50,6 @@ fi
 VERSION=$(grep '^version=' module.prop | cut -d= -f2)
 VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
 
-# Determine output directory
 if [ -n "$CUSTOM_OUTPUT" ]; then
     OUTPUT_DIR="$CUSTOM_OUTPUT"
 elif [ -d "/sdcard" ]; then
@@ -75,7 +70,6 @@ echo "  Version: ${VERSION} (b${VERSION_CODE})"
 echo "  Target:  ${OUTPUT_DIR}/${ZIP_NAME}"
 echo "=========================================="
 
-# Check toolchain prerequisites
 for tool in clang zip node npm python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "error: required tool '$tool' is not installed"
@@ -83,19 +77,16 @@ for tool in clang zip node npm python3; do
     fi
 done
 
-# Clean caches if requested
 if [ "$CLEAN" = "true" ]; then
     echo "cleaning build artifacts and caches..."
     rm -rf webui/dist webroot/index.html system/bin/libhyperdl.so system/bin/hyperdl.bundle runtime
 fi
 
-# 1. Bundle Python Engine into Bytecode Zipapp & Embedded C Header
 if [ -f "scripts/bundle_engine.py" ]; then
     echo "bundling python engine..."
     python3 scripts/bundle_engine.py
 fi
 
-# 2. Compile Native C Bridge Binary
 if [ -f "src/main.c" ]; then
     echo "compiling c native bridge..."
     mkdir -p system/bin
@@ -106,7 +97,6 @@ fi
 
 chmod 755 system/bin/* 2>/dev/null || true
 
-# 3. Compile Standalone WebUI (Ensure 100% independence from HyperCore)
 if [ -d "webui" ]; then
     if [ ! -d "webui/node_modules" ]; then
         echo "installing webui dependencies..."
@@ -128,12 +118,10 @@ if [ -d "webui" ]; then
     cp webui/dist/index.html webroot/index.html
 fi
 
-# 4. Bundle Standalone Python Runtime if missing
 if [ ! -f "runtime/bin/python3" ] && [ -f "scripts/bundle_runtime.py" ]; then
     python3 scripts/bundle_runtime.py
 fi
 
-# 5. Fetch and Bytecode-Optimize Standalone yt-dlp
 if [ ! -f "system/bin/yt-dlp" ]; then
     echo "fetching latest standalone yt-dlp..."
     curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o system/bin/yt-dlp
@@ -144,8 +132,6 @@ if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "system/bin/yt-dlp" ]; then
     python3 scripts/optimize_ytdlp.py system/bin/yt-dlp
 fi
 
-
-# 6. Package Standalone Module Zip
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
 
@@ -160,17 +146,14 @@ zip -qr9 "$OUTPUT_DIR/$ZIP_NAME" \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map" "*.py" "*__pycache__*"
 
-# Create standard aliases
 cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_ALIAS"
 cp -f "$OUTPUT_DIR/$ZIP_NAME" "$OUTPUT_DIR/$ZIP_LATEST"
 
-# Also sync to Download folder for legacy convenience if accessible
 if [ -d "/storage/emulated/0/Download" ] && [ "$OUTPUT_DIR" != "/storage/emulated/0/Download" ]; then
     cp -f "$OUTPUT_DIR/$ZIP_NAME" "/storage/emulated/0/Download/$ZIP_ALIAS"
     am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///storage/emulated/0/Download/$ZIP_ALIAS" >/dev/null 2>&1 || true
 fi
 
-# Notify Android MediaStore so file managers immediately index the new release
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_NAME" >/dev/null 2>&1 || true
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_ALIAS" >/dev/null 2>&1 || true
 
@@ -185,16 +168,15 @@ echo "            ${OUTPUT_DIR}/${ZIP_LATEST}"
 echo "  SHA-256:  ${CHECKSUM}"
 echo "=========================================="
 
-# 7. Live Deployment if requested
 if [ "$DEPLOY" = "true" ]; then
     echo "deploying to live device modules..."
     if su -c "
         if [ -f /data/local/tmp/hyperdl_clip.pid ]; then
-            kill -9 $(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
+            kill -9 \$(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
             rm -f /data/local/tmp/hyperdl_clip.pid
         fi
         if [ -f /data/local/tmp/hyperdl.pid ]; then
-            kill -9 $(cat /data/local/tmp/hyperdl.pid 2>/dev/null) 2>/dev/null || true
+            kill -9 \$(cat /data/local/tmp/hyperdl.pid 2>/dev/null) 2>/dev/null || true
             rm -f /data/local/tmp/hyperdl.pid
         fi
 

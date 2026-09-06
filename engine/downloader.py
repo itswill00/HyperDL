@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-HyperDL Core Downloader Engine
-Mature, multi-platform media downloader for TikTok, Instagram, X, and YouTube.
-Supports custom cookies, PoW challenge bypass, and fallback mirrors.
-"""
 
 import os
 import sys
@@ -27,7 +22,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
     data = {
-        "status": status, # idle, resolving, downloading, completed, error
+        "status": status,
         "percent": percent,
         "speed": speed,
         "downloaded": downloaded,
@@ -72,7 +67,6 @@ def send_android_notification(title, text):
     except Exception:
         pass
 
-# Cookie Management
 def load_cookies(domain=""):
     if not os.path.exists(COOKIES_PATH):
         return {}
@@ -84,7 +78,6 @@ def load_cookies(domain=""):
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                # Netscape tab-separated format
                 parts = line.split("\t")
                 if len(parts) >= 7:
                     c_domain = parts[0].strip().lower()
@@ -95,7 +88,6 @@ def load_cookies(domain=""):
                     if c_name and c_val:
                         cookies[c_name] = c_val
                     continue
-                # key=value format
                 if "=" in line:
                     k, v = line.split("=", 1)
                     cookies[k.strip()] = v.strip()
@@ -107,7 +99,6 @@ def get_cookie_header(domain=""):
     c = load_cookies(domain)
     return "; ".join(f"{k}={v}" for k, v in c.items()) if c else ""
 
-# PoW Challenge Solver for TikTok
 def decode_base64_padded(val):
     padding = (4 - len(val) % 4) % 4
     return base64.b64decode(val + ("=" * padding))
@@ -150,7 +141,6 @@ def solve_tiktok_challenge(html_text):
         print(f"PoW challenge solver error: {e}", file=sys.stderr)
         return ""
 
-# Streaming File Downloader
 def download_file(url, out_path, title="Media", headers=None, emit_error=True):
     hdrs = {
         "User-Agent": USER_AGENT,
@@ -220,7 +210,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True):
             update_status("error", error=str(e), title=title)
         raise
 
-# Candidate Stream Downloader with Fallback
 def download_media_candidates(item, out_path, title):
     candidates = item.get("candidates", [])
     if "url" in item and not candidates:
@@ -241,7 +230,6 @@ def download_media_candidates(item, out_path, title):
             print(f"Stream source [{label}] failed: {e}", file=sys.stderr)
             continue
 
-    # Fallback to alternative mirror resolver if configured
     fallback_func = item.get("fallback")
     if callable(fallback_func):
         print("Direct stream sources failed. Invoking mirror resolver...", file=sys.stderr)
@@ -256,7 +244,6 @@ def download_media_candidates(item, out_path, title):
 
     raise RuntimeError(f"Unable to download stream: {last_err}")
 
-# TikWM Fallback Resolver
 def fetch_tikwm(clean_url, fmt="video"):
     endpoints = [
         "https://www.tikwm.com/api/",
@@ -337,20 +324,16 @@ def fetch_tikwm(clean_url, fmt="video"):
             continue
     raise RuntimeError(f"TikWM mirror failed: {last_err}")
 
-# TikTok Resolver
 def resolve_tiktok(url, fmt="video"):
     update_status("resolving", title="Resolving TikTok media...")
     cookie_hdr = get_cookie_header("tiktok.com")
 
-    # Fast path: If user has not configured TikTok cookies, TikWM is 10x faster (<0.8s)
-    # and resolves vt.tiktok.com shortlinks without redirect overhead.
     if not cookie_hdr:
         try:
             return fetch_tikwm(url, fmt)
         except Exception as e:
             print(f"Fast TikWM path note: {e}, attempting direct scrape...", file=sys.stderr)
 
-    # Direct Scrape / Custom Cookie Path
     clean_url = url
     if "vt.tiktok.com" in url or "vm.tiktok.com" in url:
         try:
@@ -374,7 +357,6 @@ def resolve_tiktok(url, fmt="video"):
         with urllib.request.urlopen(req, timeout=7) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
 
-        # Solve PoW if challenge presented
         if 'id="cs"' in html and 'id="wci"' in html:
             chal_cookie = solve_tiktok_challenge(html)
             if chal_cookie:
@@ -393,7 +375,6 @@ def resolve_tiktok(url, fmt="video"):
             if item:
                 title = item.get("desc") or "TikTok Video"
                 
-                # Photos / Album
                 image_post = item.get("imagePost", {})
                 if image_post and image_post.get("images"):
                     images = []
@@ -421,7 +402,6 @@ def resolve_tiktok(url, fmt="video"):
                 if cookie_hdr:
                     tt_headers["Cookie"] = cookie_hdr
 
-                # Audio Only
                 if fmt == "audio":
                     music = item.get("music", {})
                     music_url = music.get("playUrl") or music.get("play_url")
@@ -434,7 +414,6 @@ def resolve_tiktok(url, fmt="video"):
                             "fallback": lambda: fetch_tikwm(clean_url, "audio")
                         }
 
-                # Video Candidates
                 video = item.get("video", {})
                 candidates = []
                 seen_urls = set()
@@ -469,7 +448,6 @@ def resolve_tiktok(url, fmt="video"):
 
     return fetch_tikwm(clean_url, fmt)
 
-# Instagram Resolver
 def resolve_instagram(url):
     update_status("resolving", title="Resolving Instagram media...")
     shortcode_match = re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
@@ -486,7 +464,6 @@ def resolve_instagram(url):
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
-    # 1. Direct GraphQL API (with user sessionid if available)
     if cookie_hdr and "sessionid=" in cookie_hdr:
         try:
             gql_url = f"https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables=%7B%22shortcode%22%3A%22{shortcode}%22%7D"
@@ -503,14 +480,12 @@ def resolve_instagram(url):
         except Exception as e:
             print(f"Instagram GraphQL query failed: {e}", file=sys.stderr)
 
-    # 2. Public Embed Extraction Fallback
     try:
         embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
         req = urllib.request.Request(embed_url, headers=hdrs)
         with urllib.request.urlopen(req, timeout=5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
         
-        # Look for video URL in embed script
         vid_match = re.search(r'"video_url"\s*:\s*"([^"]+)"', html)
         if vid_match:
             vurl = vid_match.group(1).replace("\\u0026", "&").replace("\\", "")
@@ -523,7 +498,6 @@ def resolve_instagram(url):
     except Exception as e:
         print(f"Instagram embed extraction failed: {e}", file=sys.stderr)
 
-    # 3. Fallback to yt-dlp engine
     try:
         return resolve_youtube(url, fmt="video")
     except Exception as ye:
@@ -531,7 +505,6 @@ def resolve_instagram(url):
 
     raise RuntimeError("Unable to load Instagram media (try adding cookies in Settings)")
 
-# X (Twitter) Resolver
 def resolve_twitter(url):
     update_status("resolving", title="Resolving X/Twitter post...")
     status_id_match = re.search(r'status/(\d+)', url)
@@ -539,7 +512,6 @@ def resolve_twitter(url):
         raise RuntimeError("Invalid X/Twitter link")
     status_id = status_id_match.group(1)
 
-    # 1. VxTwitter API Mirror (fastest, ~300ms)
     try:
         req = urllib.request.Request(f"https://api.vxtwitter.com/Twitter/status/{status_id}", headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -553,7 +525,6 @@ def resolve_twitter(url):
     except Exception as e:
         print(f"VxTwitter resolution failed: {e}", file=sys.stderr)
 
-    # 2. FxTwitter API Mirror
     try:
         req = urllib.request.Request(f"https://api.fxtwitter.com/status/{status_id}", headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=5) as resp:
@@ -566,7 +537,6 @@ def resolve_twitter(url):
     except Exception as e:
         print(f"FxTwitter resolution failed: {e}", file=sys.stderr)
 
-    # 3. Fallback to yt-dlp engine
     try:
         return resolve_youtube(url, fmt="video")
     except Exception as ye:
@@ -574,7 +544,6 @@ def resolve_twitter(url):
 
     raise RuntimeError("Unable to extract media from this post")
 
-# YouTube Resolver
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
 def get_or_download_ytdlp():
@@ -594,7 +563,6 @@ def get_or_download_ytdlp():
     if p:
         return p
 
-    # Auto-download standalone yt-dlp to /data/adb/hyperdl/bin/yt-dlp
     target_dir = os.path.join(CONF_DIR, "bin")
     os.makedirs(target_dir, exist_ok=True)
     target_path = os.path.join(target_dir, "yt-dlp")
@@ -609,7 +577,6 @@ def get_or_download_ytdlp():
     with urllib.request.urlopen(req, timeout=60) as resp, open(tmp_path, "wb") as f:
         f.write(resp.read())
 
-    # Precompile to bytecode zipapp for instant mobile execution
     try:
         import tempfile, compileall, zipfile
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -643,7 +610,6 @@ def resolve_youtube(url, fmt="video"):
 
     ytdlp_bin = get_or_download_ytdlp()
 
-    # Find best Python runtime (prefer uncompressed Termux if present, else standalone)
     py_candidates = [
         "/data/data/com.termux/files/usr/bin/python3",
         "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -662,7 +628,6 @@ def resolve_youtube(url, fmt="video"):
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
     format_arg = ["-f", "ba/b"] if fmt == "audio" else ["-f", "best[ext=mp4]/best"]
 
-    # Fast path: android client avoids JS runtime requirement and skips multi-client SABR wait loops
     cmd_fast = [
         py_bin,
         ytdlp_bin,
@@ -694,7 +659,6 @@ def resolve_youtube(url, fmt="video"):
         ext = "mp3" if fmt == "audio" else "mp4"
         return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
 
-    # Fallback without restricted client args if fast path failed
     cmd_fallback = [
         py_bin,
         ytdlp_bin,
@@ -742,7 +706,6 @@ def main():
         elif "youtube.com" in low_url or "youtu.be" in low_url:
             info = resolve_youtube(url, fmt)
         else:
-            # Universal fallback for Facebook, Reddit, Pinterest, SoundCloud, etc.
             info = resolve_youtube(url, fmt)
 
         title = sanitize_filename(info.get("title", "Media"))
