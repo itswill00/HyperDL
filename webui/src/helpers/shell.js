@@ -64,14 +64,6 @@ export function base64DecodeUtf8(str) {
   }
 }
 
-export function isKSU() {
-  return typeof ksu !== 'undefined'
-}
-
-export function isRootBridgeAvailable() {
-  return typeof ksu !== 'undefined' || typeof exec === 'function'
-}
-
 export async function openMediaFile(filePath) {
   if (!filePath) return
   const safePath = filePath.replace(/"/g, '\\"')

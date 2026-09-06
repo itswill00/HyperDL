@@ -30,13 +30,23 @@ def main():
     with open(SRC_PY, "rb") as f:
         code = f.read()
 
-    # 1. Generate C header with compressed payload
+    # 1. Generate C header with compressed payload (byte array for strict ISO C99 compliance)
     compressed = base64.b64encode(zlib.compress(code, 9)).decode("ascii")
+    byte_vals = [f"0x{b:02x}" for b in compressed.encode("ascii")] + ["0x00"]
+    chunk_size = 16
+    lines = [
+        "    " + ", ".join(byte_vals[i : i + chunk_size]) + ","
+        for i in range(0, len(byte_vals), chunk_size)
+    ]
+    array_content = "\n".join(lines)
+
     header_content = f"""/* Auto-generated embedded Python engine payload */
 #ifndef EMBEDDED_ENGINE_H
 #define EMBEDDED_ENGINE_H
 
-static const char EMBEDDED_ENGINE_B64[] = "{compressed}";
+static const char EMBEDDED_ENGINE_B64[] = {{
+{array_content}
+}};
 
 #endif /* EMBEDDED_ENGINE_H */
 """

@@ -23,7 +23,6 @@
 
 #define STATUS_FILE    "/data/local/tmp/hyperdl_status.json"
 #define PID_FILE       "/data/local/tmp/hyperdl.pid"
-#define CLIP_PID_FILE  "/data/local/tmp/hyperdl_clip.pid"
 #define LOG_FILE       "/data/local/tmp/hyperdl_engine.log"
 #define CONF_DIR       "/data/adb/hyperdl"
 #define COOKIES_FILE   "/data/adb/hyperdl/cookies.txt"
