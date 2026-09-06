@@ -9,6 +9,9 @@ import uuid
 import base64
 import hashlib
 import argparse
+import subprocess
+import shutil
+import html as pyhtml
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -211,7 +214,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             update_status("error", error=str(e), title=title)
         raise
 
-def download_media_candidates(item, out_path, title):
+def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
         outdir = os.path.dirname(out_path) or "."
         return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False))
@@ -229,7 +232,7 @@ def download_media_candidates(item, out_path, title):
         label = cand.get("label", f"Candidate {idx}")
         print(f"Attempting stream source [{label}]...", file=sys.stderr)
         try:
-            return download_file(url, out_path, title=title, headers=hdrs, emit_error=False)
+            return download_file(url, out_path, title=title, headers=hdrs, emit_error=False, emit_complete=emit_complete)
         except Exception as e:
             last_err = e
             print(f"Stream source [{label}] failed: {e}", file=sys.stderr)
@@ -245,7 +248,7 @@ def download_media_candidates(item, out_path, title):
                 if fb_item.get("direct_ytdlp"):
                     outdir = os.path.dirname(out_path) or "."
                     return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False))
-                return download_media_candidates(fb_item, out_path, title)
+                return download_media_candidates(fb_item, out_path, title, emit_complete=emit_complete)
         except Exception as fe:
             last_err = fe
             print(f"Mirror resolver failed: {fe}", file=sys.stderr)
@@ -279,7 +282,7 @@ def fetch_tikwm(clean_url, fmt="video"):
                     if music_url:
                         return {
                             "title": title,
-                            "ext": "flac",
+                            "ext": "mp3",
                             "kind": "audio",
                             "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}, "label": "TikWM Audio"}]
                         }
@@ -421,7 +424,7 @@ def resolve_tiktok(url, fmt="video"):
                     if music_url:
                         return {
                             "title": title,
-                            "ext": "flac",
+                            "ext": "mp3",
                             "kind": "audio",
                             "candidates": [{"url": music_url, "headers": tt_headers, "label": "Direct Audio"}],
                             "fallback": lambda: fetch_tikwm(clean_url, "audio")
@@ -1334,15 +1337,21 @@ def main():
                 ffmpeg_bin = get_ffmpeg_binary()
                 if ffmpeg_bin:
                     tmp_raw = os.path.join(outdir, f".tmp_{int(time.time())}_{title}.raw")
-                    download_media_candidates(info, tmp_raw, title=title)
+                    download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
                     out_path = os.path.join(outdir, f"{title}_{int(time.time())}.flac")
                     update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
-                    subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
-                    if os.path.exists(tmp_raw):
-                        try:
-                            os.remove(tmp_raw)
-                        except Exception:
-                            pass
+                    res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
+                    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+                        fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
+                        out_path = os.path.join(outdir, f"{title}_{int(time.time())}.{fallback_ext}")
+                        if os.path.exists(tmp_raw):
+                            os.replace(tmp_raw, out_path)
+                    else:
+                        if os.path.exists(tmp_raw):
+                            try:
+                                os.remove(tmp_raw)
+                            except Exception:
+                                pass
                     try:
                         os.chmod(out_path, 0o666)
                     except Exception:
