@@ -86,6 +86,11 @@
       <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
     </g>
 
+    <g v-else-if="name === 'close'">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </g>
+
     <g v-else-if="name === 'x' || name === 'twitter'">
       <path d="M18.9 3H22l-6.8 7.8L22.5 21h-3.4l-5.3-6.9-6.1 6.9H4.6l7.3-8.3L4 3h3.5l4.8 6.3zm-1.2 16.2h1.9L8.6 4.7H6.6z" fill="currentColor" stroke="none" />
     </g>
@@ -116,6 +121,11 @@
     <g v-else-if="name === 'link'">
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </g>
+
+    <g v-else-if="name === 'copy'">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </g>
   </svg>
 </template>

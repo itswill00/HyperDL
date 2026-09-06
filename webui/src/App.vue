@@ -11,7 +11,7 @@
           {{ storageFree }} free
         </span>
         <span class="badge-pill active">
-          v1.0.0
+          {{ sysInfo.version || 'v1.1.0' }}
         </span>
       </div>
     </header>
@@ -65,6 +65,7 @@
               class="text-input"
               v-model="url"
               placeholder="Paste media link here..."
+              @paste="onPasteInput"
               @keyup.enter="startDownload"
             />
             <button
@@ -98,6 +99,15 @@
             </div>
           </div>
 
+          <div v-if="detectedPlatform.id === 'instagram'" class="platform-notice-box">
+            <Icons name="info" :size="14" style="color: var(--secondary); margin-top: 1px;" />
+            <div style="flex: 1;">
+              <span style="font-weight: 600; color: var(--on-surface);">Meta Anti-Bot:</span>
+              Instagram frequently blocks anonymous access. If download fails, add your session cookies in the
+              <a href="javascript:void(0)" @click="activeTab = 'cookies'" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Cookies tab</a>.
+            </div>
+          </div>
+
                     <div style="margin-top: 14px;">
             <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
               Format
@@ -117,7 +127,7 @@
                 @click="selectedFormat = 'audio'"
               >
                 <Icons name="music" :size="14" />
-                <span>Audio</span>
+                <span>Audio (FLAC)</span>
               </div>
               <div
                 class="chip-item"
@@ -128,17 +138,22 @@
                 <span>Photos</span>
               </div>
             </div>
+            <div class="format-desc-hint">
+              <span v-if="selectedFormat === 'video'">Original video stream with best available audio</span>
+              <span v-else-if="selectedFormat === 'audio'">Lossless studio audio (FLAC 24-bit / 48 kHz HD)</span>
+              <span v-else-if="selectedFormat === 'album'">Original high-res photos & carousel images</span>
+            </div>
           </div>
 
                     <div style="margin-top: 16px;">
             <button
               class="btn btn-primary"
               style="width: 100%; height: 44px; font-size: 14px;"
-              :disabled="!url.trim() || isProcessing"
+              :disabled="!url.trim() || isProcessing || isProbingResolutions"
               @click="startDownload"
             >
-              <Icons :name="isProcessing ? 'refresh' : 'download'" :size="16" />
-              <span>{{ isProcessing ? 'Downloading...' : 'Download' }}</span>
+              <Icons :name="(isProcessing || isProbingResolutions) ? 'refresh' : 'download'" :size="16" />
+              <span>{{ isProcessing ? 'Downloading...' : isProbingResolutions ? 'Checking resolutions...' : 'Download' }}</span>
             </button>
           </div>
         </section>
@@ -153,14 +168,25 @@
                 <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
                   {{ taskStatusTitle }}
                 </div>
-                <div style="font-size: 11px; color: var(--on-surface-variant); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <div style="font-size: 11px; color: var(--on-surface-variant); max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   {{ task.title || url }}
                 </div>
               </div>
             </div>
-            <span class="badge-pill" :class="{ active: task.status === 'completed' }">
-              {{ task.percent }}%
-            </span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge-pill" :class="{ active: task.status === 'completed' }">
+                {{ task.percent }}%
+              </span>
+              <button
+                v-if="task.status === 'completed' || task.status === 'error'"
+                class="icon-btn"
+                style="width: 26px; height: 26px; font-size: 11px;"
+                @click="dismissTask"
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
                     <div class="progress-track">
@@ -172,8 +198,26 @@
             <span>{{ task.speed ? task.speed : '' }}</span>
           </div>
 
-                    <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
-            {{ task.error || 'Download failed' }}
+                    <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
+            <div style="font-weight: 500; word-break: break-word;">{{ task.error || 'Download failed' }}</div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button
+                class="btn btn-secondary"
+                style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
+                @click="startDownload"
+              >
+                <Icons name="refresh" :size="12" />
+                Retry
+              </button>
+              <button
+                v-if="(task.error || '').toLowerCase().includes('cookie') || (task.error || '').toLowerCase().includes('instagram')"
+                class="btn btn-secondary"
+                style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
+                @click="activeTab = 'cookies'"
+              >
+                Configure Cookies
+              </button>
+            </div>
           </div>
 
                     <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
@@ -184,6 +228,9 @@
             <button class="btn btn-secondary" :disabled="openingFolder" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
               <Icons name="folder" :size="14" />
               {{ openingFolder ? 'Opening...' : 'Open folder' }}
+            </button>
+            <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="dismissTask">
+              Dismiss
             </button>
           </div>
         </section>
@@ -300,6 +347,10 @@
               <Icons name="check" :size="14" />
               Save cookies
             </button>
+            <button class="btn btn-secondary" style="padding: 10px 14px;" @click="pasteCookiesClipboard">
+              <Icons name="clipboard" :size="14" />
+              Paste
+            </button>
             <button
               v-if="cookiesActive"
               class="btn btn-secondary"
@@ -375,6 +426,10 @@
               <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-detecting...' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Audio engine</span>
+              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Available storage</span>
               <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
             </div>
@@ -384,17 +439,27 @@
             </div>
             <div style="display: flex; justify-content: space-between;">
               <span style="color: var(--on-surface-variant);">Root bridge</span>
-              <span style="color: var(--on-surface);">KernelSU / APatch</span>
+              <span style="color: var(--on-surface);">KernelSU / APatch / Magisk</span>
             </div>
           </div>
         </section>
 
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
           <div class="section-title" style="margin: 0;">Engine log</div>
-          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
-            <Icons name="refresh" :size="12" />
-            Refresh
-          </button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
+              <Icons name="refresh" :size="12" />
+              Refresh
+            </button>
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="copyLogs">
+              <Icons name="copy" :size="12" />
+              Copy
+            </button>
+            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px; color: var(--error);" @click="clearLogs">
+              <Icons name="trash" :size="12" />
+              Clear
+            </button>
+          </div>
         </div>
 
         <div class="terminal-card">
@@ -416,6 +481,76 @@
       </div>
     </transition>
 
+        <transition name="sheet-slide">
+      <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
+        <div class="sheet-panel">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select resolution</span>
+              <span v-if="isProbingResolutions" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
+                Checking...
+              </span>
+            </div>
+            <button class="icon-btn" @click="closeResolutionPicker">
+              <Icons name="close" :size="18" />
+            </button>
+          </div>
+
+          <!-- Loading skeleton while probing -->
+          <div v-if="isProbingResolutions" class="probe-loading-area">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 0 16px 0;">
+              <div class="spin-loader">
+                <Icons name="refresh" :size="16" />
+              </div>
+              <span style="font-size: 13px; color: var(--on-surface-variant);">Scanning available resolutions...</span>
+            </div>
+            <div class="skeleton-list">
+              <div class="skeleton-row" style="animation-delay: 0s;"></div>
+              <div class="skeleton-row" style="animation-delay: 0.15s;"></div>
+              <div class="skeleton-row" style="animation-delay: 0.3s;"></div>
+            </div>
+            <div style="margin-top: 14px;">
+              <button class="btn btn-secondary" style="width: 100%; height: 38px; font-size: 12px;" @click="closeResolutionPicker">
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <!-- Loaded resolution list -->
+          <div v-else-if="resolutions.length > 0" class="resolution-list">
+            <button
+              v-for="r in resolutions"
+              :key="r.height || r.format_id"
+              class="resolution-row"
+              @click="downloadWithResolution(r)"
+            >
+              <span class="res-label">
+                <span class="res-badge">{{ r.height >= 720 ? (r.height >= 2160 ? '4K' : (r.height >= 1440 ? '2K' : 'HD')) : 'SD' }}</span>
+                <span>{{ r.label || (r.height + 'p') }}</span>
+                <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
+              </span>
+              <span class="res-size">{{ formatFileSize(r.filesize) || 'Best quality' }}</span>
+            </button>
+            <div style="margin-top: 6px;">
+              <button class="btn btn-secondary" style="width: 100%; height: 38px; font-size: 12px;" @click="downloadWithResolution(null)">
+                Download Default (Best Quality)
+              </button>
+            </div>
+          </div>
+
+          <!-- Empty fallback -->
+          <div v-else class="probe-empty-area">
+            <p style="color: var(--on-surface-variant); font-size: 12px; margin-bottom: 12px; text-align: center;">
+              Could not detect specific stream formats.
+            </p>
+            <button class="btn btn-primary" style="width: 100%; height: 42px;" @click="downloadWithResolution(null)">
+              Download Default Quality
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
   </div>
 </template>
 
@@ -433,6 +568,10 @@ const autoDl = ref(false)
 const storageFree = ref('')
 const toastMsg = ref('')
 
+const resolutions = ref([])
+const showResolutionPicker = ref(false)
+const isProbingResolutions = ref(false)
+const pendingUrl = ref('')
 const cookiesText = ref('')
 const cookiesActive = ref(false)
 const cookiesLines = ref(0)
@@ -496,25 +635,49 @@ const taskStatusTitle = computed(() => {
 
 function getExtIcon(ext) {
   const e = (ext || '').toLowerCase()
-  if (['mp4', 'mkv', 'webm', 'mov'].includes(e)) return 'video'
-  if (['mp3', 'm4a', 'aac', 'ogg'].includes(e)) return 'music'
+  if (['mp4', 'mkv', 'webm', 'mov', 'avi'].includes(e)) return 'video'
+  if (['flac', 'wav', 'mp3', 'm4a', 'aac', 'ogg', 'opus'].includes(e)) return 'music'
   return 'image'
 }
 
+function shellEscape(arg) {
+  return "'" + String(arg).replace(/'/g, "'\\''") + "'"
+}
+
+function extractUrl(text) {
+  if (!text) return ''
+  const match = String(text).match(/https?:\/\/[^\s<>"]+/)
+  return match ? match[0].trim() : text.trim()
+}
+
+function onPasteInput() {
+  setTimeout(() => {
+    if (url.value) {
+      url.value = extractUrl(url.value)
+    }
+  }, 50)
+}
+
+function dismissTask() {
+  task.value = {
+    status: 'idle',
+    percent: 0,
+    speed: '',
+    downloaded: '',
+    total: '',
+    title: '',
+    file_path: '',
+    error: ''
+  }
+}
+
 async function runBridge(action, ...args) {
-  const params = args.map(a => `"${String(a).replace(/"/g, '\\"')}"`).join(' ')
+  const safeAction = shellEscape(action)
+  const safeParams = args.map(shellEscape).join(' ')
+  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
-  const cmd = `sh -c '
-    if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then
-      /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${action} ${params}
-    elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then
-      /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${action} ${params}
-    else
-      echo "binary_not_found"
-    fi
-  '`
-  
-  const res = await execCommand(cmd, 15000)
+  const timeoutMs = action === 'probe' ? 50000 : 15000
+  const res = await execCommand(cmd, timeoutMs)
   return (res || '').trim()
 }
 
@@ -523,45 +686,45 @@ async function pasteClipboard() {
     urlInput.value.focus()
   }
 
+  let text = ''
   if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
     try {
-      const text = await navigator.clipboard.readText()
-      if (text && text.trim()) {
-        url.value = text.trim()
-        showToast('Link pasted')
-        return
+      text = await navigator.clipboard.readText()
+    } catch (e) {}
+  }
+
+  if (!text) {
+    try {
+      if (urlInput.value) {
+        urlInput.value.focus()
+        urlInput.value.select()
+        const ok = document.execCommand('paste')
+        if (ok && urlInput.value.value) {
+          text = urlInput.value.value
+        }
       }
     } catch (e) {}
   }
 
-  try {
-    if (urlInput.value) {
-      urlInput.value.focus()
-      urlInput.value.select()
-      const ok = document.execCommand('paste')
-      if (ok && urlInput.value.value && urlInput.value.value.trim()) {
-        url.value = urlInput.value.value.trim()
-        urlInput.value.dispatchEvent(new Event('input', { bubbles: true }))
-        showToast('Link pasted')
-        return
+  if (!text) {
+    try {
+      if (urlInput.value) {
+        urlInput.value.focus()
+        urlInput.value.select()
+        await execCommand('input keyevent 279', 2000)
+        await new Promise(resolve => setTimeout(resolve, 150))
+        if (urlInput.value.value) {
+          text = urlInput.value.value
+        }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
 
-  try {
-    if (urlInput.value) {
-      urlInput.value.focus()
-      urlInput.value.select()
-      await execCommand('input keyevent 279', 2000)
-      await new Promise(resolve => setTimeout(resolve, 150))
-      if (urlInput.value.value && urlInput.value.value.trim()) {
-        url.value = urlInput.value.value.trim()
-        urlInput.value.dispatchEvent(new Event('input', { bubbles: true }))
-        showToast('Link pasted')
-        return
-      }
-    }
-  } catch (e) {}
+  if (text && text.trim()) {
+    url.value = extractUrl(text)
+    showToast('Link pasted')
+    return
+  }
 
   if (urlInput.value) {
     urlInput.value.focus()
@@ -569,8 +732,69 @@ async function pasteClipboard() {
   showToast('Tap & hold input box to paste')
 }
 
+function needsResolutionPicker(u) {
+  const l = u.toLowerCase()
+  return l.includes('youtube.com') || l.includes('youtu.be')
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(0) + ' MB'
+  return (bytes / 1024).toFixed(0) + ' KB'
+}
+
+function closeResolutionPicker() {
+  showResolutionPicker.value = false
+  isProbingResolutions.value = false
+}
+
 async function startDownload() {
-  if (!url.value.trim() || isProcessing.value) return
+  if (!url.value.trim() || isProcessing.value || isProbingResolutions.value) return
+
+  const clean = extractUrl(url.value)
+  url.value = clean
+  const u = clean
+
+  if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
+    isProbingResolutions.value = true
+    showResolutionPicker.value = true
+    resolutions.value = []
+    pendingUrl.value = u
+    try {
+      const raw = await runBridge('probe', u)
+      let parsed = null
+      try {
+        const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
+        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw)
+      } catch (e) {}
+      if (parsed && parsed.resolutions && parsed.resolutions.length > 0) {
+        resolutions.value = parsed.resolutions
+        isProbingResolutions.value = false
+        return
+      }
+    } catch (e) {}
+    isProbingResolutions.value = false
+    if (!showResolutionPicker.value) return
+    showToast('Could not fetch resolutions, tap below to continue')
+    return
+  }
+
+  await doDownload(u, selectedFormat.value, null)
+}
+
+async function downloadWithResolution(r) {
+  showResolutionPicker.value = false
+  let extraArg = null
+  if (r && r.height) {
+    extraArg = `--height=${r.height}`
+  } else if (r && r.format_id) {
+    extraArg = `--format-id=${r.format_id}`
+  }
+  await doDownload(pendingUrl.value, selectedFormat.value, extraArg)
+}
+
+async function doDownload(u, fmt, extraArg) {
   isProcessing.value = true
   task.value = {
     status: 'resolving',
@@ -578,14 +802,18 @@ async function startDownload() {
     speed: '',
     downloaded: '',
     total: '',
-    title: url.value,
+    title: u,
     file_path: '',
     error: ''
   }
 
   showToast('Starting download...')
   try {
-    await runBridge('download', url.value.trim(), selectedFormat.value)
+    if (extraArg) {
+      await runBridge('download', u, fmt, extraArg)
+    } else {
+      await runBridge('download', u, fmt)
+    }
     startPolling()
   } catch (e) {
     task.value.status = 'error'
@@ -711,6 +939,21 @@ async function saveCookies() {
   }
 }
 
+async function pasteCookiesClipboard() {
+  let text = ''
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      text = await navigator.clipboard.readText()
+    } catch (e) {}
+  }
+  if (text && text.trim()) {
+    cookiesText.value = text.trim()
+    showToast('Cookies pasted')
+    return
+  }
+  showToast('Tap & hold text box to paste')
+}
+
 async function clearCookies() {
   if (!confirm('Clear all stored cookies?')) return
   try {
@@ -727,9 +970,35 @@ async function clearCookies() {
 async function fetchLogs() {
   try {
     const logs = await runBridge('get_logs')
-    logContent.value = logs || 'No log entries.'
+    logContent.value = logs || 'No log entries recorded yet.'
   } catch (e) {
     logContent.value = 'Failed to load console logs.'
+  }
+}
+
+async function copyLogs() {
+  if (!logContent.value || logContent.value === 'No log entries recorded yet.') {
+    showToast('No logs to copy')
+    return
+  }
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(logContent.value)
+      showToast('Logs copied to clipboard')
+      return
+    }
+  } catch (e) {}
+  showToast('Copied to clipboard')
+}
+
+async function clearLogs() {
+  if (!confirm('Clear all daemon engine logs?')) return
+  try {
+    await runBridge('clear_logs')
+    logContent.value = 'No log entries recorded yet.'
+    showToast('Logs cleared')
+  } catch (e) {
+    showToast('Failed to clear logs')
   }
 }
 
@@ -765,6 +1034,28 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.platform-notice-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  border-left: 3px solid var(--secondary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  line-height: 1.5;
+}
+
+.format-desc-hint {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  margin-top: 6px;
+  padding-left: 2px;
+}
+
 .tabs-control {
   display: flex;
   background: var(--surface-container-low);
@@ -884,5 +1175,177 @@ onUnmounted(() => {
 .toast-fade-leave-to {
   opacity: 0;
   transform: translate(-50%, -10px);
+}
+
+/* Resolution Picker Sheet Modal */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet-panel {
+  width: 100%;
+  max-width: 520px;
+  background: var(--surface-container);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border: 1px solid var(--surface-container-high);
+  border-bottom: none;
+  padding: 18px 16px calc(24px + var(--window-inset-bottom, 0px)) 16px;
+  max-height: 75vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.6);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
+  background: var(--surface-container-highest);
+}
+
+.spin-loader {
+  animation: spin 1s linear infinite;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 8px 0;
+}
+
+.skeleton-row {
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--surface-container-low) 25%, var(--surface-container-high) 50%, var(--surface-container-low) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border: 1px solid var(--outline-variant);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.res-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-container-high);
+  color: var(--primary);
+  border: 1px solid var(--outline-variant);
+  margin-right: 2px;
+}
+
+.fps-tag {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  font-weight: 500;
+}
+
+.resolution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+.resolution-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-surface);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.resolution-row:hover {
+  background: var(--surface-container-high);
+  border-color: var(--primary);
+}
+
+.resolution-row:active {
+  transform: scale(0.98);
+  background: var(--surface-container-highest);
+}
+
+.res-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.res-size {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  font-weight: 500;
+}
+
+.probe-empty-area {
+  padding: 12px 0 6px 0;
+}
+
+.sheet-slide-enter-active,
+.sheet-slide-leave-active {
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sheet-slide-enter-active .sheet-panel,
+.sheet-slide-leave-active .sheet-panel {
+  transition: transform 0.32s cubic-bezier(0.32, 1, 0.23, 1);
+}
+
+.sheet-slide-enter-from,
+.sheet-slide-leave-to {
+  opacity: 0;
+}
+
+.sheet-slide-enter-from .sheet-panel,
+.sheet-slide-leave-to .sheet-panel {
+  transform: translateY(100%);
 }
 </style>
