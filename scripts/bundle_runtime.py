@@ -55,27 +55,44 @@ def main():
             shutil.copy(ca, f"{lib_dir}/cacert.pem")
             break
 
-    # 4. Copy dynamic extension modules
+    # 4. Copy dynamic extension modules (excluding test and non-essential modules)
     dyn_src = f"{TERMUX_USR}/lib/python3.14/lib-dynload"
+    skip_dyn = (
+        "_test",
+        "_ctypes_test",
+        "_xxtest",
+        "xx",
+        "_curses",
+        "_dbm",
+        "_gdbm",
+        "_remote_debugging",
+        "_lsprof",
+        "_interp",
+    )
     for f in glob.glob(f"{dyn_src}/*.so"):
         base = os.path.basename(f)
+        if any(base.startswith(s) for s in skip_dyn):
+            continue
         dst = os.path.join(dyn_dir, base)
         shutil.copy(f, dst)
         os.chmod(dst, 0o755)
 
-    # 5. Package standard library into compressed python314.zip
+    # 5. Package standard library into minimal compressed python314.zip
     zip_path = os.path.join(lib_dir, "python314.zip")
     src_stdlib = f"{TERMUX_USR}/lib/python3.14"
-    skip_dirs = {"lib-dynload", "site-packages", "test", "tkinter", "idlelib", "turtledemo"}
+    skip_dirs = {
+        "lib-dynload", "site-packages", "test", "tests",
+        "tkinter", "idlelib", "turtledemo", "pydoc_data",
+        "_pyrepl", "unittest", "ensurepip", "__pycache__"
+    }
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for root, dirs, files in os.walk(src_stdlib):
-            # Prune skipped directories
-            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith("__")]
             if any(s in root for s in skip_dirs):
                 continue
             for f in files:
-                if f.endswith((".py", ".pyc")):
+                if f.endswith(".py") and not f.endswith("_test.py") and not f.startswith("test_"):
                     full = os.path.join(root, f)
                     rel = os.path.relpath(full, src_stdlib)
                     z.write(full, rel)

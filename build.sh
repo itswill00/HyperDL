@@ -94,6 +94,7 @@ if [ "$1" = "--deploy" ]; then
         cp -f system/bin/hyperdl_daemon \"\$MOD_TARGET/system/bin/hyperdl_daemon\"
         cp -f webroot/index.html \"\$MOD_TARGET/webroot/index.html\"
 
+        rm -rf \"\$MOD_TARGET/runtime\"
         mkdir -p \"\$MOD_TARGET/runtime\"
         cp -rf runtime/* \"\$MOD_TARGET/runtime/\"
 
