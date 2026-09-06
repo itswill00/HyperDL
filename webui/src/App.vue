@@ -6,15 +6,12 @@
         <div class="page-header-title">HyperDL</div>
         <div class="page-header-sub">Media downloader</div>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
         <span class="badge-pill offline" v-if="!isOnline">
           <Icons name="wifi-off" :size="11" />
           Offline
         </span>
-        <span class="badge-pill" v-if="storageFree">
-          {{ storageFree }} free
-        </span>
-        <span class="badge-pill active">
+        <span class="badge-pill active" v-else>
           {{ sysInfo.version || 'v1.2.0' }}
         </span>
       </div>
@@ -92,6 +89,7 @@
               ✕
             </button>
             <button
+              v-else
               class="btn btn-secondary"
               style="padding: 6px 12px; font-size: 11px; margin-left: 4px;"
               @click="pasteClipboard"
@@ -174,21 +172,21 @@
         </section>
 
                 <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
               <div class="icon-badge">
                 <Icons :name="task.status === 'completed' ? 'check' : 'download'" :size="18" />
               </div>
-              <div>
+              <div style="min-width: 0; flex: 1;">
                 <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
                   {{ taskStatusTitle }}
                 </div>
-                <div style="font-size: 11px; color: var(--on-surface-variant); max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <div style="font-size: 11px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   {{ task.title || url }}
                 </div>
               </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
               <span class="badge-pill" :class="{ active: task.status === 'completed' }">
                 {{ task.percent }}%
               </span>
@@ -266,12 +264,9 @@
               <Icons name="play" :size="14" />
               {{ openingPath === task.file_path ? 'Opening...' : 'Open media' }}
             </button>
-            <button class="btn btn-secondary" :disabled="openingFolder" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
+            <button class="btn btn-secondary" :disabled="openingFolder" style="padding: 8px 14px; font-size: 12px;" @click="openMediaFolder">
               <Icons name="folder" :size="14" />
               {{ openingFolder ? 'Opening...' : 'Open folder' }}
-            </button>
-            <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="dismissTask">
-              Dismiss
             </button>
           </div>
         </section>
@@ -310,36 +305,41 @@
           </div>
         </div>
 
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
-            <span v-if="selectedFiles.size > 0" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
-              {{ selectedFiles.size }} selected
-            </span>
-          </div>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <template v-if="selectedFiles.size > 0">
+                <!-- Recent downloads header / contextual selection toolbar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px; min-height: 32px;">
+          <!-- Selection Mode active: Contextual Action Bar -->
+          <template v-if="selectedFiles.size > 0">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button class="icon-btn" style="width: 28px; height: 28px;" @click="clearSelection" title="Cancel selection">
+                <Icons name="close" :size="15" />
+              </button>
+              <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
+                {{ selectedFiles.size }} selected
+              </span>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
               <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="toggleSelectAll">
                 {{ isAllSelected ? 'Deselect all' : 'Select all' }}
               </button>
-              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); gap: 4px;" @click="deleteSelected">
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; color: var(--error); border-color: rgba(229, 153, 149, 0.35); background: rgba(229, 153, 149, 0.1); gap: 4px;" @click="deleteSelected">
                 <Icons name="trash" :size="12" />
-                Delete ({{ selectedFiles.size }})
+                <span>Delete</span>
               </button>
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="clearSelection">
-                Cancel
+            </div>
+          </template>
+
+          <!-- Normal Mode: Section Title & Actions -->
+          <template v-else>
+            <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
+            <div style="display: flex; gap: 6px; align-items: center;" v-if="historyList.length > 0">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="toggleSelectAll">
+                Select
               </button>
-            </template>
-            <template v-else>
-              <button v-if="historyList.length > 0" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;" @click="toggleSelectAll">
-                Select all
-              </button>
-              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; gap: 4px;" @click="fetchHistory" title="Refresh list">
                 <Icons name="refresh" :size="12" />
-                Refresh
               </button>
-            </template>
-          </div>
+            </div>
+          </template>
         </div>
 
         <div class="md3-list-group" v-if="historyList.length > 0">
@@ -378,7 +378,8 @@
               </div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 6px;">
+            <!-- Action buttons: when in multi-selection mode, hide individual action buttons so file name has full width -->
+            <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
               <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Play media">
                 <Icons name="play" :size="14" />
               </button>
@@ -556,18 +557,18 @@
 
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
           <div class="section-title" style="margin: 0;">Activity log</div>
-          <div style="display: flex; gap: 6px;">
-            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; gap: 4px;" @click="fetchLogs" title="Refresh log">
               <Icons name="refresh" :size="12" />
-              Refresh
+              <span>Refresh</span>
             </button>
-            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="copyLogs">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; gap: 4px;" @click="copyLogs" title="Copy log">
               <Icons name="copy" :size="12" />
-              Copy
+              <span>Copy</span>
             </button>
-            <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px; color: var(--error);" @click="clearLogs">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; gap: 4px; color: var(--error);" @click="clearLogs" title="Clear log">
               <Icons name="trash" :size="12" />
-              Clear
+              <span>Clear</span>
             </button>
           </div>
         </div>
