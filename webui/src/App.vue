@@ -7,6 +7,10 @@
         <div class="page-header-sub">Media downloader</div>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge-pill offline" v-if="!isOnline">
+          <Icons name="wifi-off" :size="11" />
+          Offline
+        </span>
         <span class="badge-pill" v-if="storageFree">
           {{ storageFree }} free
         </span>
@@ -56,6 +60,14 @@
               <Icons :name="detectedPlatform.id" :size="12" />
               <span>{{ detectedPlatform.name }}</span>
             </span>
+          </div>
+
+          <div v-if="!isOnline" class="offline-notice-box">
+            <Icons name="wifi-off" :size="14" style="color: var(--error); flex-shrink: 0;" />
+            <div style="flex: 1;">
+              <strong style="color: var(--on-surface);">No internet connection:</strong>
+              Connect to Wi-Fi or mobile data to start downloads.
+            </div>
           </div>
 
                     <div class="text-input-wrapper">
@@ -150,12 +162,13 @@
                     <div style="margin-top: 16px;">
             <button
               class="btn btn-primary"
+              :class="{ 'btn-offline': !isOnline }"
               style="width: 100%; height: 44px; font-size: 14px;"
               :disabled="!url.trim() || isProcessing || isProbingResolutions"
               @click="startDownload"
             >
-              <Icons :name="(isProcessing || isProbingResolutions) ? 'refresh' : 'download'" :size="16" />
-              <span>{{ isProcessing ? 'Downloading...' : isProbingResolutions ? 'Checking resolutions...' : 'Download' }}</span>
+              <Icons :name="!isOnline ? 'wifi-off' : (isProcessing || isProbingResolutions) ? 'refresh' : 'download'" :size="16" />
+              <span>{{ !isOnline ? 'Download (Offline)' : isProcessing ? 'Downloading...' : isProbingResolutions ? 'Checking resolutions...' : 'Download' }}</span>
             </button>
           </div>
         </section>
@@ -214,9 +227,13 @@
             <span>{{ task.speed ? task.speed : '' }}</span>
           </div>
 
-                    <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
-            <div style="font-weight: 500; word-break: break-word;">{{ task.error || 'Download failed' }}</div>
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <!-- Error details -->
+          <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
+            <div style="display: flex; align-items: flex-start; gap: 8px;">
+              <Icons :name="isNetworkError(task.error) ? 'wifi-off' : 'info'" :size="15" style="color: var(--error); flex-shrink: 0; margin-top: 1px;" />
+              <div style="font-weight: 500; word-break: break-word; flex: 1;">{{ formatErrorMessage(task.error) }}</div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 10px;">
               <button
                 class="btn btn-secondary"
                 style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
@@ -226,7 +243,15 @@
                 Retry
               </button>
               <button
-                v-if="(task.error || '').toLowerCase().includes('cookie') || (task.error || '').toLowerCase().includes('instagram')"
+                v-if="isNetworkError(task.error)"
+                class="btn btn-secondary"
+                style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
+                @click="testConnectivity"
+              >
+                Check Connection
+              </button>
+              <button
+                v-else-if="(task.error || '').toLowerCase().includes('cookie') || (task.error || '').toLowerCase().includes('instagram')"
                 class="btn btn-secondary"
                 style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
                 @click="activeTab = 'cookies'"
@@ -673,6 +698,7 @@ const isProcessing = ref(false)
 const autoDl = ref(false)
 const storageFree = ref('')
 const toast = ref({ show: false, message: '', type: 'info' })
+const isOnline = ref(typeof navigator !== 'undefined' && 'onLine' in navigator ? navigator.onLine : true)
 
 const resolutions = ref([])
 const showResolutionPicker = ref(false)
@@ -763,12 +789,73 @@ const detectedPlatform = computed(() => {
   return { name: 'Direct link', id: 'link' }
 })
 
+function isNetworkError(err) {
+  if (!err) return false
+  if (!isOnline.value) return true
+  const str = String(err).toLowerCase()
+  return (
+    str.includes('name resolution') ||
+    str.includes('temporary failure') ||
+    str.includes('no address associated') ||
+    str.includes('unreachable') ||
+    str.includes('refused') ||
+    str.includes('timed out') ||
+    str.includes('timeout') ||
+    str.includes('gaierror') ||
+    str.includes('getaddrinfo') ||
+    str.includes('connection reset') ||
+    str.includes('remotedisconnected') ||
+    str.includes('networkerror') ||
+    str.includes('urlopen error') ||
+    str.includes('no internet connection')
+  )
+}
+
+function formatErrorMessage(err) {
+  if (!err) return 'Unknown error occurred'
+  if (isNetworkError(err)) {
+    return 'No internet connection or network unreachable. Please check your Wi-Fi/data and retry.'
+  }
+  const str = String(err)
+  const low = str.toLowerCase()
+  if (low.includes('certificate_verify_failed') || (low.includes('ssl') && low.includes('verify'))) {
+    return 'Network security error: SSL certificate verification failed. Check device date and time.'
+  }
+  if (str.includes('HTTP Error 403') || low.includes('forbidden')) {
+    return 'Access blocked by platform (HTTP 403). Session cookies may be required.'
+  }
+  if (str.includes('HTTP Error 404') || low.includes('not found')) {
+    return 'Media not found (HTTP 404). The link may be broken or deleted.'
+  }
+  return str
+}
+
+function handleOnline() {
+  isOnline.value = true
+  showToast('Internet connection restored', 'success')
+}
+
+function handleOffline() {
+  isOnline.value = false
+  showToast('Device is offline. Connect to internet to download.', 'warning')
+}
+
+function testConnectivity() {
+  if (typeof navigator !== 'undefined' && navigator.onLine) {
+    isOnline.value = true
+    showToast('Network is online. Ready to download.', 'success')
+  } else {
+    isOnline.value = false
+    showToast('Device is still offline. Please check your connection.', 'warning')
+  }
+}
+
 const taskStatusTitle = computed(() => {
   switch (task.value.status) {
     case 'resolving': return 'Connecting...'
     case 'downloading': return 'Downloading...'
     case 'completed': return 'Download complete'
-    case 'error': return 'Download failed'
+    case 'error': return isNetworkError(task.value.error) ? 'Network error' : 'Download failed'
     default: return 'Ready'
   }
 })
@@ -908,6 +995,11 @@ function closeResolutionPicker() {
 async function startDownload() {
   if (!url.value.trim() || isProcessing.value) return
 
+  if (!isOnline.value) {
+    showToast('No internet connection. Connect to Wi-Fi or mobile data.', 'warning')
+    return
+  }
+
   const clean = extractUrl(url.value)
   url.value = clean
   const u = clean
@@ -1026,7 +1118,8 @@ function startPolling() {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
-        showToast('Download failed', 'error')
+        const isNet = isNetworkError(parsed.error)
+        showToast(isNet ? 'Network error: Check connection' : 'Download failed', 'error')
         fetchLogs()
       }
     } catch (e) {
@@ -1319,6 +1412,10 @@ async function checkActiveTask() {
 }
 
 onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+  }
   loadSystemInfo()
   fetchHistory()
   loadCookies()
@@ -1327,12 +1424,31 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', handleOnline)
+    window.removeEventListener('offline', handleOffline)
+  }
   if (pollTimer) clearInterval(pollTimer)
   if (toastTimer) clearTimeout(toastTimer)
 })
 </script>
 
 <style scoped>
+.offline-notice-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  border-left: 3px solid var(--error);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  line-height: 1.4;
+}
+
 .platform-notice-box {
   display: flex;
   align-items: flex-start;

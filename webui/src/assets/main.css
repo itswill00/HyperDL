@@ -255,6 +255,12 @@ html, body, #app {
   border-color: var(--primary);
 }
 
+.badge-pill.offline {
+  background: rgba(229, 153, 149, 0.12);
+  color: var(--error);
+  border-color: rgba(229, 153, 149, 0.35);
+}
+
 /* Custom Text Input */
 .text-input-wrapper {
   position: relative;

@@ -23,6 +23,36 @@ COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
+def humanize_error(e):
+    if not e:
+        return ""
+    msg = str(e)
+    low = msg.lower()
+    if any(k in low for k in [
+        "temporary failure in name resolution",
+        "no address associated with hostname",
+        "network is unreachable",
+        "connection refused",
+        "connection timed out",
+        "timed out",
+        "gaierror",
+        "getaddrinfo failed",
+        "connection reset",
+        "remotedisconnected",
+        "networkerror",
+        "urlopen error"
+    ]):
+        return "No internet connection or network is unreachable. Please check your connection."
+    if "certificate_verify_failed" in low or ("ssl" in low and "verify" in low):
+        return "Network security error: SSL certificate verification failed. Check device date/time."
+    if "http error 403" in low or "forbidden" in low:
+        return "Access denied by platform (HTTP 403). Session cookies may be required."
+    if "http error 404" in low or "not found" in low:
+        return "Media not found (HTTP 404). Link may be expired or deleted."
+    if "private video" in low or "login required" in low:
+        return "Content is private or requires authentication. Please configure cookies."
+    return msg
+
 def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
     data = {
         "status": status,
@@ -32,7 +62,7 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         "total": total,
         "title": title,
         "file_path": file_path,
-        "error": error,
+        "error": humanize_error(error) if error else "",
         "timestamp": int(time.time())
     }
     try:
@@ -1267,7 +1297,7 @@ def main():
             resolutions = probe_resolutions(args.url.strip())
             print(json.dumps({"resolutions": resolutions}), flush=True)
         except Exception as e:
-            print(json.dumps({"error": str(e)}), flush=True)
+            print(json.dumps({"error": humanize_error(e)}), flush=True)
             sys.exit(1)
         return
 
