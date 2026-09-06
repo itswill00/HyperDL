@@ -46,6 +46,24 @@ export function execCommand(cmd, timeoutMs = 60000) {
   })
 }
 
+export function base64EncodeUtf8(str) {
+  if (!str) return ''
+  try {
+    return btoa(unescape(encodeURIComponent(str)))
+  } catch {
+    return ''
+  }
+}
+
+export function base64DecodeUtf8(str) {
+  if (!str) return ''
+  try {
+    return decodeURIComponent(escape(atob(str)))
+  } catch {
+    return ''
+  }
+}
+
 export function isKSU() {
   return typeof ksu !== 'undefined'
 }

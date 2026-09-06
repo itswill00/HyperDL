@@ -17,221 +17,399 @@
       </div>
     </header>
 
+    <!-- Navigation Tabs (Monochrome Segmented Control) -->
+    <div style="padding: 10px 16px 0 16px; background: var(--bg);">
+      <div class="tabs-control">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'download' }"
+          @click="activeTab = 'download'"
+        >
+          <Icons name="download" :size="14" />
+          <span>Downloader</span>
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'cookies' }"
+          @click="activeTab = 'cookies'"
+        >
+          <Icons name="settings" :size="14" />
+          <span>Cookies</span>
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'console' }"
+          @click="activeTab = 'console'"
+        >
+          <Icons name="info" :size="14" />
+          <span>Console</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Main Content Area -->
     <main class="content-area">
 
-      <!-- Media Input Card -->
-      <section class="md3-card" style="margin-top: 2px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-          <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New Download</span>
-          <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Unknown' }" style="font-size: 10px;">
-            {{ detectedPlatform.name }}
-          </span>
-        </div>
-
-        <!-- URL Input Field with Clear & Paste -->
-        <div class="text-input-wrapper">
-          <input
-            type="url"
-            class="text-input"
-            v-model="url"
-            placeholder="Paste media link here..."
-            @keyup.enter="startDownload"
-          />
-          <button
-            v-if="url"
-            class="btn btn-icon"
-            style="background: transparent; border: none; width: 28px; height: 28px;"
-            @click="url = ''"
-            title="Clear"
-          >
-            ✕
-          </button>
-          <button
-            class="btn btn-secondary"
-            style="padding: 6px 12px; font-size: 11px; margin-left: 4px;"
-            @click="pasteClipboard"
-          >
-            <Icons name="clipboard" :size="13" />
-            Paste
-          </button>
-        </div>
-
-        <!-- Format Options -->
-        <div style="margin-top: 14px;">
-          <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
-            FORMAT
-          </div>
-          <div class="chips-row">
-            <div
-              class="chip-item"
-              :class="{ active: selectedFormat === 'video' }"
-              @click="selectedFormat = 'video'"
-            >
-              <Icons name="video" :size="14" />
-              <span>Video (HD)</span>
-            </div>
-            <div
-              class="chip-item"
-              :class="{ active: selectedFormat === 'audio' }"
-              @click="selectedFormat = 'audio'"
-            >
-              <Icons name="music" :size="14" />
-              <span>Audio (MP3)</span>
-            </div>
-            <div
-              class="chip-item"
-              :class="{ active: selectedFormat === 'album' }"
-              @click="selectedFormat = 'album'"
-            >
-              <Icons name="image" :size="14" />
-              <span>Photos</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Download Action Button -->
-        <div style="margin-top: 16px;">
-          <button
-            class="btn btn-primary"
-            style="width: 100%; height: 44px; font-size: 14px;"
-            :disabled="!url.trim() || isProcessing"
-            @click="startDownload"
-          >
-            <Icons :name="isProcessing ? 'refresh' : 'download'" :size="16" />
-            <span>{{ isProcessing ? 'Downloading...' : 'Download' }}</span>
-          </button>
-        </div>
-      </section>
-
-      <!-- Active Progress Card -->
-      <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div class="icon-badge">
-              <Icons :name="task.status === 'completed' ? 'check' : 'download'" :size="18" />
-            </div>
-            <div>
-              <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
-                {{ taskStatusTitle }}
-              </div>
-              <div style="font-size: 11px; color: var(--on-surface-variant); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                {{ task.title || url }}
-              </div>
-            </div>
-          </div>
-          <span class="badge-pill" :class="{ active: task.status === 'completed' }">
-            {{ task.percent }}%
-          </span>
-        </div>
-
-        <!-- Progress Bar -->
-        <div class="progress-track">
-          <div class="progress-fill" :style="{ width: task.percent + '%' }"></div>
-        </div>
-
-        <!-- Progress Metrics -->
-        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
-          <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? 'Connecting to source...' : '') }}</span>
-          <span>{{ task.speed ? task.speed : '' }}</span>
-        </div>
-
-        <!-- Error Message -->
-        <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
-          {{ task.error || 'Failed to complete download' }}
-        </div>
-
-        <!-- Completion Actions -->
-        <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
-          <button class="btn btn-primary" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
-            <Icons name="play" :size="14" />
-            Open Media
-          </button>
-          <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
-            <Icons name="folder" :size="14" />
-            Show in Folder
-          </button>
-        </div>
-      </section>
-
-      <!-- Automation Section -->
-      <div class="section-title">Automation</div>
-      <div class="md3-list-group">
-        <div class="md3-list-row">
-          <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
-            <div class="icon-badge secondary">
-              <Icons name="clipboard" :size="18" />
-            </div>
-            <div>
-              <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard Monitoring</div>
-              <div style="font-size: 11px; color: var(--on-surface-variant);">Automatically download supported links when copied</div>
-            </div>
-          </div>
-          <label class="md3-switch">
-            <input type="checkbox" :checked="autoDl" @change="toggleAutoDl" />
-            <span class="md3-switch-track">
-              <span class="md3-switch-thumb"></span>
+      <!-- TAB 1: DOWNLOADER -->
+      <div v-show="activeTab === 'download'">
+        
+        <!-- Media Input Card -->
+        <section class="md3-card" style="margin-top: 4px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New Download</span>
+            <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Unknown' }" style="font-size: 10px;">
+              {{ detectedPlatform.name }}
             </span>
-          </label>
-        </div>
-
-        <div class="md3-list-row clickable" @click="openMediaFolder">
-          <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
-            <div class="icon-badge secondary">
-              <Icons name="folder" :size="18" />
-            </div>
-            <div>
-              <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination Folder</div>
-              <div style="font-size: 11px; color: var(--on-surface-variant); font-family: var(--font-mono);">/Download/HyperDL</div>
-            </div>
-          </div>
-          <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
-        </div>
-      </div>
-
-      <!-- Recent Downloads -->
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
-        <div class="section-title" style="margin: 0;">Recent Downloads ({{ historyList.length }})</div>
-        <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
-          <Icons name="refresh" :size="12" />
-          Refresh
-        </button>
-      </div>
-
-      <div class="md3-list-group" v-if="historyList.length > 0">
-        <div
-          v-for="item in historyList"
-          :key="item.path"
-          class="md3-list-row"
-        >
-          <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
-            <div class="icon-badge secondary">
-              <Icons :name="getExtIcon(item.ext)" :size="16" />
-            </div>
-            <div style="min-width: 0; flex: 1;">
-              <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                {{ item.name }}
-              </div>
-              <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
-                {{ item.size }} · {{ item.ext.toUpperCase() }}
-              </div>
-            </div>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <button class="btn btn-icon" @click="openMedia(item.path)" title="Play Media">
+          <!-- URL Input Field with Clear & Paste -->
+          <div class="text-input-wrapper">
+            <input
+              type="url"
+              class="text-input"
+              v-model="url"
+              placeholder="Paste media link here..."
+              @keyup.enter="startDownload"
+            />
+            <button
+              v-if="url"
+              class="btn btn-icon"
+              style="background: transparent; border: none; width: 28px; height: 28px;"
+              @click="url = ''"
+              title="Clear"
+            >
+              ✕
+            </button>
+            <button
+              class="btn btn-secondary"
+              style="padding: 6px 12px; font-size: 11px; margin-left: 4px;"
+              @click="pasteClipboard"
+            >
+              <Icons name="clipboard" :size="13" />
+              Paste
+            </button>
+          </div>
+
+          <!-- Format Options -->
+          <div style="margin-top: 14px;">
+            <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
+              FORMAT
+            </div>
+            <div class="chips-row">
+              <div
+                class="chip-item"
+                :class="{ active: selectedFormat === 'video' }"
+                @click="selectedFormat = 'video'"
+              >
+                <Icons name="video" :size="14" />
+                <span>Video (HD)</span>
+              </div>
+              <div
+                class="chip-item"
+                :class="{ active: selectedFormat === 'audio' }"
+                @click="selectedFormat = 'audio'"
+              >
+                <Icons name="music" :size="14" />
+                <span>Audio (MP3)</span>
+              </div>
+              <div
+                class="chip-item"
+                :class="{ active: selectedFormat === 'album' }"
+                @click="selectedFormat = 'album'"
+              >
+                <Icons name="image" :size="14" />
+                <span>Photos</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Download Action Button -->
+          <div style="margin-top: 16px;">
+            <button
+              class="btn btn-primary"
+              style="width: 100%; height: 44px; font-size: 14px;"
+              :disabled="!url.trim() || isProcessing"
+              @click="startDownload"
+            >
+              <Icons :name="isProcessing ? 'refresh' : 'download'" :size="16" />
+              <span>{{ isProcessing ? 'Downloading...' : 'Download' }}</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Active Progress Card -->
+        <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="icon-badge">
+                <Icons :name="task.status === 'completed' ? 'check' : 'download'" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
+                  {{ taskStatusTitle }}
+                </div>
+                <div style="font-size: 11px; color: var(--on-surface-variant); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {{ task.title || url }}
+                </div>
+              </div>
+            </div>
+            <span class="badge-pill" :class="{ active: task.status === 'completed' }">
+              {{ task.percent }}%
+            </span>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="progress-track">
+            <div class="progress-fill" :style="{ width: task.percent + '%' }"></div>
+          </div>
+
+          <!-- Progress Metrics -->
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
+            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? 'Connecting to source...' : '') }}</span>
+            <span>{{ task.speed ? task.speed : '' }}</span>
+          </div>
+
+          <!-- Error Message -->
+          <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 8px 12px; border-radius: 8px;">
+            {{ task.error || 'Failed to complete download' }}
+          </div>
+
+          <!-- Completion Actions -->
+          <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-primary" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
               <Icons name="play" :size="14" />
+              Open Media
             </button>
-            <button class="btn btn-icon" style="color: var(--error);" @click="deleteItem(item)" title="Delete">
-              <Icons name="trash" :size="14" />
+            <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" @click="openMediaFolder">
+              <Icons name="folder" :size="14" />
+              Show in Folder
             </button>
           </div>
+        </section>
+
+        <!-- Automation Section -->
+        <div class="section-title">Automation</div>
+        <div class="md3-list-group">
+          <div class="md3-list-row">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="clipboard" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard Monitoring</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">Automatically download supported links when copied</div>
+              </div>
+            </div>
+            <label class="md3-switch">
+              <input type="checkbox" :checked="autoDl" @change="toggleAutoDl" />
+              <span class="md3-switch-track">
+                <span class="md3-switch-thumb"></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="md3-list-row clickable" @click="openMediaFolder">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="folder" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination Folder</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant); font-family: var(--font-mono);">/Download/HyperDL</div>
+              </div>
+            </div>
+            <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
+          </div>
+        </div>
+
+        <!-- Recent Downloads -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
+          <div class="section-title" style="margin: 0;">Recent Downloads ({{ historyList.length }})</div>
+          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchHistory">
+            <Icons name="refresh" :size="12" />
+            Refresh
+          </button>
+        </div>
+
+        <div class="md3-list-group" v-if="historyList.length > 0">
+          <div
+            v-for="item in historyList"
+            :key="item.path"
+            class="md3-list-row"
+          >
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
+              <div class="icon-badge secondary">
+                <Icons :name="getExtIcon(item.ext)" :size="16" />
+              </div>
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {{ item.name }}
+                </div>
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
+                  {{ item.size }} · {{ item.ext.toUpperCase() }}
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="btn btn-icon" @click="openMedia(item.path)" title="Play Media">
+                <Icons name="play" :size="14" />
+              </button>
+              <button class="btn btn-icon" style="color: var(--error);" @click="deleteItem(item)" title="Delete">
+                <Icons name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="md3-card" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
+          <Icons name="folder" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
+          <div style="font-size: 12px; color: var(--on-surface-variant);">No downloaded files yet</div>
         </div>
       </div>
 
-      <div v-else class="md3-card" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
-        <Icons name="folder" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
-        <div style="font-size: 12px; color: var(--on-surface-variant);">No downloaded files yet</div>
+      <!-- TAB 2: COOKIES MANAGER & GUIDE -->
+      <div v-show="activeTab === 'cookies'">
+        
+        <!-- Cookies Status Card -->
+        <section class="md3-card" style="margin-top: 4px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="icon-badge" :class="cookiesActive ? '' : 'secondary'">
+                <Icons name="settings" :size="16" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Platform Cookies</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">
+                  {{ cookiesActive ? `${cookiesLines} lines configured` : 'No cookies saved' }}
+                </div>
+              </div>
+            </div>
+            <span class="badge-pill" :class="{ active: cookiesActive }">
+              {{ cookiesActive ? 'Active' : 'Unset' }}
+            </span>
+          </div>
+
+          <!-- Cookies Textarea -->
+          <div style="margin-top: 10px;">
+            <textarea
+              class="cookies-textarea"
+              v-model="cookiesText"
+              placeholder="# Paste Netscape cookies.txt or standard header string here&#10;.tiktok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sessionid&#9;...&#10;.instagram.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sessionid&#9;..."
+            ></textarea>
+          </div>
+
+          <!-- Actions -->
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-primary" style="flex: 1; padding: 10px;" @click="saveCookies">
+              <Icons name="check" :size="14" />
+              Save Cookies
+            </button>
+            <button
+              v-if="cookiesActive"
+              class="btn btn-secondary"
+              style="padding: 10px 14px; color: var(--error);"
+              @click="clearCookies"
+            >
+              <Icons name="trash" :size="14" />
+              Clear
+            </button>
+          </div>
+        </section>
+
+        <!-- In-App Step-by-Step Guide -->
+        <div class="section-title">Guide &amp; Documentation</div>
+        
+        <div class="md3-card">
+          <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 6px;">
+            Why provide cookies?
+          </div>
+          <div style="font-size: 12px; color: var(--on-surface-variant); line-height: 1.6;">
+            Social media platforms frequently block automated requests from unidentified clients. By adding your account cookies, HyperDL can authenticate queries as your personal session, granting access to:
+          </div>
+          <ul style="margin: 8px 0 0 16px; font-size: 12px; color: var(--on-surface-variant); line-height: 1.6;">
+            <li>Full 1080p and original resolution streams without watermarks</li>
+            <li>Private reels, friend-only TikToks, and closed-group media</li>
+            <li>Zero rate-limits and automated WAF challenge bypassing</li>
+          </ul>
+        </div>
+
+        <div class="md3-card">
+          <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 8px;">
+            How to export your cookies
+          </div>
+          <div class="guide-steps">
+            <div class="guide-step">
+              <div class="step-num">1</div>
+              <div class="step-desc">
+                Install a browser extension such as <b>Get cookies.txt LOCALLY</b> on Kiwi Browser, Firefox (Android), or desktop Chrome.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">2</div>
+              <div class="step-desc">
+                Open and log in to TikTok, Instagram, or X (Twitter) in that browser.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">3</div>
+              <div class="step-desc">
+                Tap the extension icon, export the cookies, and copy the text contents.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">4</div>
+              <div class="step-desc">
+                Paste the text into the box above and tap <b>Save Cookies</b>. The file will be stored securely at <code style="font-size: 11px; background: var(--surface-container-high); padding: 1px 4px; border-radius: 4px;">/data/adb/hyperdl/cookies.txt</code> with root-only permissions (0600).
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- TAB 3: CONSOLE & TELEMETRY -->
+      <div v-show="activeTab === 'console'">
+        
+        <!-- System Telemetry Card -->
+        <section class="md3-card" style="margin-top: 4px;">
+          <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 12px;">
+            System &amp; Engine Environment
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Python Binary</span>
+              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-resolving...' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Available Storage</span>
+              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Cookies Loaded</span>
+              <span style="color: var(--on-surface);">{{ cookiesActive ? 'Active' : 'Not Configured' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: var(--on-surface-variant);">Root Bridge</span>
+              <span style="color: var(--on-surface);">KernelSU / APatch Shell</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Terminal Log Console -->
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px;">
+          <div class="section-title" style="margin: 0;">Engine Console Log</div>
+          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px; gap: 4px;" @click="fetchLogs">
+            <Icons name="refresh" :size="12" />
+            Refresh
+          </button>
+        </div>
+
+        <div class="terminal-card">
+          <pre class="terminal-text">{{ logContent }}</pre>
+        </div>
+
       </div>
 
       <!-- Clean Minimal Footer -->
@@ -254,15 +432,24 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { execCommand, openMediaFile, openFolder } from '@/helpers/shell.js'
+import { execCommand, openMediaFile, openFolder, base64EncodeUtf8, base64DecodeUtf8 } from '@/helpers/shell.js'
 import Icons from '@/components/Icons.vue'
 
+const activeTab = ref('download')
 const url = ref('')
 const selectedFormat = ref('video')
 const isProcessing = ref(false)
 const autoDl = ref(false)
 const storageFree = ref('')
 const toastMsg = ref('')
+
+const cookiesText = ref('')
+const cookiesActive = ref(false)
+const cookiesLines = ref(0)
+
+const sysInfo = ref({ python: '', storage_free: '' })
+const logContent = ref('Loading console log...')
+
 let toastTimer = null
 let pollTimer = null
 
@@ -399,15 +586,15 @@ function startPolling() {
         isProcessing.value = false
         showToast('Download finished')
         fetchHistory()
+        fetchLogs()
       } else if (parsed.status === 'error') {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
         showToast('Download failed')
+        fetchLogs()
       }
-    } catch (e) {
-      // Ignore poll error
-    }
+    } catch (e) {}
   }, 1000)
 }
 
@@ -417,9 +604,7 @@ async function fetchHistory() {
     if (raw && raw.startsWith('[')) {
       historyList.value = JSON.parse(raw)
     }
-  } catch (e) {
-    console.error('Failed to list history:', e)
-  }
+  } catch (e) {}
 }
 
 async function deleteItem(item) {
@@ -453,12 +638,67 @@ async function toggleAutoDl() {
   }
 }
 
+/* Cookies Management */
+async function loadCookies() {
+  try {
+    const raw = await runBridge('get_cookies')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      cookiesActive.value = !!res.exists
+      cookiesLines.value = res.lines || 0
+      if (res.content_b64) {
+        cookiesText.value = base64DecodeUtf8(res.content_b64)
+      }
+    }
+  } catch (e) {}
+}
+
+async function saveCookies() {
+  try {
+    const b64 = base64EncodeUtf8(cookiesText.value.trim())
+    const raw = await runBridge('save_cookies', b64)
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      cookiesActive.value = (res.lines > 0)
+      cookiesLines.value = res.lines || 0
+      showToast('Cookies saved successfully')
+    }
+  } catch (e) {
+    showToast('Failed to save cookies')
+  }
+}
+
+async function clearCookies() {
+  if (!confirm('Clear all stored cookies?')) return
+  try {
+    await runBridge('clear_cookies')
+    cookiesText.value = ''
+    cookiesActive.value = false
+    cookiesLines.value = 0
+    showToast('Cookies cleared')
+  } catch (e) {
+    showToast('Failed to clear cookies')
+  }
+}
+
+/* Diagnostics & Logs */
+async function fetchLogs() {
+  try {
+    const logs = await runBridge('get_logs')
+    logContent.value = logs || 'No log entries.'
+  } catch (e) {
+    logContent.value = 'Failed to load console logs.'
+  }
+}
+
 async function loadSystemInfo() {
   try {
     const raw = await runBridge('info')
     if (raw && raw.startsWith('{')) {
       const info = JSON.parse(raw)
       storageFree.value = info.storage_free || ''
+      sysInfo.value = info
+      cookiesActive.value = !!info.has_cookies
     }
     
     const autoRaw = await runBridge('get_autodl')
@@ -472,6 +712,8 @@ async function loadSystemInfo() {
 onMounted(() => {
   loadSystemInfo()
   fetchHistory()
+  loadCookies()
+  fetchLogs()
 })
 
 onUnmounted(() => {
@@ -481,6 +723,112 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.tabs-control {
+  display: flex;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  border-radius: 14px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn.active {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.cookies-textarea {
+  width: 100%;
+  height: 140px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: 12px;
+  color: var(--on-surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 10px;
+  resize: vertical;
+  outline: none;
+}
+
+.cookies-textarea:focus {
+  border-color: var(--primary);
+}
+
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  color: var(--on-surface);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.step-desc {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  line-height: 1.5;
+}
+
+.terminal-card {
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--surface-container-high);
+  border-radius: 12px;
+  padding: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.terminal-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  line-height: 1.4;
+}
+
 .toast-fade-enter-active,
 .toast-fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
