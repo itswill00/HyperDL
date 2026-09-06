@@ -60,6 +60,7 @@
 
                     <div class="text-input-wrapper">
             <input
+              ref="urlInput"
               type="url"
               class="text-input"
               v-model="url"
@@ -425,6 +426,7 @@ import Icons from '@/components/Icons.vue'
 
 const activeTab = ref('download')
 const url = ref('')
+const urlInput = ref(null)
 const selectedFormat = ref('video')
 const isProcessing = ref(false)
 const autoDl = ref(false)
@@ -517,11 +519,29 @@ async function runBridge(action, ...args) {
 }
 
 async function pasteClipboard() {
-  try {
-    if (navigator.clipboard && navigator.clipboard.readText) {
+  if (urlInput.value) {
+    urlInput.value.focus()
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
+    try {
       const text = await navigator.clipboard.readText()
-      if (text) {
+      if (text && text.trim()) {
         url.value = text.trim()
+        showToast('Link pasted')
+        return
+      }
+    } catch (e) {}
+  }
+
+  try {
+    if (urlInput.value) {
+      urlInput.value.focus()
+      urlInput.value.select()
+      const ok = document.execCommand('paste')
+      if (ok && urlInput.value.value && urlInput.value.value.trim()) {
+        url.value = urlInput.value.value.trim()
+        urlInput.value.dispatchEvent(new Event('input', { bubbles: true }))
         showToast('Link pasted')
         return
       }
@@ -529,16 +549,24 @@ async function pasteClipboard() {
   } catch (e) {}
 
   try {
-    const text = await execCommand('cmd clipboard get 2>/dev/null || termux-clipboard-get 2>/dev/null')
-    if (text && text.trim()) {
-      url.value = text.trim()
-      showToast('Link pasted')
-    } else {
-      showToast('Clipboard is empty')
+    if (urlInput.value) {
+      urlInput.value.focus()
+      urlInput.value.select()
+      await execCommand('input keyevent 279', 2000)
+      await new Promise(resolve => setTimeout(resolve, 150))
+      if (urlInput.value.value && urlInput.value.value.trim()) {
+        url.value = urlInput.value.value.trim()
+        urlInput.value.dispatchEvent(new Event('input', { bubbles: true }))
+        showToast('Link pasted')
+        return
+      }
     }
-  } catch (e) {
-    showToast('Unable to read clipboard')
+  } catch (e) {}
+
+  if (urlInput.value) {
+    urlInput.value.focus()
   }
+  showToast('Tap & hold input box to paste')
 }
 
 async function startDownload() {
