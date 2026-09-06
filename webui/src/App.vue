@@ -58,7 +58,8 @@
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">New download</span>
             <span class="badge-pill" :class="{ active: detectedPlatform.name !== 'Direct link' }" style="font-size: 10px;">
-              {{ detectedPlatform.name }}
+              <Icons :name="detectedPlatform.id" :size="12" />
+              <span>{{ detectedPlatform.name }}</span>
             </span>
           </div>
 
@@ -88,6 +89,19 @@
               <Icons name="clipboard" :size="13" />
               Paste
             </button>
+          </div>
+
+          <!-- Supported Platforms -->
+          <div class="platform-chips-row">
+            <div
+              v-for="p in supportedPlatforms"
+              :key="p.id"
+              class="platform-chip"
+              :class="{ active: detectedPlatform.id === p.id }"
+            >
+              <Icons :name="p.id" :size="12" />
+              <span>{{ p.name }}</span>
+            </div>
           </div>
 
           <!-- Format Options -->
@@ -472,17 +486,28 @@ function showToast(msg) {
   toastTimer = setTimeout(() => { toastMsg.value = '' }, 2500)
 }
 
+/* Supported Platforms */
+const supportedPlatforms = [
+  { id: 'tiktok', name: 'TikTok' },
+  { id: 'instagram', name: 'Instagram' },
+  { id: 'x', name: 'X' },
+  { id: 'youtube', name: 'YouTube' },
+  { id: 'facebook', name: 'Facebook' },
+  { id: 'reddit', name: 'Reddit' },
+  { id: 'pinterest', name: 'Pinterest' }
+]
+
 /* Platform detection */
 const detectedPlatform = computed(() => {
   const u = url.value.toLowerCase()
-  if (u.includes('tiktok.com')) return { name: 'TikTok' }
-  if (u.includes('instagram.com') || u.includes('instagr.am')) return { name: 'Instagram' }
-  if (u.includes('twitter.com') || u.includes('x.com') || u.includes('t.co')) return { name: 'X' }
-  if (u.includes('youtube.com') || u.includes('youtu.be')) return { name: 'YouTube' }
-  if (u.includes('facebook.com') || u.includes('fb.watch')) return { name: 'Facebook' }
-  if (u.includes('reddit.com')) return { name: 'Reddit' }
-  if (u.includes('pinterest.com')) return { name: 'Pinterest' }
-  return { name: 'Direct link' }
+  if (u.includes('tiktok.com')) return { name: 'TikTok', id: 'tiktok' }
+  if (u.includes('instagram.com') || u.includes('instagr.am')) return { name: 'Instagram', id: 'instagram' }
+  if (u.includes('twitter.com') || u.includes('x.com') || u.includes('t.co')) return { name: 'X', id: 'x' }
+  if (u.includes('youtube.com') || u.includes('youtu.be')) return { name: 'YouTube', id: 'youtube' }
+  if (u.includes('facebook.com') || u.includes('fb.watch')) return { name: 'Facebook', id: 'facebook' }
+  if (u.includes('reddit.com')) return { name: 'Reddit', id: 'reddit' }
+  if (u.includes('pinterest.com')) return { name: 'Pinterest', id: 'pinterest' }
+  return { name: 'Direct link', id: 'link' }
 })
 
 const taskStatusTitle = computed(() => {
