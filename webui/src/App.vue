@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.10' }}
+          {{ sysInfo.version || 'v1.3.11' }}
           <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>

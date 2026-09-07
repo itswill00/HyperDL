@@ -305,7 +305,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
                 snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
                 char libdir[550], pypath[650], cacert[550], path_env[1024];
                 snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
+                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
                 snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
                 snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
@@ -399,7 +399,7 @@ static void cmd_probe(const char *url) {
             snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
             char libdir[550], pypath[650], cacert[550], path_env[1024];
             snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
+            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
             snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
             snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
@@ -935,7 +935,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.10";
+    char mod_version[32] = "v1.3.11";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

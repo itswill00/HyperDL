@@ -32,19 +32,30 @@ def main():
     os.chmod(f"{bin_dir}/python3", 0o755)
 
     for tool in ["ffmpeg", "ffprobe"]:
-        tool_src = f"{TERMUX_USR}/bin/{tool}"
-        if os.path.exists(tool_src):
-            tool_dst = f"{bin_dir}/{tool}"
-            shutil.copy(tool_src, tool_dst)
-            os.chmod(tool_dst, 0o755)
-            print(f"Bundled {tool} into {tool_dst}")
+        tool_dst = f"{bin_dir}/{tool}"
+        if not os.path.exists(tool_dst):
+            tool_src = f"{TERMUX_USR}/bin/{tool}"
+            if os.path.exists(tool_src):
+                shutil.copy(tool_src, tool_dst)
+                os.chmod(tool_dst, 0o755)
+                print(f"Bundled {tool} into {tool_dst}")
 
-    core_libs = ["libpython3.14.so", "libandroid-support.so", "libcrypto.so.3", "libssl.so.3"]
+    core_libs = [
+        "libpython3.14.so", "libandroid-support.so", "libcrypto.so.3", "libssl.so.3",
+        "libz.so.1", "libz.so", "liblzma.so.5", "liblzma.so",
+        "libbz2.so.1.0", "libbz2.so", "libexpat.so.1", "libexpat.so",
+        "libsqlite3.so", "libsqlite3.so.0", "libffi.so",
+        "libzstd.so.1", "libzstd.so", "libandroid-posix-semaphore.so"
+    ]
     for lib in core_libs:
         src = f"{TERMUX_USR}/lib/{lib}"
         if os.path.exists(src):
-            shutil.copy(src, f"{lib_dir}/{lib}")
-            os.chmod(f"{lib_dir}/{lib}", 0o755)
+            dst = f"{lib_dir}/{lib}"
+            if os.path.islink(src):
+                shutil.copyfile(src, dst, follow_symlinks=True)
+            else:
+                shutil.copy2(src, dst)
+            os.chmod(dst, 0o755)
 
     ca_candidates = [
         f"{TERMUX_USR}/etc/tls/cert.pem",
@@ -68,6 +79,8 @@ def main():
         "_remote_debugging",
         "_lsprof",
         "_interp",
+        "readline",
+        "_readline",
     )
     for f in glob.glob(f"{dyn_src}/*.so"):
         base = os.path.basename(f)
