@@ -779,59 +779,100 @@ def resolve_instagram(url, fmt="video"):
         }
     shortcode = shortcode_match.group(1)
 
-    cookie_hdr = get_cookie_header("instagram.com")
-    hdrs = {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Referer": "https://www.instagram.com/",
-        "x-ig-app-id": "936619743392459"
-    }
-    if cookie_hdr:
-        hdrs["Cookie"] = cookie_hdr
-
-    if cookie_hdr and "sessionid=" in cookie_hdr:
+    # Fast OpenGraph crawler probe first (ideal for public single reels/videos without waiting for yt-dlp)
+    if fmt == "video":
         try:
-            gql_url = f"https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables=%7B%22shortcode%22%3A%22{shortcode}%22%7D"
-            req = urllib.request.Request(gql_url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            media = data.get("data", {}).get("xdt_shortcode_media", {})
-            if media:
-                title = f"Instagram_{shortcode}"
-                if media.get("is_video"):
-                    return {"url": media.get("video_url"), "title": title, "ext": "mp4", "kind": "video"}
-                elif fmt in ("image", "photo") and media.get("display_url"):
-                    return {"url": media.get("display_url"), "title": title, "ext": "jpg", "kind": "image"}
-        except Exception as e:
-            print(f"Instagram GraphQL query failed: {e}", file=sys.stderr)
-
-    # Fast OpenGraph crawler probe
-    try:
-        crawler_hdrs = {
-            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9"
-        }
-        req = urllib.request.Request(f"https://www.instagram.com/reel/{shortcode}/", headers=crawler_hdrs)
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        
-        og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\']\s+content=["\']([^"\']+)["\']', html)
-        if og_vid:
-            vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
-            return {"url": vurl, "title": f"Instagram_{shortcode}", "ext": "mp4", "kind": "video"}
+            crawler_hdrs = {
+                "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9"
+            }
+            req = urllib.request.Request(f"https://www.instagram.com/reel/{shortcode}/", headers=crawler_hdrs)
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
             
-        # Only return cover photo if user explicitly requested an image/photo
-        if fmt in ("image", "photo"):
-            og_img = re.search(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
-            if og_img:
-                iurl = pyhtml.unescape(og_img.group(1)).replace("&amp;", "&")
-                if not iurl.endswith("instagram.com/"):
-                    return {"url": iurl, "title": f"Instagram_{shortcode}", "ext": "jpg", "kind": "image"}
-    except Exception as e:
-        print(f"Instagram crawler probe note: {e}", file=sys.stderr)
+            og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\']\s+content=["\']([^"\']+)["\']', html)
+            if og_vid:
+                vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
+                return {"url": vurl, "title": f"Instagram_{shortcode}", "ext": "mp4", "kind": "video"}
+        except Exception:
+            pass
 
-    # Route directly to yt-dlp which reliably extracts and muxes full 1080p/720p video
+    # Deep extraction via yt_dlp InstagramIE (supports cookies, albums, carousels, and private posts)
+    try:
+        ytdlp_bin = get_or_download_ytdlp()
+        if ytdlp_bin and ytdlp_bin not in sys.path:
+            sys.path.insert(0, ytdlp_bin)
+        from yt_dlp import YoutubeDL
+
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+        }
+        if os.path.exists(COOKIES_PATH):
+            ydl_opts["cookiefile"] = COOKIES_PATH
+
+        with YoutubeDL(ydl_opts) as ydl:
+            ie = ydl.get_info_extractor("Instagram")
+            info = ie.extract(clean_url)
+
+        raw_title = info.get("title") or f"Instagram_{shortcode}"
+        title = sanitize_filename(re.sub(r'[\r\n\t]+', ' ', raw_title).strip()) or f"Instagram_{shortcode}"
+
+        if info.get("_type") == "playlist":
+            entries = list(info.get("entries") or [])
+            items = []
+            for e in entries:
+                if not e:
+                    continue
+                vurl = e.get("url")
+                if not vurl and e.get("formats"):
+                    vurl = e["formats"][-1].get("url")
+                if vurl:
+                    items.append({"url": vurl, "ext": "mp4", "kind": "video"})
+                else:
+                    thumbs = e.get("thumbnails") or []
+                    if thumbs:
+                        best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                        if best.get("url"):
+                            items.append({"url": best["url"], "ext": "jpg", "kind": "image"})
+
+            if items:
+                has_video = any(it["kind"] == "video" for it in items)
+                
+                # If requested album or image, or if post contains only images (no video)
+                if fmt in ("album", "photo", "image") or not has_video:
+                    img_urls = [it["url"] for it in items if it["kind"] == "image"]
+                    if not img_urls:
+                        img_urls = [it["url"] for it in items]
+                    return {"images": img_urls, "items": items, "title": title, "ext": "jpg", "kind": "album"}
+                else:
+                    # User requested video and video exists
+                    vid_urls = [it["url"] for it in items if it["kind"] == "video"]
+                    if len(vid_urls) == 1:
+                        return {"url": vid_urls[0], "title": title, "ext": "mp4", "kind": "video"}
+                    else:
+                        return {"images": vid_urls, "items": items, "title": title, "ext": "mp4", "kind": "album"}
+        else:
+            vurl = info.get("url")
+            if not vurl and info.get("formats"):
+                vurl = info["formats"][-1].get("url")
+            
+            if vurl and fmt not in ("photo", "image"):
+                return {"url": vurl, "title": title, "ext": "mp4", "kind": "video"}
+            
+            thumbs = info.get("thumbnails") or []
+            if thumbs:
+                best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                if best.get("url"):
+                    return {"url": best["url"], "title": title, "ext": "jpg", "kind": "image"}
+            if vurl:
+                return {"url": vurl, "title": title, "ext": "mp4", "kind": "video"}
+    except Exception as e:
+        print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
+
+    # Route fallback to yt-dlp CLI
     return {
         "direct_ytdlp": True,
         "url": clean_url,
@@ -1660,16 +1701,23 @@ def main():
         ext = info.get("ext", "mp4")
         media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
 
-        if info.get("kind") == "album" and info.get("images"):
-            images = info["images"]
-            total = len(images)
-            for idx, img_url in enumerate(images):
-                img_path = os.path.join(outdir, f"{title}_{idx+1}.{ext}")
+        if info.get("kind") == "album" and (info.get("images") or info.get("items")):
+            raw_items = info.get("items") or info.get("images") or []
+            total = len(raw_items)
+            for idx, it in enumerate(raw_items):
+                if isinstance(it, dict):
+                    item_url = it.get("url")
+                    item_ext = it.get("ext") or ("mp4" if it.get("kind") == "video" else ext)
+                else:
+                    item_url = it
+                    item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
+
+                img_path = os.path.join(outdir, f"{title}_{idx+1}.{item_ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
                 hdrs = dict(info.get("headers") or {})
-                if "tikwm.com" in img_url:
+                if "tikwm.com" in str(item_url):
                     hdrs["Referer"] = "https://www.tikwm.com/"
-                download_file(img_url, img_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
+                download_file(item_url, img_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
             update_status("completed", percent=100, title=title, file_path=outdir)
             send_android_notification("Download complete", f"{title} saved ({total} items)")
         else:

@@ -718,7 +718,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.3";
+    char mod_version[32] = "v1.3.4";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -815,7 +815,7 @@ static void cmd_save_cookies(const char *b64_data) {
 
     fwrite(decoded, 1, out_len, f);
     fclose(f);
-    chmod(COOKIES_FILE, 0600);
+    chmod(COOKIES_FILE, 0666);
 
     int lines = 0;
     for (size_t i = 0; i < out_len; i++) {
