@@ -519,6 +519,34 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
         return download_hls(item["url"], out_path, title=title, headers=item.get("headers"), emit_complete=emit_complete)
 
+    if item.get("audio_url"):
+        ffmpeg_bin = get_ffmpeg_binary()
+        if ffmpeg_bin:
+            tmp_v = out_path + ".tmp_v.mp4"
+            tmp_a = out_path + ".tmp_a.m4a"
+            hdrs = item.get("headers") or {}
+            download_file(item["url"], tmp_v, title=f"{title} [Video]", headers=hdrs, emit_error=True, emit_complete=False)
+            download_file(item["audio_url"], tmp_a, title=f"{title} [Audio]", headers=hdrs, emit_error=True, emit_complete=False)
+            res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", out_path], capture_output=True)
+            for tmp_f in (tmp_v, tmp_a):
+                if os.path.exists(tmp_f):
+                    try:
+                        os.remove(tmp_f)
+                    except Exception:
+                        pass
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                try:
+                    os.chmod(out_path, 0o666)
+                except Exception:
+                    pass
+                scan_media_file(out_path)
+                if emit_complete:
+                    update_status("completed", percent=100, title=title, file_path=out_path)
+                    send_android_notification("Download complete", f"{title} saved")
+                return out_path
+        # If ffmpeg missing or muxing failed, fallback to downloading video stream directly
+        return download_file(item["url"], out_path, title=title, headers=item.get("headers"), emit_error=True, emit_complete=emit_complete)
+
     candidates = item.get("candidates", [])
     if "url" in item and not candidates:
         candidates = [{"url": item["url"], "headers": item.get("headers"), "label": "Primary"}]
@@ -837,56 +865,60 @@ def resolve_instagram(url, fmt="video"):
         if info.get("_type") == "playlist":
             entries = list(info.get("entries") or [])
             items = []
-            needs_dash_mux = False
             for e in entries:
                 if not e:
                     continue
                 vurl = None
+                aurl = None
                 e_formats = e.get("formats") or []
                 prog = [f for f in e_formats if is_progressive_instagram_format(f)]
                 if prog:
                     best_prog = max(prog, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0) or (f.get("tbr") or 0))
                     vurl = best_prog.get("url")
-                elif e.get("url") and not e_formats:
+                elif e_formats:
+                    v_fmts = [f for f in e_formats if (f.get("vcodec") and f.get("vcodec") != "none") or str(f.get("format_id", "")).endswith("v") or ".mp4" in str(f.get("url", "")).lower()]
+                    a_fmts = [f for f in e_formats if (f.get("acodec") and f.get("acodec") != "none") or str(f.get("format_id", "")).endswith("a") or f.get("ext") in ("m4a", "aac")]
+                    if v_fmts:
+                        best_v = max(v_fmts, key=lambda f: (f.get("height") or 0) * (f.get("width") or 0) or (f.get("tbr") or 0))
+                        vurl = best_v.get("url")
+                        if a_fmts:
+                            best_a = max(a_fmts, key=lambda f: (f.get("abr") or 0) or (f.get("tbr") or 0))
+                            aurl = best_a.get("url")
+                elif e.get("url") and (".mp4" in str(e.get("url")).lower() or e.get("ext") == "mp4"):
                     vurl = e.get("url")
-                elif e_formats and any(str(f.get("format_id", "")).endswith("v") for f in e_formats):
-                    needs_dash_mux = True
 
                 if vurl:
-                    items.append({"url": vurl, "ext": "mp4", "kind": "video"})
+                    items.append({"url": vurl, "audio_url": aurl, "ext": "mp4", "kind": "video"})
                 else:
                     thumbs = e.get("thumbnails") or []
+                    img_url = None
                     if thumbs:
-                        best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
-                        if best.get("url"):
-                            items.append({"url": best["url"], "ext": "jpg", "kind": "image"})
-
-            if needs_dash_mux:
-                return {
-                    "direct_ytdlp": True,
-                    "url": clean_url,
-                    "fmt": fmt,
-                    "is_yt": False,
-                    "title": title,
-                    "is_playlist": True
-                }
+                        if any((t.get("width") or 0) > 0 for t in thumbs):
+                            best_t = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                            img_url = best_t.get("url")
+                        else:
+                            img_url = thumbs[-1].get("url")
+                    if not img_url and e.get("url"):
+                        img_url = e.get("url")
+                    if img_url:
+                        items.append({"url": img_url, "ext": "jpg", "kind": "image"})
 
             if items:
-                has_video = any(it["kind"] == "video" for it in items)
-                
-                # If requested album or image, or if post contains only images (no video)
-                if fmt in ("album", "photo", "image") or not has_video:
-                    img_urls = [it["url"] for it in items if it["kind"] == "image"]
-                    if not img_urls:
-                        img_urls = [it["url"] for it in items]
-                    return {"images": img_urls, "items": items, "title": title, "ext": "jpg", "kind": "album"}
-                else:
-                    # User requested video and video exists
-                    vid_urls = [it["url"] for it in items if it["kind"] == "video"]
-                    if len(vid_urls) == 1:
-                        return {"url": vid_urls[0], "title": title, "ext": "mp4", "kind": "video"}
-                    else:
-                        return {"images": vid_urls, "items": items, "title": title, "ext": "mp4", "kind": "album"}
+                if fmt in ("photo", "image"):
+                    photo_items = [it for it in items if it.get("kind") == "image"]
+                    if photo_items:
+                        return {"items": photo_items, "title": title, "ext": "jpg", "kind": "album"}
+                if fmt == "audio":
+                    aud_item = next((it for it in items if it.get("audio_url") or it.get("kind") == "video"), None)
+                    if aud_item:
+                        return {**aud_item, "title": title}
+
+                return {
+                    "items": items,
+                    "title": title,
+                    "ext": "mp4" if any(it.get("kind") == "video" for it in items) else "jpg",
+                    "kind": "album"
+                }
         else:
             vurl = None
             formats = info.get("formats") or []
@@ -914,7 +946,10 @@ def resolve_instagram(url, fmt="video"):
 
             thumbs = info.get("thumbnails") or []
             if thumbs:
-                best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                if any((t.get("width") or 0) > 0 for t in thumbs):
+                    best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                else:
+                    best = thumbs[-1]
                 if best.get("url"):
                     return {"url": best["url"], "title": title, "ext": "jpg", "kind": "image"}
             if vurl:
@@ -1764,12 +1799,21 @@ def main():
                     item_url = it
                     item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
 
-                img_path = os.path.join(outdir, f"{title}_{idx+1}.{item_ext}")
+                item_path = os.path.join(outdir, f"{title}_{idx+1}.{item_ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
                 hdrs = dict(info.get("headers") or {})
                 if "tikwm.com" in str(item_url):
                     hdrs["Referer"] = "https://www.tikwm.com/"
-                download_file(item_url, img_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
+
+                if isinstance(it, dict) and it.get("audio_url"):
+                    it_cand = dict(it)
+                    if "headers" not in it_cand and hdrs:
+                        it_cand["headers"] = hdrs
+                    download_media_candidates(it_cand, item_path, title=f"{title}_{idx+1}", emit_complete=False)
+                else:
+                    download_file(item_url, item_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
+
+                scan_media_file(item_path)
             update_status("completed", percent=100, title=title, file_path=outdir)
             send_android_notification("Download complete", f"{title} saved ({total} items)")
         else:
