@@ -27,6 +27,27 @@ DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
 CONF_DIR = "/data/adb/hyperdl"
 COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
 
+def get_effective_outdir(preferred=DEFAULT_OUTDIR):
+    candidates = [
+        preferred,
+        "/storage/emulated/0/Download/HyperDL",
+        "/data/media/0/Download/HyperDL",
+        "/sdcard/Download/HyperDL"
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        try:
+            os.makedirs(c, exist_ok=True)
+            test_f = os.path.join(c, f".perm_test_{os.getpid()}")
+            with open(test_f, "w") as f:
+                f.write("ok")
+            os.remove(test_f)
+            return c
+        except Exception:
+            continue
+    return preferred
+
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
 def expand_shortlink_fast(url, timeout=3.5):
@@ -1076,10 +1097,24 @@ def get_ffmpeg_binary():
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
+    env = get_runtime_env()
     for c in candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-    return shutil.which("ffmpeg")
+            try:
+                r = subprocess.run([c, "-version"], capture_output=True, timeout=2, env=env)
+                if r.returncode == 0:
+                    return c
+            except Exception:
+                pass
+    w = shutil.which("ffmpeg")
+    if w:
+        try:
+            r = subprocess.run([w, "-version"], capture_output=True, timeout=2, env=env)
+            if r.returncode == 0:
+                return w
+        except Exception:
+            pass
+    return None
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     return {
@@ -1341,7 +1376,7 @@ def main():
     if m_url:
         url = m_url.group(0)
     fmt = args.format
-    outdir = args.outdir
+    outdir = get_effective_outdir(args.outdir)
     height = args.height if hasattr(args, 'height') else None
     format_id = args.format_id if hasattr(args, 'format_id') else None
 

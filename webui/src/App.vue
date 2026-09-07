@@ -909,7 +909,7 @@ function dismissTask() {
 async function runBridge(action, ...args) {
   const safeAction = shellEscape(action)
   const safeParams = args.map(shellEscape).join(' ')
-  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
+  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
   const timeoutMs = action === 'probe' ? 50000 : 15000
   const res = await execCommand(cmd, timeoutMs)
@@ -1116,14 +1116,31 @@ async function doDownload(u, fmt, extraArg) {
 
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer)
+  const pollStart = Date.now()
   pollTimer = setInterval(async () => {
     if (isPollingActive) return
     isPollingActive = true
     try {
       const raw = await runBridge('status')
-      if (!raw || raw === 'bridge_not_found') return
+      if (!raw) return
+      if (raw === 'binary_not_found') {
+        clearInterval(pollTimer)
+        pollTimer = null
+        isProcessing.value = false
+        task.value.status = 'error'
+        task.value.error = 'HyperDL binary not found. If you just installed the module, please reboot your device.'
+        showToast('Module not activated: Reboot required', 'error')
+        return
+      }
       
-      const parsed = JSON.parse(raw)
+      let parsed = null
+      try {
+        parsed = JSON.parse(raw)
+      } catch (e) {
+        return
+      }
+      if (!parsed || typeof parsed !== 'object') return
+
       task.value = { ...task.value, ...parsed }
 
       if (parsed.status === 'completed') {
@@ -1138,7 +1155,15 @@ function startPolling() {
         pollTimer = null
         isProcessing.value = false
         const isNet = isNetworkError(parsed.error)
-        showToast(isNet ? 'Network error: Check connection' : 'Download failed', 'error')
+        showToast(isNet ? 'Network error: Check connection' : (parsed.error || 'Download failed'), 'error')
+        fetchLogs()
+      } else if (parsed.status === 'resolving' && (Date.now() - pollStart > 50000)) {
+        clearInterval(pollTimer)
+        pollTimer = null
+        isProcessing.value = false
+        task.value.status = 'error'
+        task.value.error = 'Connection timed out while resolving media. Platform may be slow or blocking requests.'
+        showToast('Download timed out', 'error')
         fetchLogs()
       }
     } catch (e) {

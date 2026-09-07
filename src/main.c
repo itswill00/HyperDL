@@ -136,6 +136,40 @@ static void cmd_status(void) {
     size_t r = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[r] = '\0';
+
+    if (strstr(buf, "\"resolving\"") || strstr(buf, "\"downloading\"")) {
+        FILE *pf = fopen(PID_FILE, "r");
+        if (pf) {
+            pid_t pid = 0;
+            if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
+                if (kill(pid, 0) != 0) {
+                    char err_buf[256] = "Download process terminated unexpectedly";
+                    FILE *lf = fopen(LOG_FILE, "r");
+                    if (lf) {
+                        if (fseek(lf, -512, SEEK_END) == 0) {
+                            char lbuf[1024];
+                            size_t lr = fread(lbuf, 1, sizeof(lbuf) - 1, lf);
+                            lbuf[lr] = '\0';
+                            char *err_line = strstr(lbuf, "Error:");
+                            if (!err_line) err_line = strstr(lbuf, "failed:");
+                            if (!err_line) err_line = strstr(lbuf, "Exception:");
+                            if (err_line) {
+                                char *nl = strchr(err_line, '\n');
+                                if (nl) *nl = '\0';
+                                snprintf(err_buf, sizeof(err_buf), "%.200s", err_line);
+                            }
+                        }
+                        fclose(lf);
+                    }
+                    printf("{\"status\":\"error\",\"percent\":0,\"error\":\"%s\"}\n", err_buf);
+                    fclose(pf);
+                    return;
+                }
+            }
+            fclose(pf);
+        }
+    }
+
     printf("%s\n", buf);
 }
 
