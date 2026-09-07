@@ -641,11 +641,17 @@ static void cmd_preview(const char *path) {
         mime = "audio/mp4"; type = "audio";
     }
 
-    size_t max_allowed = (strcmp(type, "image") == 0) ? (6 * 1024 * 1024) : (8 * 1024 * 1024);
-    if ((size_t)st.st_size > max_allowed) {
-        char sz_str[32];
-        format_file_size(st.st_size, sz_str, sizeof(sz_str));
-        printf("{\"success\":false,\"type\":\"%s\",\"error\":\"too_large\",\"size\":\"%s\"}\n", type, sz_str);
+    char sz_str[32];
+    format_file_size(st.st_size, sz_str, sizeof(sz_str));
+
+    if (strcmp(type, "image") != 0) {
+        printf("{\"success\":true,\"type\":\"%s\",\"mime\":\"%s\",\"size\":\"%s\",\"data\":\"\"}\n",
+               type, mime, sz_str);
+        return;
+    }
+
+    if ((size_t)st.st_size > (6 * 1024 * 1024)) {
+        printf("{\"success\":false,\"type\":\"image\",\"error\":\"too_large\",\"size\":\"%s\"}\n", sz_str);
         return;
     }
 
@@ -673,8 +679,6 @@ static void cmd_preview(const char *path) {
         return;
     }
 
-    char sz_str[32];
-    format_file_size(st.st_size, sz_str, sizeof(sz_str));
     printf("{\"success\":true,\"type\":\"%s\",\"mime\":\"%s\",\"size\":\"%s\",\"data\":\"data:%s;base64,%s\"}\n",
            type, mime, sz_str, mime, b64);
     free(b64);
@@ -832,15 +836,6 @@ static void cmd_open(const char *path) {
     enc_path[ei] = '\0';
 
     if (media_id <= 0) {
-        char scan_cmd[1200];
-        snprintf(scan_cmd, sizeof(scan_cmd),
-                 "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1",
-                 enc_path);
-        system(scan_cmd);
-        media_id = query_sqlite_media_id(path);
-    }
-
-    if (media_id <= 0) {
         char sql_path[1024];
         size_t si = 0;
         for (size_t i = 0; path[i] && si < sizeof(sql_path) - 2; i++) {
@@ -872,7 +867,7 @@ static void cmd_open(const char *path) {
         }
     }
 
-    char start_cmd[1200];
+    char start_cmd[1400];
     if (media_id > 0) {
         snprintf(start_cmd, sizeof(start_cmd),
                  "am start -a android.intent.action.VIEW -d \"content://media/external/file/%lld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1 &",
@@ -881,8 +876,9 @@ static void cmd_open(const char *path) {
         printf("{\"success\":true,\"mode\":\"content\",\"id\":%lld}\n", media_id);
     } else {
         snprintf(start_cmd, sizeof(start_cmd),
-                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1 &",
-                 enc_path, mime);
+                 "(am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1; "
+                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1) &",
+                 enc_path, enc_path, mime);
         system(start_cmd);
         printf("{\"success\":true,\"mode\":\"file\"}\n");
     }
@@ -896,7 +892,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.5";
+    char mod_version[32] = "v1.3.6";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

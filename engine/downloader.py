@@ -514,7 +514,7 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
 def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
         outdir = os.path.dirname(out_path) or "."
-        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False))
+        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False), is_playlist=item.get("is_playlist", False))
 
     if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
         return download_hls(item["url"], out_path, title=title, headers=item.get("headers"), emit_complete=emit_complete)
@@ -547,7 +547,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
             if fb_item:
                 if fb_item.get("direct_ytdlp"):
                     outdir = os.path.dirname(out_path) or "."
-                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False))
+                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False), is_playlist=fb_item.get("is_playlist", False))
                 return download_media_candidates(fb_item, out_path, title, emit_complete=emit_complete)
         except Exception as fe:
             last_err = fe
@@ -765,6 +765,20 @@ def resolve_tiktok(url, fmt="video"):
             "title": "TikTok Media"
         }
 
+def is_progressive_instagram_format(f):
+    if not f or not f.get("url"):
+        return False
+    fid = str(f.get("format_id", "")).lower()
+    if fid.startswith("dash-") or fid.endswith("a") or fid.endswith("v"):
+        return False
+    vcodec = str(f.get("vcodec", "")).lower()
+    acodec = str(f.get("acodec", "")).lower()
+    if vcodec == "none" or acodec == "none":
+        return False
+    ext = str(f.get("ext", "")).lower()
+    vext = str(f.get("video_ext", "")).lower()
+    return ext == "mp4" or vext == "mp4"
+
 def resolve_instagram(url, fmt="video"):
     update_status("resolving", title="Resolving Instagram media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
@@ -823,12 +837,21 @@ def resolve_instagram(url, fmt="video"):
         if info.get("_type") == "playlist":
             entries = list(info.get("entries") or [])
             items = []
+            needs_dash_mux = False
             for e in entries:
                 if not e:
                     continue
-                vurl = e.get("url")
-                if not vurl and e.get("formats"):
-                    vurl = e["formats"][-1].get("url")
+                vurl = None
+                e_formats = e.get("formats") or []
+                prog = [f for f in e_formats if is_progressive_instagram_format(f)]
+                if prog:
+                    best_prog = max(prog, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0) or (f.get("tbr") or 0))
+                    vurl = best_prog.get("url")
+                elif e.get("url") and not e_formats:
+                    vurl = e.get("url")
+                elif e_formats and any(str(f.get("format_id", "")).endswith("v") for f in e_formats):
+                    needs_dash_mux = True
+
                 if vurl:
                     items.append({"url": vurl, "ext": "mp4", "kind": "video"})
                 else:
@@ -837,6 +860,16 @@ def resolve_instagram(url, fmt="video"):
                         best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
                         if best.get("url"):
                             items.append({"url": best["url"], "ext": "jpg", "kind": "image"})
+
+            if needs_dash_mux:
+                return {
+                    "direct_ytdlp": True,
+                    "url": clean_url,
+                    "fmt": fmt,
+                    "is_yt": False,
+                    "title": title,
+                    "is_playlist": True
+                }
 
             if items:
                 has_video = any(it["kind"] == "video" for it in items)
@@ -855,13 +888,30 @@ def resolve_instagram(url, fmt="video"):
                     else:
                         return {"images": vid_urls, "items": items, "title": title, "ext": "mp4", "kind": "album"}
         else:
-            vurl = info.get("url")
-            if not vurl and info.get("formats"):
-                vurl = info["formats"][-1].get("url")
+            vurl = None
+            formats = info.get("formats") or []
+            prog_formats = [f for f in formats if is_progressive_instagram_format(f)]
+            if prog_formats:
+                best_prog = max(prog_formats, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0) or (f.get("tbr") or 0))
+                vurl = best_prog.get("url")
+            elif info.get("url") and not formats:
+                vurl = info.get("url")
             
-            if vurl and fmt not in ("photo", "image"):
+            # If a progressive stream with both audio and video exists, return it directly
+            if vurl and fmt not in ("photo", "image", "audio"):
                 return {"url": vurl, "title": title, "ext": "mp4", "kind": "video"}
             
+            # If video or audio was requested and only DASH separate streams exist, delegate to direct_ytdlp
+            # so yt-dlp + ffmpeg downloads and muxes bestvideo+bestaudio into a pristine MP4!
+            if fmt not in ("photo", "image") and formats:
+                return {
+                    "direct_ytdlp": True,
+                    "url": clean_url,
+                    "fmt": fmt,
+                    "is_yt": False,
+                    "title": title
+                }
+
             thumbs = info.get("thumbnails") or []
             if thumbs:
                 best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
@@ -1119,7 +1169,7 @@ def resolve_reddit(url, fmt="video"):
                         media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
                         rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
                         fallback = rv.get("fallback_url")
-                        if fallback:
+                        if fallback and rv.get("is_gif"):
                             return {
                                 "url": fallback,
                                 "title": title,
@@ -1408,7 +1458,7 @@ def resolve_youtube(url, fmt="video"):
         "title": "YouTube Media"
     }
 
-def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None):
+def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False):
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
 
@@ -1442,7 +1492,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             format_arg = ["-f", "best[ext=mp4]/best"]
 
     os.makedirs(outdir, exist_ok=True)
-    out_tpl = os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
+    out_tpl = os.path.join(outdir, "%(playlist_index)s_%(title).60s_%(id)s.%(ext)s") if is_playlist else os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
 
     extra_dl_args = []
     if not (".m3u8" in url or "manifest" in url or "/hls/" in url):
@@ -1450,12 +1500,14 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     else:
         extra_dl_args = ["--no-part"]
 
+    playlist_arg = ["--yes-playlist"] if is_playlist else ["--no-playlist"]
+
     cmd = [
         py_bin,
         ytdlp_bin,
         "--no-warnings",
         "--no-check-certificates",
-        "--no-playlist",
+    ] + playlist_arg + [
         "--no-mtime",
         "--buffer-size", "256k",
         "--extractor-retries", "3",
@@ -1694,7 +1746,7 @@ def main():
             info = resolve_ytdlp(url, fmt, is_yt=False)
 
         if info.get("direct_ytdlp"):
-            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt))
+            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt), is_playlist=info.get("is_playlist", False))
             return
 
         title = sanitize_filename(info.get("title", "Media"))

@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.5' }}
+          {{ sysInfo.version || 'v1.3.6' }}
         </span>
       </div>
     </header>
@@ -565,12 +565,19 @@
 
             <!-- Action buttons -->
             <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
-              <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview media">
-                <Icons name="eye" :size="14" />
-              </button>
-              <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Open in app">
-                <Icons name="external-link" :size="14" />
-              </button>
+              <template v-if="isImageExt(item.ext)">
+                <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview image">
+                  <Icons name="eye" :size="14" />
+                </button>
+                <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Open in gallery">
+                  <Icons name="external-link" :size="14" />
+                </button>
+              </template>
+              <template v-else>
+                <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" :title="isVideoExt(item.ext) ? 'Play video' : (isAudioExt(item.ext) ? 'Play audio' : 'Open file')">
+                  <Icons :name="isVideoExt(item.ext) || isAudioExt(item.ext) ? 'play' : 'external-link'" :size="14" />
+                </button>
+              </template>
               <button class="btn btn-icon" style="color: var(--error);" @click.stop="deleteItem(item)" title="Delete">
                 <Icons name="trash" :size="14" />
               </button>
@@ -947,32 +954,15 @@
             </button>
           </div>
 
-          <div v-else-if="previewModal.isMedia && previewData" class="preview-media-container">
-            <video
-              v-if="previewModal.isVideo"
-              :src="previewData"
-              controls
-              autoplay
-              playsinline
-              class="preview-video"
-            ></video>
-            <div v-else-if="previewModal.isAudio" class="preview-audio-box">
-              <div class="icon-badge" style="width: 52px; height: 52px; margin: 0 auto 14px auto;">
-                <Icons name="music" :size="26" />
-              </div>
-              <audio :src="previewData" controls autoplay style="width: 100%;"></audio>
-            </div>
-          </div>
-
           <div v-else class="preview-center-box">
             <div class="icon-badge secondary" style="width: 48px; height: 48px; margin-bottom: 12px;">
-              <Icons :name="previewModal.isVideo ? 'video' : (previewModal.isAudio ? 'music' : 'image')" :size="24" />
+              <Icons name="image" :size="24" />
             </div>
             <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
-              {{ previewError || 'Direct preview not available' }}
+              {{ previewError || 'Preview not available' }}
             </div>
             <div style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">
-              Tap 'Open in app' to launch external player
+              Tap 'Open in app' to view in gallery
             </div>
           </div>
         </div>
@@ -1678,7 +1668,7 @@ function clearSelection() {
 function handleItemClick(item) {
   if (selectedFiles.value.size > 0) {
     toggleSelect(item.path)
-  } else if (isImageExt(item.ext) || isVideoExt(item.ext) || isAudioExt(item.ext)) {
+  } else if (isImageExt(item.ext)) {
     openPreview(item)
   } else {
     openMedia(item.path)
@@ -1870,17 +1860,15 @@ const currentImageIndex = computed(() => {
 async function openPreview(item) {
   if (!item || !item.path) return
   const ext = (item.ext || '').toLowerCase()
-  const isImg = isImageExt(ext)
-  const isVid = isVideoExt(ext)
-  const isAud = isAudioExt(ext)
+  if (!isImageExt(ext)) {
+    openMedia(item.path)
+    return
+  }
 
   previewModal.value = {
     show: true,
     item,
-    isImage: isImg,
-    isMedia: isVid || isAud,
-    isVideo: isVid,
-    isAudio: isAud
+    isImage: true
   }
   previewData.value = ''
   previewError.value = ''
@@ -1895,7 +1883,7 @@ async function openPreview(item) {
       } else if (res.error === 'too_large') {
         previewError.value = `File size is ${res.size || item.size}. Tap 'Open in app' to view.`
       } else {
-        previewError.value = 'Preview not available for this file.'
+        previewError.value = 'Preview not available for this image.'
       }
     } else {
       previewError.value = 'Could not generate preview.'
