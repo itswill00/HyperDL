@@ -11,10 +11,16 @@ import hashlib
 import argparse
 import subprocess
 import shutil
+import socket
+import ssl
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as pyhtml
 import urllib.request
 import urllib.parse
 import urllib.error
+
+# Protect all operations from hanging sockets
+socket.setdefaulttimeout(15)
 
 STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
@@ -22,6 +28,56 @@ CONF_DIR = "/data/adb/hyperdl"
 COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+
+def expand_shortlink_fast(url, timeout=3.5):
+    """
+    Ultra-fast shortlink expansion using HTTP HEAD/Range 0-0.
+    Avoids downloading megabytes of landing page HTML just to get target URL.
+    """
+    low = url.lower()
+    if not any(k in low for k in [
+        "vt.tiktok.com", "vm.tiktok.com", "v.douyin.com",
+        "fb.watch", "/share/", "t.co", "pin.it", "pin.",
+        "/s/", "redd.it", "bit.ly", "tinyurl.com", "is.gd"
+    ]):
+        return url
+
+    class FastRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            m = req.get_method()
+            if code in (301, 302, 303, 307, 308):
+                return urllib.request.Request(newurl, headers=req.headers, method=m)
+            return None
+
+    opener = urllib.request.build_opener(FastRedirectHandler)
+    req = urllib.request.Request(url, method="HEAD", headers={
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*"
+    })
+    res = url
+    try:
+        with opener.open(req, timeout=timeout) as r:
+            res = r.geturl()
+    except urllib.error.HTTPError as e:
+        loc = e.headers.get("Location") or e.headers.get("location")
+        if loc:
+            if not loc.startswith("http"):
+                loc = urllib.parse.urljoin(url, loc)
+            res = loc
+    except Exception:
+        try:
+            req_get = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"})
+            with urllib.request.urlopen(req_get, timeout=timeout) as r:
+                res = r.geturl()
+        except Exception:
+            res = url
+
+    # Guard: if expansion stripped the video path (e.g. redirected to homepage with ?_r=1 or /)
+    if "tiktok.com" in res.lower() and "/video/" not in res.lower() and "/photo/" not in res.lower():
+        return url
+    if "instagram.com" in res.lower() and "/p/" not in res.lower() and "/reel/" not in res.lower() and "/tv/" not in res.lower():
+        return url
+    return res
 
 def humanize_error(e):
     if not e:
@@ -199,9 +255,9 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             last_update = 0
 
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with open(out_path, "wb") as f:
+            with open(out_path, "wb", buffering=1024 * 1024) as f:
                 while True:
-                    chunk = resp.read(256 * 1024)
+                    chunk = resp.read(512 * 1024)
                     if not chunk:
                         break
                     f.write(chunk)
@@ -287,8 +343,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
 
 def fetch_tikwm(clean_url, fmt="video"):
     endpoints = [
-        "https://www.tikwm.com/api/",
-        "https://tikwm.com/api/"
+        "https://www.tikwm.com/api/"
     ]
     last_err = None
     for ep in endpoints:
@@ -301,7 +356,7 @@ def fetch_tikwm(clean_url, fmt="video"):
                     "Referer": "https://www.tikwm.com/"
                 }
             )
-            with urllib.request.urlopen(req, timeout=7) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
             if res.get("code") == 0 and res.get("data"):
                 d = res["data"]
@@ -372,22 +427,14 @@ def fetch_tikwm(clean_url, fmt="video"):
 
 def resolve_tiktok(url, fmt="video"):
     update_status("resolving", title="Resolving TikTok media...")
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
     cookie_hdr = get_cookie_header("tiktok.com")
 
     if not cookie_hdr:
         try:
-            return fetch_tikwm(url, fmt)
+            return fetch_tikwm(clean_url, fmt)
         except Exception as e:
             print(f"Fast TikWM path note: {e}, attempting direct scrape...", file=sys.stderr)
-
-    clean_url = url
-    if "vt.tiktok.com" in url or "vm.tiktok.com" in url:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                clean_url = r.geturl()
-        except Exception as e:
-            print(f"Shortlink expansion note: {e}", file=sys.stderr)
 
     hdrs = {
         "User-Agent": USER_AGENT,
@@ -492,7 +539,17 @@ def resolve_tiktok(url, fmt="video"):
     except Exception as e:
         print(f"Direct TikTok scrape note: {e}, using mirror resolver...", file=sys.stderr)
 
-    return fetch_tikwm(clean_url, fmt)
+    try:
+        return fetch_tikwm(clean_url, fmt)
+    except Exception as te:
+        print(f"TikWM mirror fallback note: {te}", file=sys.stderr)
+        return {
+            "direct_ytdlp": True,
+            "url": clean_url if clean_url != url else url,
+            "fmt": fmt,
+            "is_yt": False,
+            "title": "TikTok Media"
+        }
 
 def resolve_instagram(url):
     update_status("resolving", title="Resolving Instagram media...")
@@ -514,7 +571,7 @@ def resolve_instagram(url):
         try:
             gql_url = f"https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables=%7B%22shortcode%22%3A%22{shortcode}%22%7D"
             req = urllib.request.Request(gql_url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             media = data.get("data", {}).get("xdt_shortcode_media", {})
             if media:
@@ -526,43 +583,45 @@ def resolve_instagram(url):
         except Exception as e:
             print(f"Instagram GraphQL query failed: {e}", file=sys.stderr)
 
+    # Fast OpenGraph / Crawler metadata probe (WhatsApp / Facebook bot UA)
     try:
-        embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
-        req = urllib.request.Request(embed_url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        crawler_hdrs = {
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        req = urllib.request.Request(f"https://www.instagram.com/reel/{shortcode}/", headers=crawler_hdrs)
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
         
-        vid_match = re.search(r'"video_url"\s*:\s*"([^"]+)"', html)
-        if vid_match:
-            vurl = vid_match.group(1).replace("\\u0026", "&").replace("\\", "")
+        og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\']\s+content=["\']([^"\']+)["\']', html)
+        if og_vid:
+            vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
             return {"url": vurl, "title": f"Instagram_{shortcode}", "ext": "mp4", "kind": "video"}
-
-        img_match = re.search(r'"display_url"\s*:\s*"([^"]+)"', html)
-        if img_match:
-            iurl = img_match.group(1).replace("\\u0026", "&").replace("\\", "")
-            return {"url": iurl, "title": f"Instagram_{shortcode}", "ext": "jpg", "kind": "image"}
+            
+        if "/reel/" not in url.lower() and "/reels/" not in url.lower():
+            og_img = re.search(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
+            if og_img:
+                iurl = pyhtml.unescape(og_img.group(1)).replace("&amp;", "&")
+                if not iurl.endswith("instagram.com/"):
+                    return {"url": iurl, "title": f"Instagram_{shortcode}", "ext": "jpg", "kind": "image"}
     except Exception as e:
-        print(f"Instagram embed extraction failed: {e}", file=sys.stderr)
+        print(f"Instagram crawler probe note: {e}", file=sys.stderr)
 
-    try:
-        return resolve_ytdlp(url, fmt="video", is_yt=False)
-    except Exception as ye:
-        print(f"Instagram yt-dlp fallback note: {ye}", file=sys.stderr)
-
-    raise RuntimeError("Instagram is currently restricted by Meta anti-bot (IG is still not working / requires session cookies in Settings)")
+    # Route directly to single-pass yt-dlp to avoid double invocation delay
+    return {
+        "direct_ytdlp": True,
+        "url": url,
+        "fmt": "video",
+        "is_yt": False,
+        "title": f"Instagram_{shortcode}"
+    }
 
 def resolve_facebook(url, fmt="video"):
     update_status("resolving", title="Resolving Facebook media...")
-    clean_url = url
-    if "fb.watch" in url or "/share/" in url:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                clean_url = r.geturl()
-        except Exception:
-            pass
-
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
     clean_url = clean_url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
+    
     cookie_hdr = get_cookie_header("facebook.com")
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -580,7 +639,7 @@ def resolve_facebook(url, fmt="video"):
 
     try:
         req = urllib.request.Request(clean_url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=6) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
 
         hd_m = re.search(r'"progressive_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*,\s*"failure_reason"\s*:\s*[^,]+\s*,\s*"metadata"\s*:\s*\{\s*"quality"\s*:\s*"HD"\s*\}', html, re.S)
@@ -613,7 +672,6 @@ def resolve_facebook(url, fmt="video"):
                   re.search(r'<title[^>]*>(.*?)</title>', html, re.S)
         title = "Facebook Video"
         if title_m:
-            import html as pyhtml
             t = re.sub(r'\s*\|\s*Facebook.*$', '', title_m.group(1), flags=re.I).strip()
             t = pyhtml.unescape(t)
             if t and t.lower() not in ("facebook", "watch", "reel"):
@@ -625,45 +683,22 @@ def resolve_facebook(url, fmt="video"):
                 "ext": "mp4",
                 "kind": "video",
                 "candidates": candidates,
-                "fallback": lambda: resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+                "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
             }
     except Exception as e:
         print(f"Facebook direct scrape note: {e}", file=sys.stderr)
 
-    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+    return {
+        "direct_ytdlp": True,
+        "url": clean_url,
+        "fmt": fmt,
+        "is_yt": False,
+        "title": "Facebook Video"
+    }
 
 def resolve_pinterest(url, fmt="video"):
     update_status("resolving", title="Resolving Pinterest media...")
-    clean_url = url
-    if "pin.it" in url or "pin." in url:
-        m_short = re.search(r"pin\.[^/]+/([A-Za-z0-9_-]+)", url)
-        if m_short:
-            short_id = m_short.group(1)
-            api_url = f"https://api.pinterest.com/url_shortener/{short_id}/redirect/"
-            try:
-                class NoRedirect(urllib.request.HTTPRedirectHandler):
-                    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
-                        return None
-                opener = urllib.request.build_opener(NoRedirect)
-                req = urllib.request.Request(api_url, headers={"User-Agent": USER_AGENT, "Referer": "https://www.pinterest.com/"})
-                try:
-                    r = opener.open(req)
-                    loc = r.headers.get("Location") or r.headers.get("location")
-                    if loc:
-                        clean_url = loc
-                except urllib.error.HTTPError as e:
-                    loc = e.headers.get("Location") or e.headers.get("location")
-                    if loc:
-                        clean_url = loc
-            except Exception:
-                pass
-        if clean_url == url:
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    clean_url = r.geturl()
-            except Exception:
-                pass
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
 
     m = re.search(r'pin/(?:[\w-]+--)?(\d+)', clean_url)
     if m:
@@ -682,7 +717,7 @@ def resolve_pinterest(url, fmt="video"):
             payload = {"options": {"field_set_key": "unauth_react_main_pin", "id": pin_id}}
             api_url = "https://www.pinterest.com/resource/PinResource/get/?" + urllib.parse.urlencode({"data": json.dumps(payload, separators=(',', ':'))})
             req = urllib.request.Request(api_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 d = json.loads(resp.read().decode("utf-8"))
             pin = d.get("resource_response", {}).get("data", {})
             title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
@@ -713,18 +748,17 @@ def resolve_pinterest(url, fmt="video"):
         except Exception as e:
             print(f"Pinterest API note: {e}", file=sys.stderr)
 
-    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+    return {
+        "direct_ytdlp": True,
+        "url": clean_url,
+        "fmt": fmt,
+        "is_yt": False,
+        "title": "Pinterest Media"
+    }
 
 def resolve_reddit(url, fmt="video"):
     update_status("resolving", title="Resolving Reddit media...")
-    clean_url = url
-    if "/s/" in url or "redd.it" in url:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                clean_url = r.geturl()
-        except Exception:
-            pass
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
 
     p = urllib.parse.urlparse(clean_url)
     clean_path = p.path.rstrip("/")
@@ -733,64 +767,18 @@ def resolve_reddit(url, fmt="video"):
 
     cookie_hdr = get_cookie_header("reddit.com")
     hdrs = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
         "Accept": "application/json,text/html,*/*",
         "Referer": "https://www.reddit.com/"
     }
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
-    candidates_urls = [
-        f"https://www.reddit.com{clean_path}",
-        f"https://old.reddit.com{clean_path}",
-        f"https://new.reddit.com{clean_path}"
-    ]
-
-    import html as pyhtml
-    for c_url in candidates_urls:
-        try:
-            req = urllib.request.Request(c_url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                raw_text = resp.read().decode("utf-8", errors="ignore")
-                if not raw_text.strip().startswith(("[", "{")):
-                    continue
-                data = json.loads(raw_text)
-            if isinstance(data, list) and data:
-                post = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
-                title = post.get("title") or "Reddit Media"
-
-                gallery = post.get("media_metadata", {})
-                if isinstance(gallery, dict) and gallery:
-                    images = []
-                    for k, meta in gallery.items():
-                        src = meta.get("s", {}).get("u") or meta.get("s", {}).get("mp4")
-                        if src:
-                            images.append(pyhtml.unescape(src).replace("&amp;", "&"))
-                    if images:
-                        return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
-
-                post_url = pyhtml.unescape(post.get("url") or "")
-                if any(post_url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
-                    return {"url": post_url, "title": title, "ext": "jpg", "kind": "image"}
-
-                media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
-                rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
-                fallback = rv.get("fallback_url")
-                if fallback:
-                    return {
-                        "url": fallback,
-                        "title": title,
-                        "ext": "mp4",
-                        "kind": "video",
-                        "fallback": lambda: resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
-                    }
-        except Exception as e:
-            print(f"Reddit JSON candidate note ({c_url}): {e}", file=sys.stderr)
-
+    # Try RapidSave mirror first as Reddit actively blocks .json endpoints without OAuth
     try:
         rs_url = f"https://rapidsave.com/info?url={urllib.parse.quote(clean_url)}"
         rs_req = urllib.request.Request(rs_url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(rs_req, timeout=10) as r:
+        with urllib.request.urlopen(rs_req, timeout=4) as r:
             rs_html = r.read().decode("utf-8", errors="ignore")
         rs_match = re.search(r'<a[^>]+class=["\'][^"\']*downloadbutton[^"\']*["\'][^>]+href=["\']([^"\']+)["\']', rs_html) or \
                    re.search(r'<a[^>]+href=["\'](https?://(?:sd|d)\.rapidsave\.com/download\.php\?[^"\']+)["\']', rs_html)
@@ -803,22 +791,79 @@ def resolve_reddit(url, fmt="video"):
     except Exception as re_err:
         print(f"Reddit rapidsave mirror note: {re_err}", file=sys.stderr)
 
-    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+    candidates_urls = [
+        f"https://old.reddit.com{clean_path}",
+        f"https://www.reddit.com{clean_path}"
+    ]
+
+    def fetch_reddit_candidate(c_url):
+        req = urllib.request.Request(c_url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            raw_text = resp.read().decode("utf-8", errors="ignore")
+            if raw_text.strip().startswith(("[", "{")):
+                return json.loads(raw_text)
+        return None
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(fetch_reddit_candidate, cu) for cu in candidates_urls]
+            for f in futures:
+                try:
+                    data = f.result()
+                    if isinstance(data, list) and data:
+                        post = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
+                        title = post.get("title") or "Reddit Media"
+
+                        gallery = post.get("media_metadata", {})
+                        if isinstance(gallery, dict) and gallery:
+                            images = []
+                            for k, meta in gallery.items():
+                                src = meta.get("s", {}).get("u") or meta.get("s", {}).get("mp4")
+                                if src:
+                                    images.append(pyhtml.unescape(src).replace("&amp;", "&"))
+                            if images:
+                                return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
+
+                        post_url = pyhtml.unescape(post.get("url") or "")
+                        if any(post_url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                            return {"url": post_url, "title": title, "ext": "jpg", "kind": "image"}
+
+                        media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
+                        rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
+                        fallback = rv.get("fallback_url")
+                        if fallback:
+                            return {
+                                "url": fallback,
+                                "title": title,
+                                "ext": "mp4",
+                                "kind": "video"
+                            }
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"Reddit JSON candidates note: {e}", file=sys.stderr)
+
+    return {
+        "direct_ytdlp": True,
+        "url": clean_url,
+        "fmt": fmt,
+        "is_yt": False,
+        "title": "Reddit Media"
+    }
 
 def resolve_twitter(url, fmt="video"):
     update_status("resolving", title="Resolving X/Twitter post...")
-    clean_url = url
-    if "t.co" in url:
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                clean_url = r.geturl()
-        except Exception:
-            pass
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
 
     m = re.search(r'status/(\d+)', clean_url)
     if not m:
-        return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+        return {
+            "direct_ytdlp": True,
+            "url": clean_url,
+            "fmt": fmt,
+            "is_yt": False,
+            "title": "X Media"
+        }
     status_id = m.group(1)
 
     cookie_hdr = get_cookie_header("x.com") or get_cookie_header("twitter.com")
@@ -862,7 +907,7 @@ def resolve_twitter(url, fmt="video"):
                 "referer": "https://x.com/"
             }
             req = urllib.request.Request(req_url, headers=gql_hdrs)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             result = ((data.get("data") or {}).get("tweetResult") or {}).get("result") or {}
             legacy = (result.get("tweet", {}).get("legacy") if isinstance(result.get("tweet"), dict) else result.get("legacy")) or {}
@@ -891,32 +936,47 @@ def resolve_twitter(url, fmt="video"):
 
     guest_endpoints = [
         f"https://api.fxtwitter.com/i/status/{status_id}",
-        f"https://api.vxtwitter.com/Twitter/status/{status_id}"
+        f"https://api.vxtwitter.com/Twitter/status/{status_id}",
+        f"https://cdn.syndication.twimg.com/tweet-result?id={status_id}&token=4"
     ]
-    for ep in guest_endpoints:
-        try:
-            req = urllib.request.Request(ep, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
 
-            v_url = data.get("video_url")
-            if not v_url and data.get("tweet", {}).get("media", {}).get("videos"):
-                v_url = data["tweet"]["media"]["videos"][0].get("url")
-            if v_url:
-                return {"url": v_url, "title": title, "ext": "mp4", "kind": "video"}
+    def query_guest_ep(ep):
+        req = urllib.request.Request(ep, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            return ep, json.loads(resp.read().decode("utf-8"))
 
-            photos = data.get("mediaURLs")
-            if not photos and data.get("tweet", {}).get("media", {}).get("photos"):
-                photos = [p.get("url") for p in data["tweet"]["media"]["photos"] if p.get("url")]
-            if photos:
-                if len(photos) == 1:
-                    return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image"}
-                return {"images": photos, "title": title, "ext": "jpg", "kind": "album"}
-        except Exception as e:
-            print(f"Twitter guest API note ({ep}): {e}", file=sys.stderr)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(query_guest_ep, ep): ep for ep in guest_endpoints}
+        for f in as_completed(futures):
+            try:
+                ep, data = f.result()
+                if not data:
+                    continue
+                title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
 
-    return resolve_ytdlp(clean_url, fmt=fmt, is_yt=False)
+                v_url = data.get("video_url")
+                if not v_url and data.get("tweet", {}).get("media", {}).get("videos"):
+                    v_url = data["tweet"]["media"]["videos"][0].get("url")
+                if v_url:
+                    return {"url": v_url, "title": title, "ext": "mp4", "kind": "video"}
+
+                photos = data.get("mediaURLs")
+                if not photos and data.get("tweet", {}).get("media", {}).get("photos"):
+                    photos = [p.get("url") for p in data["tweet"]["media"]["photos"] if p.get("url")]
+                if photos:
+                    if len(photos) == 1:
+                        return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image"}
+                    return {"images": photos, "title": title, "ext": "jpg", "kind": "album"}
+            except Exception:
+                continue
+
+    return {
+        "direct_ytdlp": True,
+        "url": clean_url,
+        "fmt": fmt,
+        "is_yt": False,
+        "title": f"Tweet_{status_id}"
+    }
 
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
@@ -1022,40 +1082,6 @@ def get_ffmpeg_binary():
     return shutil.which("ffmpeg")
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
-    update_status("resolving", title="Resolving media stream...")
-    import subprocess
-
-    ytdlp_bin = get_or_download_ytdlp()
-    py_bin = get_python_binary()
-
-    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
-    format_arg = ["-f", "ba/b"] if fmt == "audio" else ["-f", "best[ext=mp4]/best"]
-
-    ffmpeg_bin = get_ffmpeg_binary()
-    ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
-
-    cmd = [
-        py_bin,
-        ytdlp_bin,
-        "--no-warnings",
-        "--no-check-certificates",
-        "--socket-timeout",
-        "15",
-        "--no-playlist",
-        "-e",
-        "-g",
-    ] + ffmpeg_arg + format_arg + cookie_arg + [url]
-
-    env = get_runtime_env()
-    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
-    if res.returncode == 0 and res.stdout.strip():
-        lines = [l.strip() for l in res.stdout.strip().split("\n") if l.strip()]
-        if len(lines) == 2:
-            title = lines[0]
-            stream_url = lines[1]
-            ext = "flac" if fmt == "audio" else "mp4"
-            return {"url": stream_url, "title": title, "ext": ext, "kind": fmt}
-
     return {
         "direct_ytdlp": True,
         "url": url,
@@ -1074,7 +1100,6 @@ def resolve_youtube(url, fmt="video"):
     }
 
 def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None):
-    import subprocess
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
 
@@ -1088,7 +1113,6 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             node_bin = nc
             break
     if not node_bin:
-        import shutil
         node_bin = shutil.which("node")
     js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
 
@@ -1117,6 +1141,12 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         "--no-warnings",
         "--no-check-certificates",
         "--no-playlist",
+        "--concurrent-fragments", "4",
+        "--no-mtime",
+        "--buffer-size", "256k",
+        "--http-chunk-size", "10M",
+        "--extractor-retries", "2",
+        "--socket-timeout", "12",
         "--newline",
         "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
         "-o", out_tpl,
@@ -1195,7 +1225,8 @@ def probe_resolutions(url):
     cmd = [
         py_bin, ytdlp_bin,
         "-J", "--no-warnings", "--no-check-certificates",
-        "--no-playlist", "--no-check-formats", "--socket-timeout", "15",
+        "--no-playlist", "--no-check-formats", "--socket-timeout", "10",
+        "--extractor-retries", "1",
     ] + js_arg + ffmpeg_arg + cookie_arg + [url]
 
     env = get_runtime_env()
