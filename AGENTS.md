@@ -17,6 +17,8 @@
    - Keep all standard library imports (`subprocess`, `shutil`, `html as pyhtml`) at top-level module scope in `engine/downloader.py`.
    - Status writes to `STATUS_FILE` and `ACTIVE_TASK_FILE` must be atomic (`.tmp` + `os.replace`).
    - Video requests must never fall back to static image/thumbnail cover files (`og:image`).
+   - Always use `(d.get("key") or {})` when traversing dynamic social media JSON to prevent `NoneType` crashes on `null` fields.
+   - For HLS `.m3u8` streams, remux with FFmpeg using `-f mp4` and `.tmp.mp4` temporary files; do not pass concurrent chunk flags to yt-dlp on HLS.
 
 4. **Tone & Branding**:
    - Avoid robotic words. Specifically, do NOT use the word "engine" in user-facing texts, logs, or UI.
