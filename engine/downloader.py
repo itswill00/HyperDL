@@ -230,14 +230,25 @@ def scan_media_file(file_path):
     if not file_path or not os.path.exists(file_path):
         return
     try:
+        os.chmod(file_path, 0o666)
+    except Exception:
+        pass
+    try:
         quoted = urllib.parse.quote(file_path)
-        os.system(f'am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://{quoted}" >/dev/null 2>&1')
+        # Dual-mode media scanning (Android 10 broadcast + Android 11-15 scoped storage content insert)
+        cmd = (
+            f'(am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://{quoted}" >/dev/null 2>&1; '
+            f'content insert --uri content://media/external/file --bind _data:s:"{file_path}" >/dev/null 2>&1) &'
+        )
+        os.system(cmd)
     except Exception:
         pass
 
 def send_android_notification(title, text):
     try:
-        os.system(f'cmd notification post -S bigtext -t "{title}" "HyperDL" "{text}" >/dev/null 2>&1')
+        safe_title = str(title).replace('"', '\\"')
+        safe_text = str(text).replace('"', '\\"')
+        os.system(f'(cmd notification post -S bigtext -t "{safe_title}" "HyperDL" "{safe_text}" >/dev/null 2>&1) &')
     except Exception:
         pass
 
@@ -1124,10 +1135,10 @@ YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/
 def get_or_download_ytdlp():
     candidates = [
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
+        "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
         os.path.join(CONF_DIR, "yt-dlp"),
-        "/data/data/com.termux/files/usr/bin/yt-dlp"
     ]
     for c in candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
@@ -1180,10 +1191,12 @@ def get_or_download_ytdlp():
 
 def get_python_binary():
     py_candidates = [
-        "/data/data/com.termux/files/usr/bin/python3",
         "/data/adb/modules/hyperdl/runtime/bin/python3",
+        "/data/adb/modules_update/hyperdl/runtime/bin/python3",
         "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
         sys.executable,
+        "/system/bin/python3",
+        "/system/xbin/python3",
         "python3"
     ]
     for p in py_candidates:
@@ -1195,11 +1208,15 @@ def get_runtime_env():
     env = dict(os.environ)
     runtime_dir = "/data/adb/modules/hyperdl/runtime"
     if not os.path.isdir(runtime_dir):
-        candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
-        if os.path.isdir(candidate_dev):
-            runtime_dir = candidate_dev
+        update_dir = "/data/adb/modules_update/hyperdl/runtime"
+        if os.path.isdir(update_dir):
+            runtime_dir = update_dir
+        else:
+            candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
+            if os.path.isdir(candidate_dev):
+                runtime_dir = candidate_dev
     if os.path.isdir(runtime_dir):
-        env["PATH"] = f"{runtime_dir}/bin:" + env.get("PATH", "/system/bin")
+        env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
         env["LD_LIBRARY_PATH"] = f"{runtime_dir}/lib"
         env["PYTHONHOME"] = runtime_dir
         env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload"
@@ -1210,10 +1227,11 @@ def get_ffmpeg_binary():
     import shutil
     candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
+        "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg",
         "/data/adb/modules/hyperdl/system/bin/ffmpeg",
+        "/data/adb/modules_update/hyperdl/system/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/ffmpeg",
-        "/data/data/com.termux/files/usr/bin/ffmpeg",
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
@@ -1263,7 +1281,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
 
     node_bin = None
-    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+    for nc in ["/system/bin/node", "/system/xbin/node"]:
         if os.path.isfile(nc) and os.access(nc, os.X_OK):
             node_bin = nc
             break

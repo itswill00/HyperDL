@@ -1,14 +1,23 @@
 #!/system/bin/sh
 SKIPUNZIP=1
 
+if [ "$ARCH" != "arm64" ]; then
+    ui_print "! Unsupported architecture: $ARCH"
+    ui_print "! HyperDL standalone runtime requires 64-bit ARM (arm64)."
+    abort "! Installation aborted."
+fi
+
 ui_print "- Installing HyperDL..."
 ui_print "- Extracting files..."
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >/dev/null 2>&1
 
 ui_print "- Preparing directories..."
 mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null
+chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null
 mkdir -p /data/adb/hyperdl 2>/dev/null
+chmod 0777 /data/adb/hyperdl 2>/dev/null
 mkdir -p /data/local/tmp 2>/dev/null
+chmod 0777 /data/local/tmp 2>/dev/null
 
 ui_print "- Setting file permissions..."
 set_perm_recursive "$MODPATH" 0 0 0755 0644
@@ -19,6 +28,7 @@ chmod 755 "$MODPATH/system/bin/libhyperdl.so" 2>/dev/null
 chmod 755 "$MODPATH/system/bin/hyperdl.bundle" 2>/dev/null
 chmod 755 "$MODPATH/system/bin/hyperdl_daemon" 2>/dev/null
 chmod 755 "$MODPATH/system/bin/yt-dlp" 2>/dev/null
+chmod 644 "$MODPATH/system/bin/clip.jar" 2>/dev/null
 chmod 755 "$MODPATH/runtime/bin/python3" 2>/dev/null
 chmod 755 "$MODPATH/runtime/bin/ffmpeg" 2>/dev/null
 chmod 755 "$MODPATH/runtime/bin/ffprobe" 2>/dev/null

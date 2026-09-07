@@ -33,13 +33,11 @@
 
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
+    "/data/adb/modules_update/hyperdl/runtime/bin/python3",
     "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
-    "/data/data/com.termux/files/usr/bin/python3",
-    "/data/adb/modules/python/bin/python3",
-    "/data/adb/py2droid/usr/bin/python3",
-    "/data/adb/modules/py2droid/system/bin/python3",
     "/system/bin/python3",
     "/system/xbin/python3",
+    "/data/adb/modules/python/bin/python3",
     "/data/adb/ap/bin/python3",
     "/data/adb/ksu/bin/python3",
     NULL
@@ -110,9 +108,12 @@ static const char *find_python(void) {
 }
 
 static void ensure_directories(void) {
-    mkdir(OUTDIR, 0755);
-    mkdir(CONF_DIR, 0755);
+    mkdir(OUTDIR, 0777);
+    chmod(OUTDIR, 0777);
+    mkdir(CONF_DIR, 0777);
+    chmod(CONF_DIR, 0777);
     mkdir("/data/local/tmp", 0777);
+    chmod("/data/local/tmp", 0777);
 }
 
 static void format_file_size(off_t bytes, char *buf, size_t buf_len) {
@@ -225,6 +226,8 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
     const char *bundle_path = NULL;
     if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
         bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
     } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
         bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
     }
@@ -254,6 +257,13 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         setsid();
         signal(SIGHUP, SIG_IGN);
 
+        // Protect background download from OEM LMK task killers (HyperOS, ColorOS, XOS)
+        int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY);
+        if (oom_fd >= 0) {
+            write(oom_fd, "-900\n", 5);
+            close(oom_fd);
+        }
+
         int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (log_fd >= 0) {
             fchmod(log_fd, 0666);
@@ -272,7 +282,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
                 snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
                 snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
                 snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", moddir);
+                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
                 setenv("PATH", path_env, 1);
                 setenv("PYTHONHOME", moddir, 1);
@@ -350,21 +360,13 @@ static void cmd_probe(const char *url) {
     const char *bundle_path = NULL;
     if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
         bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
     } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
         bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
     }
 
-    if (strstr(python_bin, "com.termux")) {
-        setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
-        setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
-        setenv("HOME", "/data/data/com.termux/files/home", 1);
-        setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
-    } else if (strstr(python_bin, "py2droid")) {
-        setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
-        setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
-        setenv("LD_LIBRARY_PATH", "/data/adb/py2droid/usr/lib", 1);
-        setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
-    } else if (strstr(python_bin, "runtime")) {
+    if (strstr(python_bin, "runtime")) {
         char moddir[512];
         const char *p = strstr(python_bin, "/bin/python3");
         if (p) {
@@ -374,7 +376,7 @@ static void cmd_probe(const char *url) {
             snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
             snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload", moddir, moddir);
             snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", moddir);
+            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
             setenv("PATH", path_env, 1);
             setenv("PYTHONHOME", moddir, 1);
@@ -712,8 +714,9 @@ static void cmd_info(void) {
     const char *python_bin = find_python();
     int has_cookies = (access(COOKIES_FILE, F_OK) == 0);
     int has_ffmpeg = (access("/data/adb/modules/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
+                     (access("/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
                      (access("/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/data/data/com.termux/files/usr/bin/ffmpeg", X_OK) == 0);
+                     (access("/system/bin/ffmpeg", X_OK) == 0);
 
     printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s}\n",
            mod_version, storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false");
@@ -850,6 +853,7 @@ static void run_daemon_cmd(const char *action) {
         }
         const char *daemon_paths[] = {
             "/data/adb/modules/hyperdl/system/bin/hyperdl_daemon",
+            "/data/adb/modules_update/hyperdl/system/bin/hyperdl_daemon",
             "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl_daemon",
             "/system/bin/hyperdl_daemon",
             NULL

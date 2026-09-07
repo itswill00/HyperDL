@@ -8,6 +8,7 @@ MODDIR="${0%/*}/.."
 find_jar() {
     for j in \
         /data/adb/modules/hyperdl/system/bin/clip.jar \
+        /data/adb/modules_update/hyperdl/system/bin/clip.jar \
         /data/adb/hyperdl/clip.jar \
         /system/bin/clip.jar \
         "$MODDIR/system/bin/clip.jar" \
@@ -23,6 +24,7 @@ find_jar() {
 find_bridge() {
     for b in \
         /data/adb/modules/hyperdl/system/bin/libhyperdl.so \
+        /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so \
         /system/bin/libhyperdl.so \
         "$MODDIR/system/bin/libhyperdl.so" \
         /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so; do
@@ -38,8 +40,6 @@ get_clipboard() {
     JAR="$(find_jar)"
     if [ -n "$JAR" ]; then
         ANDROID_ROOT=/system ANDROID_DATA=/data CLASSPATH="$JAR" app_process /system/bin Clip 2>/dev/null
-    elif command -v termux-clipboard-get >/dev/null 2>&1; then
-        termux-clipboard-get 2>/dev/null
     fi
 }
 
@@ -53,6 +53,7 @@ case "$1" in
     fi
 
     (
+      echo -900 > /proc/$$/oom_score_adj 2>/dev/null || true
       while true; do
         if [ ! -f /data/adb/hyperdl/autodl.enabled ]; then
           break
@@ -79,7 +80,7 @@ case "$1" in
                   fi
                 fi
 
-                cmd notification post -S bigtext -t "HyperDL" "Link detected" "Downloading media from clipboard..." >/dev/null 2>&1
+                (cmd notification post -S bigtext -t "HyperDL" "Link detected" "Downloading media from clipboard..." >/dev/null 2>&1) &
                 BRIDGE="$(find_bridge)"
                 if [ -n "$BRIDGE" ]; then
                   "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1

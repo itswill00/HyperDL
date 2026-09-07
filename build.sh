@@ -215,9 +215,12 @@ if [ "$DEPLOY" = "true" ]; then
         cp -rf runtime/* \"\$MOD_TARGET/runtime/\"
 
         chmod 755 \"\$MOD_TARGET/system/bin/\"*
+        chmod 644 \"\$MOD_TARGET/system/bin/clip.jar\" 2>/dev/null || true
         chmod 755 \"\$MOD_TARGET/runtime/bin/\"* 2>/dev/null || true
         chmod 755 \"\$MOD_TARGET/service.sh\" \"\$MOD_TARGET/uninstall.sh\"
         chmod 644 \"\$MOD_TARGET/module.prop\" \"\$MOD_TARGET/webroot/index.html\"
+        chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+        chmod 0777 /data/adb/hyperdl 2>/dev/null || true
 
         if [ -f /data/adb/hyperdl/autodl.enabled ]; then
             sh \"\$MOD_TARGET/system/bin/hyperdl_daemon\" start >/dev/null 2>&1 &
