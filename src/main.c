@@ -22,13 +22,14 @@
 #include <dlfcn.h>
 #include "embedded_engine.h"
 
-#define STATUS_FILE    "/data/local/tmp/hyperdl_status.json"
-#define PID_FILE       "/data/local/tmp/hyperdl.pid"
-#define LOG_FILE       "/data/local/tmp/hyperdl_engine.log"
-#define CONF_DIR       "/data/adb/hyperdl"
-#define COOKIES_FILE   "/data/adb/hyperdl/cookies.txt"
-#define AUTODL_FILE    "/data/adb/hyperdl/autodl.enabled"
-#define OUTDIR         "/storage/emulated/0/Download/HyperDL"
+#define STATUS_FILE        "/data/local/tmp/hyperdl_status.json"
+#define PID_FILE           "/data/local/tmp/hyperdl.pid"
+#define LOG_FILE           "/data/local/tmp/hyperdl_engine.log"
+#define CONF_DIR           "/data/adb/hyperdl"
+#define ACTIVE_TASK_FILE   "/data/adb/hyperdl/active_task.json"
+#define COOKIES_FILE       "/data/adb/hyperdl/cookies.txt"
+#define AUTODL_FILE        "/data/adb/hyperdl/autodl.enabled"
+#define OUTDIR             "/storage/emulated/0/Download/HyperDL"
 
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -127,50 +128,74 @@ static void format_file_size(off_t bytes, char *buf, size_t buf_len) {
 }
 
 static void cmd_status(void) {
+    char buf[2048] = "";
+    int has_status = 0;
+
     FILE *f = fopen(STATUS_FILE, "r");
-    if (!f) {
-        printf("{\"status\":\"idle\",\"percent\":0}\n");
+    if (f) {
+        size_t r = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[r] = '\0';
+        has_status = (r > 0);
+    }
+
+    FILE *pf = fopen(PID_FILE, "r");
+    pid_t pid = 0;
+    int pid_alive = 0;
+    if (pf) {
+        if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
+            if (kill(pid, 0) == 0) {
+                pid_alive = 1;
+            }
+        }
+        fclose(pf);
+    }
+
+    if (pid > 1 && !pid_alive) {
+        unlink(PID_FILE);
+    }
+
+    if (pid_alive && has_status) {
+        printf("%s\n", buf);
         return;
     }
-    char buf[1024];
-    size_t r = fread(buf, 1, sizeof(buf) - 1, f);
-    fclose(f);
-    buf[r] = '\0';
 
-    if (strstr(buf, "\"resolving\"") || strstr(buf, "\"downloading\"")) {
-        FILE *pf = fopen(PID_FILE, "r");
-        if (pf) {
-            pid_t pid = 0;
-            if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
-                if (kill(pid, 0) != 0) {
-                    char err_buf[256] = "Download process terminated unexpectedly";
-                    FILE *lf = fopen(LOG_FILE, "r");
-                    if (lf) {
-                        if (fseek(lf, -512, SEEK_END) == 0) {
-                            char lbuf[1024];
-                            size_t lr = fread(lbuf, 1, sizeof(lbuf) - 1, lf);
-                            lbuf[lr] = '\0';
-                            char *err_line = strstr(lbuf, "Error:");
-                            if (!err_line) err_line = strstr(lbuf, "failed:");
-                            if (!err_line) err_line = strstr(lbuf, "Exception:");
-                            if (err_line) {
-                                char *nl = strchr(err_line, '\n');
-                                if (nl) *nl = '\0';
-                                snprintf(err_buf, sizeof(err_buf), "%.200s", err_line);
-                            }
-                        }
-                        fclose(lf);
+    // Process is not running or STATUS_FILE was wiped on reboot.
+    // Check persistent ACTIVE_TASK_FILE in /data/adb/hyperdl/active_task.json
+    FILE *af = fopen(ACTIVE_TASK_FILE, "r");
+    if (af) {
+        char abuf[2048];
+        size_t ar = fread(abuf, 1, sizeof(abuf) - 1, af);
+        fclose(af);
+        abuf[ar] = '\0';
+
+        if (strstr(abuf, "\"downloading\"") || strstr(abuf, "\"resolving\"") || strstr(abuf, "\"paused\"")) {
+            if (!strstr(abuf, "\"status\":\"paused\"")) {
+                char *sp = strstr(abuf, "\"status\":\"downloading\"");
+                if (sp) {
+                    memcpy(sp, "\"status\":\"paused\"     ", 22);
+                } else {
+                    sp = strstr(abuf, "\"status\":\"resolving\"");
+                    if (sp) {
+                        memcpy(sp, "\"status\":\"paused\"   ", 20);
                     }
-                    printf("{\"status\":\"error\",\"percent\":0,\"error\":\"%s\"}\n", err_buf);
-                    fclose(pf);
-                    return;
                 }
+                FILE *waf = fopen(ACTIVE_TASK_FILE, "w");
+                if (waf) { fputs(abuf, waf); fclose(waf); chmod(ACTIVE_TASK_FILE, 0666); }
+                FILE *wsf = fopen(STATUS_FILE, "w");
+                if (wsf) { fputs(abuf, wsf); fclose(wsf); chmod(STATUS_FILE, 0666); }
             }
-            fclose(pf);
+            printf("%s\n", abuf);
+            return;
         }
     }
 
-    printf("%s\n", buf);
+    if (has_status && (strstr(buf, "\"completed\"") || strstr(buf, "\"error\"") || strstr(buf, "\"paused\""))) {
+        printf("%s\n", buf);
+        return;
+    }
+
+    printf("{\"status\":\"idle\",\"percent\":0}\n");
 }
 
 static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height) {
@@ -206,9 +231,17 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
 
     FILE *sf = fopen(STATUS_FILE, "w");
     if (sf) {
-        fputs("{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\"}\n", sf);
+        fprintf(sf, "{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\",\"url\":\"%s\",\"fmt\":\"%s\"}\n",
+                url ? url : "", fmt ? fmt : "video");
         fclose(sf);
         chmod(STATUS_FILE, 0666);
+    }
+    FILE *af = fopen(ACTIVE_TASK_FILE, "w");
+    if (af) {
+        fprintf(af, "{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\",\"url\":\"%s\",\"fmt\":\"%s\"}\n",
+                url ? url : "", fmt ? fmt : "video");
+        fclose(af);
+        chmod(ACTIVE_TASK_FILE, 0666);
     }
 
     pid_t pid = fork();
@@ -869,6 +902,62 @@ static void cmd_get_autodl(void) {
     printf("{\"autodl\":%s}\n", active ? "true" : "false");
 }
 
+static void cmd_pause(void) {
+    FILE *pf = fopen(PID_FILE, "r");
+    pid_t old_pid = 0;
+    if (pf) {
+        if (fscanf(pf, "%d", &old_pid) == 1 && old_pid > 1) {
+            kill(-old_pid, SIGTERM);
+            kill(old_pid, SIGTERM);
+            usleep(50000);
+            if (kill(old_pid, 0) == 0) {
+                kill(-old_pid, SIGKILL);
+                kill(old_pid, SIGKILL);
+            }
+        }
+        fclose(pf);
+        unlink(PID_FILE);
+    }
+
+    char buf[2048] = "";
+    FILE *f = fopen(STATUS_FILE, "r");
+    if (!f) f = fopen(ACTIVE_TASK_FILE, "r");
+    if (f) {
+        size_t r = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[r] = '\0';
+
+        char *sp = strstr(buf, "\"status\":\"downloading\"");
+        if (sp) {
+            memcpy(sp, "\"status\":\"paused\"     ", 22);
+        } else {
+            sp = strstr(buf, "\"status\":\"resolving\"");
+            if (sp) {
+                memcpy(sp, "\"status\":\"paused\"   ", 20);
+            }
+        }
+
+        FILE *sf = fopen(STATUS_FILE, "w");
+        if (sf) { fputs(buf, sf); fclose(sf); chmod(STATUS_FILE, 0666); }
+        FILE *af = fopen(ACTIVE_TASK_FILE, "w");
+        if (af) { fputs(buf, af); fclose(af); chmod(ACTIVE_TASK_FILE, 0666); }
+    } else {
+        FILE *sf = fopen(STATUS_FILE, "w");
+        if (sf) {
+            fputs("{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n", sf);
+            fclose(sf);
+            chmod(STATUS_FILE, 0666);
+        }
+        FILE *af = fopen(ACTIVE_TASK_FILE, "w");
+        if (af) {
+            fputs("{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n", af);
+            fclose(af);
+            chmod(ACTIVE_TASK_FILE, 0666);
+        }
+    }
+    printf("{\"success\":true,\"paused\":true}\n");
+}
+
 static void cmd_cancel(void) {
     FILE *pf = fopen(PID_FILE, "r");
     pid_t old_pid = 0;
@@ -888,6 +977,12 @@ static void cmd_cancel(void) {
         fputs("{\"status\":\"idle\",\"percent\":0,\"title\":\"\",\"speed\":\"\",\"downloaded\":\"\",\"total\":\"\",\"file_path\":\"\",\"error\":\"\"}\n", sf);
         fclose(sf);
         chmod(STATUS_FILE, 0666);
+    }
+    FILE *af = fopen(ACTIVE_TASK_FILE, "w");
+    if (af) {
+        fputs("{\"status\":\"idle\",\"percent\":0}\n", af);
+        fclose(af);
+        chmod(ACTIVE_TASK_FILE, 0666);
     }
     printf("{\"success\":true,\"cancelled\":true}\n");
 }
@@ -912,6 +1007,8 @@ int main(int argc, char *argv[]) {
             else if (strncmp(argv[i], "--height=", 9) == 0) height = argv[i] + 9;
         }
         cmd_download(url, fmt, format_id, height);
+    } else if (strcmp(action, "pause") == 0) {
+        cmd_pause();
     } else if (strcmp(action, "cancel") == 0) {
         cmd_cancel();
     } else if (strcmp(action, "probe") == 0) {

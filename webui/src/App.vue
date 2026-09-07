@@ -171,37 +171,73 @@
           </div>
         </section>
 
-                <section v-if="task.status !== 'idle'" class="md3-card" style="border-color: var(--primary);">
+                <section v-if="task.status !== 'idle'" class="md3-card" :style="{ borderColor: task.status === 'paused' ? 'var(--secondary)' : 'var(--primary)' }">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-              <div class="icon-badge">
-                <Icons :name="task.status === 'completed' ? 'check' : 'download'" :size="18" />
+              <div class="icon-badge" :class="{ secondary: task.status === 'paused' }">
+                <Icons :name="task.status === 'completed' ? 'check' : (task.status === 'paused' ? 'pause' : 'download')" :size="18" />
               </div>
               <div style="min-width: 0; flex: 1;">
                 <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
                   {{ taskStatusTitle }}
                 </div>
                 <div style="font-size: 11px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  {{ task.title || url }}
+                  {{ task.title || task.url || url }}
                 </div>
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <span class="badge-pill" :class="{ active: task.status === 'completed' }">
-                {{ task.percent }}%
+              <span class="badge-pill" :class="{ active: task.status === 'completed', paused: task.status === 'paused' }">
+                {{ task.status === 'paused' ? 'Paused' : `${task.percent}%` }}
               </span>
+
+              <!-- Downloading / Resolving controls -->
+              <template v-if="task.status === 'resolving' || task.status === 'downloading'">
+                <button
+                  class="btn btn-secondary"
+                  style="padding: 3px 8px; font-size: 11px; height: 26px; gap: 4px;"
+                  @click="pauseDownload()"
+                  title="Pause download"
+                >
+                  <Icons name="pause" :size="11" />
+                  <span>Pause</span>
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
+                  @click="cancelDownload"
+                  title="Cancel download"
+                >
+                  <Icons name="close" :size="11" />
+                  <span>Cancel</span>
+                </button>
+              </template>
+
+              <!-- Paused controls -->
+              <template v-else-if="task.status === 'paused'">
+                <button
+                  class="btn btn-primary"
+                  style="padding: 3px 10px; font-size: 11px; height: 26px; gap: 4px;"
+                  @click="resumeDownload"
+                  title="Resume download"
+                >
+                  <Icons name="play" :size="11" />
+                  <span>Resume</span>
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
+                  @click="cancelDownload"
+                  title="Cancel download"
+                >
+                  <Icons name="close" :size="11" />
+                  <span>Cancel</span>
+                </button>
+              </template>
+
+              <!-- Completed or Error dismiss -->
               <button
-                v-if="task.status === 'resolving' || task.status === 'downloading'"
-                class="btn btn-secondary"
-                style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
-                @click="cancelDownload"
-                title="Cancel download"
-              >
-                <Icons name="close" :size="12" />
-                <span>Cancel</span>
-              </button>
-              <button
-                v-if="task.status === 'completed' || task.status === 'error'"
+                v-else-if="task.status === 'completed' || task.status === 'error'"
                 class="icon-btn"
                 style="width: 26px; height: 26px; font-size: 11px;"
                 @click="dismissTask"
@@ -212,20 +248,40 @@
             </div>
           </div>
 
-                    <div class="progress-track">
+          <div class="progress-track">
             <div
               class="progress-fill"
-              :class="{ indeterminate: task.status === 'resolving' }"
+              :class="{ indeterminate: task.status === 'resolving', paused: task.status === 'paused' }"
               :style="{ width: (task.status === 'resolving' ? 100 : task.percent) + '%' }"
             ></div>
           </div>
 
-                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
-            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? (task.title || 'Connecting to source...') : '') }}</span>
-            <span>{{ task.speed ? task.speed : '' }}</span>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
+            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? (task.title || 'Connecting to source...') : (task.status === 'paused' ? 'Download paused' : '')) }}</span>
+            <span>{{ task.speed ? task.speed : (task.status === 'paused' ? `${task.percent}% ready` : '') }}</span>
           </div>
 
-                    <!-- Error details -->
+          <!-- Paused banner with instant resume -->
+          <div v-if="task.status === 'paused'" style="margin-top: 10px; font-size: 12px; background: rgba(255, 183, 77, 0.12); border: 1px solid rgba(255, 183, 77, 0.3); padding: 9px 12px; border-radius: 8px; color: #ffb74d;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+                <Icons name="pause" :size="13" />
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {{ task.error || 'Download paused. Existing progress is preserved.' }}
+                </span>
+              </div>
+              <button
+                class="btn btn-primary"
+                style="padding: 4px 12px; font-size: 11px; height: 26px; gap: 4px; flex-shrink: 0;"
+                @click="resumeDownload"
+              >
+                <Icons name="play" :size="11" />
+                <span>Resume</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Error details -->
           <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
             <div style="display: flex; align-items: flex-start; gap: 8px;">
               <Icons :name="isNetworkError(task.error) ? 'wifi-off' : 'info'" :size="15" style="color: var(--error); flex-shrink: 0; margin-top: 1px;" />
@@ -233,12 +289,12 @@
             </div>
             <div style="display: flex; gap: 8px; margin-top: 10px;">
               <button
-                class="btn btn-secondary"
-                style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
-                @click="startDownload"
+                class="btn btn-primary"
+                style="flex: 1; font-size: 11px; padding: 6px 10px; gap: 4px;"
+                @click="resumeDownload"
               >
-                <Icons name="refresh" :size="12" />
-                Retry
+                <Icons name="play" :size="12" />
+                Resume
               </button>
               <button
                 v-if="isNetworkError(task.error)"
@@ -255,6 +311,14 @@
                 @click="activeTab = 'cookies'"
               >
                 Configure Cookies
+              </button>
+              <button
+                class="btn btn-secondary"
+                style="padding: 6px 10px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);"
+                @click="cancelDownload"
+                title="Discard task"
+              >
+                <Icons name="close" :size="12" />
               </button>
             </div>
           </div>
@@ -753,8 +817,47 @@ const task = ref({
   total: '',
   title: '',
   file_path: '',
-  error: ''
+  error: '',
+  url: '',
+  fmt: 'video',
+  format_id: '',
+  height: ''
 })
+
+function saveActiveTaskToStorage(t) {
+  try {
+    if (!t || t.status === 'idle' || t.status === 'completed') {
+      localStorage.removeItem('hyperdl_active_task')
+    } else {
+      localStorage.setItem('hyperdl_active_task', JSON.stringify({
+        status: t.status,
+        percent: t.percent || 0,
+        downloaded: t.downloaded || '',
+        total: t.total || '',
+        speed: t.speed || '',
+        title: t.title || '',
+        url: t.url || url.value,
+        fmt: t.fmt || selectedFormat.value,
+        format_id: t.format_id || '',
+        height: t.height || '',
+        error: t.error || ''
+      }))
+    }
+  } catch (e) {}
+}
+
+function loadActiveTaskFromStorage() {
+  try {
+    const raw = localStorage.getItem('hyperdl_active_task')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && parsed.status !== 'completed' && parsed.status !== 'idle') {
+        return parsed
+      }
+    }
+  } catch (e) {}
+  return null
+}
 
 const historyList = ref([])
 
@@ -832,11 +935,19 @@ function formatErrorMessage(err) {
 function handleOnline() {
   isOnline.value = true
   showToast('Internet connection restored', 'success')
+  if (task.value.status === 'paused') {
+    showToast('Network restored: Tap Resume to continue', 'info')
+  }
 }
 
 function handleOffline() {
   isOnline.value = false
-  showToast('Device is offline. Connect to internet to download.', 'warning')
+  if (task.value.status === 'downloading' || task.value.status === 'resolving') {
+    pauseDownload('Network disconnected')
+    showToast('Network disconnected: Download paused', 'warning')
+  } else {
+    showToast('Device is offline. Connect to internet to download.', 'warning')
+  }
 }
 
 function testConnectivity() {
@@ -853,8 +964,9 @@ const taskStatusTitle = computed(() => {
   switch (task.value.status) {
     case 'resolving': return 'Connecting...'
     case 'downloading': return 'Downloading...'
+    case 'paused': return 'Download paused'
     case 'completed': return 'Download complete'
-    case 'error': return isNetworkError(task.value.error) ? 'Network error' : 'Download failed'
+    case 'error': return isNetworkError(task.value.error) ? 'Network disconnected (Paused)' : 'Download failed'
     default: return 'Ready'
   }
 })
@@ -894,6 +1006,7 @@ function onUrlInput() {
 }
 
 function dismissTask() {
+  saveActiveTaskToStorage(null)
   task.value = {
     status: 'idle',
     percent: 0,
@@ -902,7 +1015,11 @@ function dismissTask() {
     total: '',
     title: '',
     file_path: '',
-    error: ''
+    error: '',
+    url: '',
+    fmt: 'video',
+    format_id: '',
+    height: ''
   }
 }
 
@@ -1061,6 +1178,49 @@ async function downloadWithResolution(r) {
   await doDownload(pendingUrl.value, selectedFormat.value, extraArg)
 }
 
+async function pauseDownload(reason = '') {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  isProcessing.value = false
+  task.value.status = 'paused'
+  if (reason) {
+    task.value.error = reason
+  }
+  saveActiveTaskToStorage(task.value)
+  try {
+    await runBridge('pause')
+  } catch (e) {}
+  showToast(reason ? `Paused: ${reason}` : 'Download paused', 'info')
+  fetchLogs()
+}
+
+async function resumeDownload() {
+  if (isProcessing.value) return
+  if (!isOnline.value) {
+    showToast('No internet connection. Connect to Wi-Fi or mobile data.', 'warning')
+    return
+  }
+  const targetUrl = task.value.url || url.value
+  if (!targetUrl) {
+    showToast('No download URL found to resume', 'error')
+    return
+  }
+  if (!url.value) {
+    url.value = targetUrl
+  }
+  const fmt = task.value.fmt || selectedFormat.value || 'video'
+  let extraArg = null
+  if (task.value.height) {
+    extraArg = `--height=${task.value.height}`
+  } else if (task.value.format_id) {
+    extraArg = `--format-id=${task.value.format_id}`
+  }
+  showToast('Resuming download...', 'info')
+  await doDownload(targetUrl, fmt, extraArg, true /* isResume */)
+}
+
 async function cancelDownload() {
   try {
     await runBridge('cancel')
@@ -1076,8 +1236,13 @@ async function cancelDownload() {
       total: '',
       title: '',
       file_path: '',
-      error: ''
+      error: '',
+      url: '',
+      fmt: 'video',
+      format_id: '',
+      height: ''
     }
+    saveActiveTaskToStorage(null)
     isProcessing.value = false
     showToast('Download cancelled', 'info')
     fetchLogs()
@@ -1086,20 +1251,41 @@ async function cancelDownload() {
   }
 }
 
-async function doDownload(u, fmt, extraArg) {
+async function doDownload(u, fmt, extraArg, isResume = false) {
   isProcessing.value = true
-  task.value = {
-    status: 'resolving',
-    percent: 5,
-    speed: '',
-    downloaded: '',
-    total: '',
-    title: u,
-    file_path: '',
-    error: ''
+  let fid = ''
+  let ht = ''
+  if (extraArg) {
+    if (extraArg.startsWith('--format-id=')) fid = extraArg.replace('--format-id=', '')
+    if (extraArg.startsWith('--height=')) ht = extraArg.replace('--height=', '')
   }
 
-  showToast('Starting download...', 'info')
+  if (isResume) {
+    task.value.status = 'resolving'
+    task.value.error = ''
+    task.value.url = u
+    task.value.fmt = fmt
+    if (fid) task.value.format_id = fid
+    if (ht) task.value.height = ht
+  } else {
+    task.value = {
+      status: 'resolving',
+      percent: 5,
+      speed: '',
+      downloaded: '',
+      total: '',
+      title: u,
+      file_path: '',
+      error: '',
+      url: u,
+      fmt: fmt,
+      format_id: fid,
+      height: ht
+    }
+  }
+  saveActiveTaskToStorage(task.value)
+
+  showToast(isResume ? 'Resuming download...' : 'Starting download...', 'info')
   try {
     if (extraArg) {
       await runBridge('download', u, fmt, extraArg)
@@ -1111,6 +1297,7 @@ async function doDownload(u, fmt, extraArg) {
     task.value.status = 'error'
     task.value.error = String(e)
     isProcessing.value = false
+    saveActiveTaskToStorage(task.value)
   }
 }
 
@@ -1142,20 +1329,30 @@ function startPolling() {
       if (!parsed || typeof parsed !== 'object') return
 
       task.value = { ...task.value, ...parsed }
+      saveActiveTaskToStorage(task.value)
 
       if (parsed.status === 'completed') {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
+        saveActiveTaskToStorage(null)
         showToast('Download complete', 'success')
         fetchHistory()
+        fetchLogs()
+      } else if (parsed.status === 'paused') {
+        clearInterval(pollTimer)
+        pollTimer = null
+        isProcessing.value = false
+        saveActiveTaskToStorage(task.value)
+        showToast('Download paused', 'info')
         fetchLogs()
       } else if (parsed.status === 'error') {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
+        saveActiveTaskToStorage(task.value)
         const isNet = isNetworkError(parsed.error)
-        showToast(isNet ? 'Network error: Check connection' : (parsed.error || 'Download failed'), 'error')
+        showToast(isNet ? 'Network disconnected: Ready to resume' : (parsed.error || 'Download failed'), 'error')
         fetchLogs()
       } else if (parsed.status === 'resolving' && (Date.now() - pollStart > 50000)) {
         clearInterval(pollTimer)
@@ -1164,6 +1361,7 @@ function startPolling() {
         task.value.status = 'error'
         task.value.error = 'Connection timed out while resolving media. Platform may be slow or blocking requests.'
         showToast('Download timed out', 'error')
+        saveActiveTaskToStorage(task.value)
         fetchLogs()
       }
     } catch (e) {
@@ -1445,14 +1643,42 @@ async function loadSystemInfo() {
 async function checkActiveTask() {
   try {
     const raw = await runBridge('status')
-    if (!raw || raw === 'bridge_not_found') return
-    const parsed = JSON.parse(raw)
-    if (parsed && (parsed.status === 'downloading' || parsed.status === 'resolving')) {
-      task.value = { ...task.value, ...parsed }
-      isProcessing.value = true
-      startPolling()
+    if (raw && raw !== 'binary_not_found') {
+      let parsed = null
+      try {
+        parsed = JSON.parse(raw)
+      } catch (e) {}
+
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.status === 'downloading' || parsed.status === 'resolving') {
+          task.value = { ...task.value, ...parsed }
+          if (parsed.url && !url.value) url.value = parsed.url
+          isProcessing.value = true
+          startPolling()
+          saveActiveTaskToStorage(task.value)
+          return
+        } else if (parsed.status === 'paused') {
+          task.value = { ...task.value, ...parsed }
+          if (parsed.url && !url.value) url.value = parsed.url
+          isProcessing.value = false
+          saveActiveTaskToStorage(task.value)
+          return
+        }
+      }
     }
   } catch (e) {}
+
+  // Fallback: check localStorage for unfinished task (reboot recovery)
+  const saved = loadActiveTaskFromStorage()
+  if (saved && (saved.status === 'downloading' || saved.status === 'resolving' || saved.status === 'paused')) {
+    task.value = {
+      ...saved,
+      status: 'paused',
+      error: saved.error || 'Interrupted by device restart. Tap Resume to continue.'
+    }
+    if (saved.url && !url.value) url.value = saved.url
+    isProcessing.value = false
+  }
 }
 
 onMounted(() => {

@@ -261,6 +261,12 @@ html, body, #app {
   border-color: rgba(229, 153, 149, 0.35);
 }
 
+.badge-pill.paused {
+  background: rgba(255, 183, 77, 0.15);
+  color: #ffb74d;
+  border-color: rgba(255, 183, 77, 0.4);
+}
+
 /* Custom Text Input */
 .text-input-wrapper {
   position: relative;
@@ -407,6 +413,10 @@ html, body, #app {
   background: linear-gradient(90deg, var(--on-surface-variant) 0%, var(--primary) 100%);
   border-radius: 4px;
   transition: width 0.3s ease;
+}
+
+.progress-fill.paused {
+  background: linear-gradient(90deg, #ffa726 0%, #ffb74d 100%);
 }
 
 /* Segmented Control / Chips */

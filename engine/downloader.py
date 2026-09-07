@@ -13,6 +13,7 @@ import subprocess
 import shutil
 import socket
 import ssl
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as pyhtml
 import urllib.request
@@ -23,9 +24,35 @@ import urllib.error
 socket.setdefaulttimeout(15)
 
 STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
-DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
 CONF_DIR = "/data/adb/hyperdl"
+ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
+DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
 COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
+
+CURRENT_URL = ""
+CURRENT_FMT = "video"
+CURRENT_FORMAT_ID = ""
+CURRENT_HEIGHT = ""
+
+_last_status = {
+    "percent": 0,
+    "downloaded": "",
+    "total": "",
+    "title": ""
+}
+
+def handle_sigterm(signum, frame):
+    try:
+        update_status("paused", title=_last_status.get("title") or "Download paused")
+    except Exception:
+        pass
+    sys.exit(0)
+
+try:
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGINT, handle_sigterm)
+except Exception:
+    pass
 
 def get_effective_outdir(preferred=DEFAULT_OUTDIR):
     candidates = [
@@ -131,6 +158,27 @@ def humanize_error(e):
     return msg
 
 def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
+    global _last_status
+    if percent > 0:
+        _last_status["percent"] = percent
+    elif percent == 0 and status in ("error", "paused") and _last_status.get("percent", 0) > 0:
+        percent = _last_status["percent"]
+
+    if downloaded:
+        _last_status["downloaded"] = downloaded
+    elif not downloaded and status in ("error", "paused") and _last_status.get("downloaded"):
+        downloaded = _last_status["downloaded"]
+
+    if total:
+        _last_status["total"] = total
+    elif not total and status in ("error", "paused") and _last_status.get("total"):
+        total = _last_status["total"]
+
+    if title:
+        _last_status["title"] = title
+    elif not title and _last_status.get("title"):
+        title = _last_status["title"]
+
     data = {
         "status": status,
         "percent": percent,
@@ -140,7 +188,11 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         "title": title,
         "file_path": file_path,
         "error": humanize_error(error) if error else "",
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "url": CURRENT_URL,
+        "fmt": CURRENT_FMT,
+        "format_id": CURRENT_FORMAT_ID,
+        "height": CURRENT_HEIGHT
     }
     try:
         os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
@@ -152,6 +204,18 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
             pass
     except Exception:
         pass
+
+    try:
+        os.makedirs(CONF_DIR, exist_ok=True)
+        with open(ACTIVE_TASK_FILE, "w") as f:
+            json.dump(data, f)
+        try:
+            os.chmod(ACTIVE_TASK_FILE, 0o666)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     print(json.dumps(data), flush=True)
 
 def sanitize_filename(name):
@@ -252,6 +316,16 @@ def solve_tiktok_challenge(html_text):
         return ""
 
 def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
+    # If completed file already exists and is non-empty, avoid redundant re-download
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
+        if emit_complete:
+            update_status("completed", percent=100, title=title, file_path=out_path)
+            send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
+        return out_path
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    part_path = out_path + ".part"
+
     hdrs = {
         "User-Agent": USER_AGENT,
         "Accept": "*/*",
@@ -259,36 +333,84 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
     }
     if headers:
         hdrs.update(headers)
+
+    existing_bytes = 0
+    if os.path.exists(part_path):
+        try:
+            existing_bytes = os.path.getsize(part_path)
+        except Exception:
+            existing_bytes = 0
+        if existing_bytes > 0:
+            hdrs["Range"] = f"bytes={existing_bytes}-"
+
     req = urllib.request.Request(url, headers=hdrs)
     try:
-        with urllib.request.urlopen(req, timeout=40) as resp:
-            total_bytes = 0
-            cr = resp.headers.get('content-range')
-            if cr and '/' in cr:
-                tot_str = cr.split('/')[-1].strip()
-                if tot_str.isdigit():
-                    total_bytes = int(tot_str)
-            if not total_bytes:
+        try:
+            resp = urllib.request.urlopen(req, timeout=40)
+        except urllib.error.HTTPError as e:
+            # HTTP 416: Requested Range Not Satisfiable (file is likely already fully downloaded in .part)
+            if e.code == 416 and existing_bytes > 1024:
+                os.replace(part_path, out_path)
+                try:
+                    os.chmod(out_path, 0o666)
+                except Exception:
+                    pass
+                scan_media_file(out_path)
+                if emit_complete:
+                    update_status("completed", percent=100, title=title, file_path=out_path)
+                    send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
+                return out_path
+            # If server rejects Range header (400 or 403), retry full stream from 0
+            if "Range" in hdrs:
+                del hdrs["Range"]
+                if os.path.exists(part_path):
+                    try:
+                        os.remove(part_path)
+                    except Exception:
+                        pass
+                existing_bytes = 0
+                req = urllib.request.Request(url, headers=hdrs)
+                resp = urllib.request.urlopen(req, timeout=40)
+            else:
+                raise
+
+        with resp:
+            is_resume = (resp.status == 206)
+            if is_resume:
+                open_mode = "ab"
+                downloaded = existing_bytes
+                total_bytes = 0
+                cr = resp.headers.get('content-range')
+                if cr and '/' in cr:
+                    tot_str = cr.split('/')[-1].strip()
+                    if tot_str.isdigit():
+                        total_bytes = int(tot_str)
+                if not total_bytes:
+                    cl = int(resp.headers.get('content-length', 0) or 0)
+                    total_bytes = downloaded + cl if cl > 0 else 0
+            else:
+                open_mode = "wb"
+                downloaded = 0
                 total_bytes = int(resp.headers.get('content-length', 0) or 0)
 
-            downloaded = 0
             start_time = time.time()
             last_update = 0
+            bytes_this_session = 0
 
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            with open(out_path, "wb", buffering=1024 * 1024) as f:
+            with open(part_path, open_mode, buffering=1024 * 1024) as f:
                 while True:
                     chunk = resp.read(512 * 1024)
                     if not chunk:
                         break
                     f.write(chunk)
                     downloaded += len(chunk)
+                    bytes_this_session += len(chunk)
 
                     now = time.time()
                     if now - last_update >= 0.25:
                         last_update = now
                         elapsed = max(now - start_time, 0.001)
-                        speed_bps = downloaded / elapsed
+                        speed_bps = bytes_this_session / elapsed
                         speed_str = f"{speed_bps / (1024*1024):.1f} MB/s" if speed_bps >= 1024*1024 else f"{speed_bps / 1024:.0f} KB/s"
                         
                         pct = int((downloaded / total_bytes * 100)) if total_bytes > 0 else 50
@@ -297,8 +419,10 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                         
                         update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title)
 
-            if os.path.exists(out_path) and os.path.getsize(out_path) < 1024:
+            if os.path.exists(part_path) and os.path.getsize(part_path) < 1024:
                 raise RuntimeError("Downloaded file is incomplete or empty")
+
+            os.replace(part_path, out_path)
 
             try:
                 os.chmod(out_path, 0o666)
@@ -312,11 +436,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                 send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
             return out_path
     except Exception as e:
-        if os.path.exists(out_path):
-            try:
-                os.remove(out_path)
-            except Exception:
-                pass
+        # DO NOT remove part_path! Keep downloaded bytes for resume!
         if emit_error:
             update_status("error", error=str(e), title=title)
         raise
@@ -1176,12 +1296,13 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         "--no-warnings",
         "--no-check-certificates",
         "--no-playlist",
+        "--continue",
         "--concurrent-fragments", "4",
         "--no-mtime",
         "--buffer-size", "256k",
         "--http-chunk-size", "10M",
-        "--extractor-retries", "2",
-        "--socket-timeout", "12",
+        "--extractor-retries", "3",
+        "--socket-timeout", "15",
         "--newline",
         "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
         "-o", out_tpl,
@@ -1222,7 +1343,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
 
     if not downloaded_file or not os.path.exists(downloaded_file):
-        files = [os.path.join(outdir, f) for f in os.listdir(outdir)]
+        files = [
+            os.path.join(outdir, f)
+            for f in os.listdir(outdir)
+            if not f.endswith('.part') and not f.endswith('.ytdl') and not f.endswith('.temp')
+        ]
         if files:
             files.sort(key=os.path.getmtime, reverse=True)
             downloaded_file = files[0]
@@ -1371,6 +1496,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    global CURRENT_URL, CURRENT_FMT, CURRENT_FORMAT_ID, CURRENT_HEIGHT
     url = args.url.strip()
     m_url = re.search(r'https?://[^\s<>"]+', url)
     if m_url:
@@ -1379,6 +1505,11 @@ def main():
     outdir = get_effective_outdir(args.outdir)
     height = args.height if hasattr(args, 'height') else None
     format_id = args.format_id if hasattr(args, 'format_id') else None
+
+    CURRENT_URL = url
+    CURRENT_FMT = fmt
+    CURRENT_FORMAT_ID = format_id or ""
+    CURRENT_HEIGHT = height or ""
 
     try:
         update_status("resolving", title="Connecting to platform...")
@@ -1411,6 +1542,7 @@ def main():
 
         title = sanitize_filename(info.get("title", "Media"))
         ext = info.get("ext", "mp4")
+        media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
 
         if info.get("kind") == "album" and info.get("images"):
             images = info["images"]
@@ -1428,14 +1560,14 @@ def main():
             if fmt == "audio":
                 ffmpeg_bin = get_ffmpeg_binary()
                 if ffmpeg_bin:
-                    tmp_raw = os.path.join(outdir, f".tmp_{int(time.time())}_{title}.raw")
+                    tmp_raw = os.path.join(outdir, f".tmp_{title}_{media_id}.raw")
                     download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
-                    out_path = os.path.join(outdir, f"{title}_{int(time.time())}.flac")
+                    out_path = os.path.join(outdir, f"{title}_{media_id}.flac")
                     update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
                     res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
                     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
                         fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
-                        out_path = os.path.join(outdir, f"{title}_{int(time.time())}.{fallback_ext}")
+                        out_path = os.path.join(outdir, f"{title}_{media_id}.{fallback_ext}")
                         if os.path.exists(tmp_raw):
                             os.replace(tmp_raw, out_path)
                     else:
@@ -1452,7 +1584,7 @@ def main():
                     update_status("completed", percent=100, title=title, file_path=out_path)
                     send_android_notification("Download complete", f"{title} saved as FLAC HD")
                     return
-            filename = f"{title}_{int(time.time())}.{ext}"
+            filename = f"{title}_{media_id}.{ext}"
             out_path = os.path.join(outdir, filename)
             download_media_candidates(info, out_path, title=title)
 
