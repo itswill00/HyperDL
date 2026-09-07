@@ -21,3 +21,6 @@ webui/.vite/
 .idea/
 runtime/
 system/bin/yt-dlp
+
+# Temporary announcement & note files
+*.txt

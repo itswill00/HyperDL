@@ -1,9 +1,0 @@
-yo, just dropped v1.3.4
-
-quick update on what got fixed:
-- fixed instagram carousel / photo album downloads with cookies (extracts and saves all full-res photos cleanly)
-- auto-detects photo-only posts even if video mode was selected (no more "no video formats found" crashes)
-- fixed cookie file permissions so both root and app processes can read your imported cookies
-- refined mixed album support (handles both videos and images in multi-item posts)
-
-update directly from the webui or grab the zip in releases / download folder!
