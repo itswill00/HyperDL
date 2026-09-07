@@ -494,12 +494,190 @@ static void cmd_list(void) {
             if (!first) printf(",\n");
             first = 0;
 
-            printf("  {\"name\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\"}",
-                   entry->d_name, size_str, ext, full_path);
+            printf("  {\"name\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld}",
+                   entry->d_name, size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size);
         }
     }
     printf("\n]\n");
     closedir(d);
+}
+
+static int is_junk_filename(const char *name) {
+    if (!name || !*name) return 0;
+    if (strncmp(name, ".tmp", 4) == 0 || strncmp(name, ".trashed", 8) == 0) return 1;
+    size_t len = strlen(name);
+    if (len > 4 && strcmp(name + len - 4, ".tmp") == 0) return 1;
+    if (len > 5 && strcmp(name + len - 5, ".part") == 0) return 1;
+    if (len > 5 && strcmp(name + len - 5, ".ytdl") == 0) return 1;
+    if (len > 4 && strcmp(name + len - 4, ".raw") == 0) return 1;
+    return 0;
+}
+
+static void cmd_storage_info(void) {
+    ensure_directories();
+
+    DIR *d = opendir(OUTDIR);
+    long long media_count = 0;
+    long long media_bytes = 0;
+    long long junk_count = 0;
+    long long junk_bytes = 0;
+
+    if (d) {
+        struct dirent *entry;
+        char full_path[1024];
+        struct stat st;
+
+        while ((entry = readdir(d)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+            snprintf(full_path, sizeof(full_path), "%s/%s", OUTDIR, entry->d_name);
+            if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
+                if (is_junk_filename(entry->d_name)) {
+                    junk_count++;
+                    junk_bytes += st.st_size;
+                } else if (entry->d_name[0] != '.') {
+                    media_count++;
+                    media_bytes += st.st_size;
+                }
+            }
+        }
+        closedir(d);
+    }
+
+    struct statvfs sv;
+    unsigned long long free_bytes = 0;
+    unsigned long long total_bytes = 0;
+    if (statvfs(OUTDIR, &sv) == 0) {
+        free_bytes = (unsigned long long)sv.f_bavail * sv.f_frsize;
+        total_bytes = (unsigned long long)sv.f_blocks * sv.f_frsize;
+    } else if (statvfs("/data", &sv) == 0) {
+        free_bytes = (unsigned long long)sv.f_bavail * sv.f_frsize;
+        total_bytes = (unsigned long long)sv.f_blocks * sv.f_frsize;
+    }
+
+    char media_sz[32], junk_sz[32], free_sz[32], total_sz[32];
+    format_file_size(media_bytes, media_sz, sizeof(media_sz));
+    format_file_size(junk_bytes, junk_sz, sizeof(junk_sz));
+    format_file_size(free_bytes, free_sz, sizeof(free_sz));
+    format_file_size(total_bytes, total_sz, sizeof(total_sz));
+
+    printf("{\"media_count\":%lld,\"media_bytes\":%lld,\"media_size\":\"%s\","
+           "\"junk_count\":%lld,\"junk_bytes\":%lld,\"junk_size\":\"%s\","
+           "\"free_bytes\":%llu,\"free_size\":\"%s\","
+           "\"total_bytes\":%llu,\"total_size\":\"%s\"}\n",
+           media_count, media_bytes, media_sz,
+           junk_count, junk_bytes, junk_sz,
+           free_bytes, free_sz,
+           total_bytes, total_sz);
+}
+
+static void cmd_clean_junk(void) {
+    ensure_directories();
+
+    DIR *d = opendir(OUTDIR);
+    if (!d) {
+        printf("{\"success\":true,\"deleted\":0,\"freed_bytes\":0,\"freed_size\":\"0 B\"}\n");
+        return;
+    }
+
+    struct dirent *entry;
+    char full_path[1024];
+    struct stat st;
+    int deleted = 0;
+    long long freed_bytes = 0;
+
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        if (is_junk_filename(entry->d_name)) {
+            snprintf(full_path, sizeof(full_path), "%s/%s", OUTDIR, entry->d_name);
+            if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
+                off_t fsz = st.st_size;
+                if (unlink(full_path) == 0) {
+                    deleted++;
+                    freed_bytes += fsz;
+                }
+            }
+        }
+    }
+    closedir(d);
+
+    char freed_sz[32];
+    format_file_size(freed_bytes, freed_sz, sizeof(freed_sz));
+    printf("{\"success\":true,\"deleted\":%d,\"freed_bytes\":%lld,\"freed_size\":\"%s\"}\n",
+           deleted, freed_bytes, freed_sz);
+}
+
+static void cmd_preview(const char *path) {
+    if (!path || !*path) {
+        printf("{\"success\":false,\"error\":\"missing_path\"}\n");
+        return;
+    }
+
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        printf("{\"success\":false,\"error\":\"not_found\"}\n");
+        return;
+    }
+
+    const char *dot = strrchr(path, '.');
+    const char *ext = dot ? dot + 1 : "";
+    const char *mime = "application/octet-stream";
+    const char *type = "other";
+
+    if (strcasecmp(ext, "jpg") == 0 || strcasecmp(ext, "jpeg") == 0) {
+        mime = "image/jpeg"; type = "image";
+    } else if (strcasecmp(ext, "png") == 0) {
+        mime = "image/png"; type = "image";
+    } else if (strcasecmp(ext, "webp") == 0) {
+        mime = "image/webp"; type = "image";
+    } else if (strcasecmp(ext, "gif") == 0) {
+        mime = "image/gif"; type = "image";
+    } else if (strcasecmp(ext, "mp4") == 0 || strcasecmp(ext, "mkv") == 0 || strcasecmp(ext, "webm") == 0) {
+        mime = "video/mp4"; type = "video";
+    } else if (strcasecmp(ext, "mp3") == 0) {
+        mime = "audio/mpeg"; type = "audio";
+    } else if (strcasecmp(ext, "m4a") == 0 || strcasecmp(ext, "aac") == 0) {
+        mime = "audio/mp4"; type = "audio";
+    }
+
+    size_t max_allowed = (strcmp(type, "image") == 0) ? (6 * 1024 * 1024) : (8 * 1024 * 1024);
+    if ((size_t)st.st_size > max_allowed) {
+        char sz_str[32];
+        format_file_size(st.st_size, sz_str, sizeof(sz_str));
+        printf("{\"success\":false,\"type\":\"%s\",\"error\":\"too_large\",\"size\":\"%s\"}\n", type, sz_str);
+        return;
+    }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        printf("{\"success\":false,\"error\":\"open_failed\"}\n");
+        return;
+    }
+
+    unsigned char *buf = malloc(st.st_size);
+    if (!buf) {
+        fclose(f);
+        printf("{\"success\":false,\"error\":\"out_of_memory\"}\n");
+        return;
+    }
+
+    size_t rd = fread(buf, 1, st.st_size, f);
+    fclose(f);
+
+    char *b64 = base64_encode(buf, rd);
+    free(buf);
+
+    if (!b64) {
+        printf("{\"success\":false,\"error\":\"encode_failed\"}\n");
+        return;
+    }
+
+    char sz_str[32];
+    format_file_size(st.st_size, sz_str, sizeof(sz_str));
+    printf("{\"success\":true,\"type\":\"%s\",\"mime\":\"%s\",\"size\":\"%s\",\"data\":\"data:%s;base64,%s\"}\n",
+           type, mime, sz_str, mime, b64);
+    free(b64);
 }
 
 static void cmd_delete(int count, char **paths) {
@@ -718,7 +896,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.4";
+    char mod_version[32] = "v1.3.5";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1070,6 +1248,12 @@ int main(int argc, char *argv[]) {
         cmd_toggle_autodl(argc > 2 ? argv[2] : "0");
     } else if (strcmp(action, "get_autodl") == 0) {
         cmd_get_autodl();
+    } else if (strcmp(action, "storage_info") == 0) {
+        cmd_storage_info();
+    } else if (strcmp(action, "clean_junk") == 0) {
+        cmd_clean_junk();
+    } else if (strcmp(action, "preview") == 0) {
+        cmd_preview(argc > 2 ? argv[2] : "");
     } else {
         printf("{\"error\":\"unknown_action\"}\n");
         return 1;

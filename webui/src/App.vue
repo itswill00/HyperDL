@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.4' }}
+          {{ sysInfo.version || 'v1.3.5' }}
         </span>
       </div>
     </header>
@@ -97,6 +97,29 @@
               <Icons name="clipboard" :size="13" />
               Paste
             </button>
+          </div>
+
+          <!-- Smart Clipboard Sniffer Banner -->
+          <div v-if="detectedClipUrl" class="clip-sniffer-banner">
+            <div class="clip-sniffer-icon">
+              <Icons name="clipboard" :size="15" />
+            </div>
+            <div class="clip-sniffer-content">
+              <div class="clip-sniffer-title">Media link detected</div>
+              <div class="clip-sniffer-url">{{ formatTruncatedUrl(detectedClipUrl) }}</div>
+            </div>
+            <div class="clip-sniffer-actions">
+              <button class="btn btn-primary clip-action-btn" @click="applyClipUrl(true)">
+                <Icons name="download" :size="11" />
+                <span>Go</span>
+              </button>
+              <button class="btn btn-secondary clip-action-btn" @click="applyClipUrl(false)">
+                <span>Paste</span>
+              </button>
+              <button class="btn btn-icon clip-dismiss-btn" @click="dismissClipUrl" title="Dismiss">
+                <Icons name="close" :size="13" />
+              </button>
+            </div>
           </div>
 
                     <div class="platform-chips-row">
@@ -369,7 +392,50 @@
           </div>
         </div>
 
-                <!-- Recent downloads header / contextual selection toolbar -->
+        <!-- Storage Breakdown & Quick Cleaner Card -->
+        <div class="storage-card" v-if="storageStats.free_size || storageStats.media_count > 0">
+          <div class="storage-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="icon-badge secondary" style="width: 28px; height: 28px;">
+                <Icons name="hard-drive" :size="15" />
+              </div>
+              <div>
+                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface);">Storage & Cache</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">
+                  {{ storageStats.media_count }} file{{ storageStats.media_count === 1 ? '' : 's' }} ({{ storageStats.media_size }}) · {{ storageStats.free_size }} free
+                </div>
+              </div>
+            </div>
+            <div>
+              <button
+                v-if="storageStats.junk_count > 0"
+                class="btn btn-secondary junk-clean-btn active"
+                :disabled="isCleaningJunk"
+                @click="cleanJunk"
+                title="Clean leftover temporary files"
+              >
+                <Icons name="broom" :size="12" />
+                <span>Clean {{ storageStats.junk_size }}</span>
+              </button>
+              <button
+                v-else
+                class="btn btn-secondary junk-clean-btn"
+                :disabled="isCleaningJunk"
+                @click="fetchStorageStats"
+                title="Refresh storage"
+              >
+                <Icons name="refresh" :size="12" />
+                <span>Optimal</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="storage-bar-track" v-if="storageBarPercent > 0">
+            <div class="storage-bar-fill media" :style="{ width: storageBarPercent + '%' }"></div>
+          </div>
+        </div>
+
+        <!-- Recent downloads header / contextual selection toolbar -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px; min-height: 32px;">
           <!-- Selection Mode active: Contextual Action Bar -->
           <template v-if="selectedFiles.size > 0">
@@ -406,9 +472,64 @@
           </template>
         </div>
 
-        <div class="md3-list-group" v-if="historyList.length > 0">
+        <!-- Search and Category Filters -->
+        <div class="recent-controls-card" v-if="historyList.length > 0">
+          <div class="search-input-box">
+            <Icons name="search" :size="14" style="color: var(--on-surface-variant); flex-shrink: 0;" />
+            <input
+              type="text"
+              class="search-input"
+              v-model="searchQuery"
+              placeholder="Search downloaded media..."
+            />
+            <button
+              v-if="searchQuery"
+              class="btn-search-clear"
+              @click="searchQuery = ''"
+              title="Clear search"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div class="filter-chips-row">
+            <button
+              class="filter-chip"
+              :class="{ active: selectedCategory === 'all' }"
+              @click="selectedCategory = 'all'"
+            >
+              All ({{ historyList.length }})
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: selectedCategory === 'video' }"
+              @click="selectedCategory = 'video'"
+            >
+              <Icons name="video" :size="12" />
+              <span>Video ({{ videoCount }})</span>
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: selectedCategory === 'image' }"
+              @click="selectedCategory = 'image'"
+            >
+              <Icons name="image" :size="12" />
+              <span>Image ({{ imageCount }})</span>
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: selectedCategory === 'audio' }"
+              @click="selectedCategory = 'audio'"
+            >
+              <Icons name="music" :size="12" />
+              <span>Audio ({{ audioCount }})</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="md3-list-group" v-if="filteredHistoryList.length > 0">
           <div
-            v-for="item in historyList"
+            v-for="item in filteredHistoryList"
             :key="item.path"
             class="md3-list-row"
             :class="{ 'row-selected': selectedFiles.has(item.path) }"
@@ -442,10 +563,13 @@
               </div>
             </div>
 
-            <!-- Action buttons: when in multi-selection mode, hide individual action buttons so file name has full width -->
+            <!-- Action buttons -->
             <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
-              <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Play media">
-                <Icons name="play" :size="14" />
+              <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview media">
+                <Icons name="eye" :size="14" />
+              </button>
+              <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Open in app">
+                <Icons name="external-link" :size="14" />
               </button>
               <button class="btn btn-icon" style="color: var(--error);" @click.stop="deleteItem(item)" title="Delete">
                 <Icons name="trash" :size="14" />
@@ -454,13 +578,21 @@
           </div>
         </div>
 
+        <div v-else-if="historyList.length > 0 && filteredHistoryList.length === 0" class="md3-card" style="text-align: center; padding: 20px 16px;">
+          <div style="font-size: 12px; color: var(--on-surface-variant); margin-bottom: 8px;">
+            No media matching "{{ searchQuery }}" in this filter
+          </div>
+          <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 11px; margin: 0 auto;" @click="clearSearchAndFilter">
+            Clear filter
+          </button>
+        </div>
+
         <div v-else class="md3-card" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
           <Icons name="folder" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
-          <div style="font-size: 12px; color: var(--on-surface-variant);">No downloaded files yet</div>
         </div>
       </div>
 
-            <div v-show="activeTab === 'cookies'">
+      <div v-show="activeTab === 'cookies'">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -509,7 +641,29 @@
           </div>
         </section>
 
-                <div class="section-title">Cookie guide</div>
+        <!-- Platform Accounts & Cookie Health Status -->
+        <div class="section-title">Account sessions</div>
+        <div class="md3-card" style="padding: 12px;">
+          <div class="cookie-health-grid">
+            <div
+              v-for="acc in cookieAccounts"
+              :key="acc.id"
+              class="cookie-health-item"
+              :class="{ active: acc.active }"
+            >
+              <div class="cookie-health-icon">
+                <Icons :name="acc.icon" :size="15" />
+              </div>
+              <div class="cookie-health-info">
+                <div class="cookie-health-name">{{ acc.name }}</div>
+                <div class="cookie-health-desc">{{ acc.detail }}</div>
+              </div>
+              <span class="cookie-status-dot" :class="{ active: acc.active }" :title="acc.active ? 'Active' : 'Not configured'"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">Cookie guide</div>
         
         <div class="md3-card">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 6px;">
@@ -744,6 +898,99 @@
       </div>
     </div>
 
+    <!-- In-App Quick Preview / Lightbox Modal -->
+    <div v-if="previewModal.show" class="preview-backdrop" @click.self="closePreview">
+      <div class="preview-card">
+        <!-- Preview Top Bar -->
+        <div class="preview-top-bar">
+          <div class="preview-title-box">
+            <div class="preview-filename">{{ previewModal.item?.name }}</div>
+            <div class="preview-meta">
+              {{ previewModal.item?.size }} · {{ (previewModal.item?.ext || '').toUpperCase() }}
+              <span v-if="previewImagesList.length > 1 && previewModal.isImage">
+                · {{ currentImageIndex + 1 }} of {{ previewImagesList.length }}
+              </span>
+            </div>
+          </div>
+          <button class="btn btn-icon preview-close-btn" @click="closePreview" title="Close">
+            <Icons name="close" :size="16" />
+          </button>
+        </div>
+
+        <!-- Preview Body -->
+        <div class="preview-body">
+          <div v-if="previewLoading" class="preview-center-box">
+            <div class="spinner"></div>
+            <div style="font-size: 12px; color: var(--on-surface-variant); margin-top: 10px;">Loading preview...</div>
+          </div>
+
+          <div v-else-if="previewModal.isImage && previewData" class="preview-image-container">
+            <img :src="previewData" class="preview-image" :alt="previewModal.item?.name" />
+            
+            <button
+              v-if="previewImagesList.length > 1"
+              class="preview-nav-btn prev"
+              :disabled="currentImageIndex <= 0"
+              @click="navigatePreview(-1)"
+              title="Previous"
+            >
+              <Icons name="chevron-left" :size="20" />
+            </button>
+            <button
+              v-if="previewImagesList.length > 1"
+              class="preview-nav-btn next"
+              :disabled="currentImageIndex >= previewImagesList.length - 1"
+              @click="navigatePreview(1)"
+              title="Next"
+            >
+              <Icons name="chevron-right" :size="20" />
+            </button>
+          </div>
+
+          <div v-else-if="previewModal.isMedia && previewData" class="preview-media-container">
+            <video
+              v-if="previewModal.isVideo"
+              :src="previewData"
+              controls
+              autoplay
+              playsinline
+              class="preview-video"
+            ></video>
+            <div v-else-if="previewModal.isAudio" class="preview-audio-box">
+              <div class="icon-badge" style="width: 52px; height: 52px; margin: 0 auto 14px auto;">
+                <Icons name="music" :size="26" />
+              </div>
+              <audio :src="previewData" controls autoplay style="width: 100%;"></audio>
+            </div>
+          </div>
+
+          <div v-else class="preview-center-box">
+            <div class="icon-badge secondary" style="width: 48px; height: 48px; margin-bottom: 12px;">
+              <Icons :name="previewModal.isVideo ? 'video' : (previewModal.isAudio ? 'music' : 'image')" :size="24" />
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
+              {{ previewError || 'Direct preview not available' }}
+            </div>
+            <div style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">
+              Tap 'Open in app' to launch external player
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview Bottom Actions -->
+        <div class="preview-bottom-bar">
+          <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 12px; gap: 6px;" @click="openMedia(previewModal.item?.path)">
+            <Icons name="external-link" :size="14" />
+            <span>Open in app</span>
+          </button>
+          <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 12px; color: var(--error); gap: 6px;" @click="deleteFromPreview">
+            <Icons name="trash" :size="14" />
+            <span>Delete</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -770,6 +1017,38 @@ const pendingUrl = ref('')
 const cookiesText = ref('')
 const cookiesActive = ref(false)
 const cookiesLines = ref(0)
+
+const detectedClipUrl = ref('')
+const lastDismissedClipUrl = ref('')
+
+const storageStats = ref({
+  media_count: 0,
+  media_bytes: 0,
+  media_size: '0 B',
+  junk_count: 0,
+  junk_bytes: 0,
+  junk_size: '0 B',
+  free_bytes: 0,
+  free_size: '',
+  total_bytes: 0,
+  total_size: ''
+})
+const isCleaningJunk = ref(false)
+
+const searchQuery = ref('')
+const selectedCategory = ref('all')
+
+const previewModal = ref({
+  show: false,
+  item: null,
+  isImage: false,
+  isMedia: false,
+  isVideo: false,
+  isAudio: false
+})
+const previewData = ref('')
+const previewLoading = ref(false)
+const previewError = ref('')
 
 const sysInfo = ref({ python: '', storage_free: '' })
 const logContent = ref('Loading console log...')
@@ -1399,6 +1678,8 @@ function clearSelection() {
 function handleItemClick(item) {
   if (selectedFiles.value.size > 0) {
     toggleSelect(item.path)
+  } else if (isImageExt(item.ext) || isVideoExt(item.ext) || isAudioExt(item.ext)) {
+    openPreview(item)
   } else {
     openMedia(item.path)
   }
@@ -1436,12 +1717,263 @@ async function fetchHistory() {
   try {
     const raw = await runBridge('list')
     if (raw && raw.startsWith('[')) {
-      historyList.value = JSON.parse(raw)
+      const list = JSON.parse(raw)
+      list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
+      historyList.value = list
       const currentPaths = new Set(historyList.value.map(i => i.path))
       selectedFiles.value = new Set([...selectedFiles.value].filter(p => currentPaths.has(p)))
+      fetchStorageStats()
     }
   } catch (e) {}
 }
+
+function isVideoExt(ext) {
+  const e = (ext || '').toLowerCase()
+  return ['mp4', 'mkv', 'webm', 'mov', 'avi', 'flv'].includes(e)
+}
+
+function isImageExt(ext) {
+  const e = (ext || '').toLowerCase()
+  return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'].includes(e)
+}
+
+function isAudioExt(ext) {
+  const e = (ext || '').toLowerCase()
+  return ['mp3', 'm4a', 'aac', 'ogg', 'flac', 'wav', 'opus'].includes(e)
+}
+
+const videoCount = computed(() => historyList.value.filter(i => isVideoExt(i.ext)).length)
+const imageCount = computed(() => historyList.value.filter(i => isImageExt(i.ext)).length)
+const audioCount = computed(() => historyList.value.filter(i => isAudioExt(i.ext)).length)
+
+const filteredHistoryList = computed(() => {
+  let list = historyList.value
+  if (selectedCategory.value === 'video') {
+    list = list.filter(i => isVideoExt(i.ext))
+  } else if (selectedCategory.value === 'image') {
+    list = list.filter(i => isImageExt(i.ext))
+  } else if (selectedCategory.value === 'audio') {
+    list = list.filter(i => isAudioExt(i.ext))
+  }
+
+  const q = (searchQuery.value || '').trim().toLowerCase()
+  if (q) {
+    list = list.filter(i => (i.name || '').toLowerCase().includes(q))
+  }
+  return list
+})
+
+function clearSearchAndFilter() {
+  searchQuery.value = ''
+  selectedCategory.value = 'all'
+}
+
+const storageBarPercent = computed(() => {
+  if (!storageStats.value.total_bytes || storageStats.value.total_bytes <= 0) return 0
+  const used = storageStats.value.total_bytes - storageStats.value.free_bytes
+  const pct = (used / storageStats.value.total_bytes) * 100
+  return Math.min(Math.max(pct, 2), 100).toFixed(1)
+})
+
+async function fetchStorageStats() {
+  try {
+    const raw = await runBridge('storage_info')
+    if (raw && raw.startsWith('{')) {
+      storageStats.value = JSON.parse(raw)
+      if (storageStats.value.free_size) {
+        storageFree.value = storageStats.value.free_size
+      }
+    }
+  } catch (e) {}
+}
+
+async function cleanJunk() {
+  if (isCleaningJunk.value) return
+  isCleaningJunk.value = true
+  try {
+    const raw = await runBridge('clean_junk')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.deleted > 0) {
+        showToast(`Cleaned ${res.deleted} junk file${res.deleted > 1 ? 's' : ''} (${res.freed_size} freed)`, 'success')
+      } else {
+        showToast('Storage is clean! No junk files found.', 'info')
+      }
+    }
+    await fetchStorageStats()
+    await fetchHistory()
+  } catch (e) {
+    showToast('Failed to clean storage', 'error')
+  } finally {
+    isCleaningJunk.value = false
+  }
+}
+
+function formatTruncatedUrl(u) {
+  if (!u) return ''
+  try {
+    const parsed = new URL(u)
+    const host = parsed.hostname.replace('www.', '')
+    const path = parsed.pathname.length > 20 ? parsed.pathname.slice(0, 18) + '...' : parsed.pathname
+    return `${host}${path}`
+  } catch {
+    return u.length > 35 ? u.slice(0, 32) + '...' : u
+  }
+}
+
+async function checkClipboardSniffer() {
+  if (typeof navigator === 'undefined' || !navigator.clipboard || !navigator.clipboard.readText) return
+  try {
+    const text = await navigator.clipboard.readText()
+    if (!text) return
+    const foundUrl = extractUrl(text)
+    if (foundUrl && foundUrl.startsWith('http') && foundUrl !== url.value && foundUrl !== lastDismissedClipUrl.value) {
+      detectedClipUrl.value = foundUrl
+    } else if (foundUrl === url.value) {
+      detectedClipUrl.value = ''
+    }
+  } catch (e) {}
+}
+
+function onVisibilityChange() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    checkClipboardSniffer()
+  }
+}
+
+function applyClipUrl(autoStart = false) {
+  if (detectedClipUrl.value) {
+    url.value = detectedClipUrl.value
+    detectedClipUrl.value = ''
+    if (autoStart) {
+      nextTick(() => {
+        startDownload()
+      })
+    }
+  }
+}
+
+function dismissClipUrl() {
+  lastDismissedClipUrl.value = detectedClipUrl.value
+  detectedClipUrl.value = ''
+}
+
+const previewImagesList = computed(() => {
+  return filteredHistoryList.value.filter(i => isImageExt(i.ext))
+})
+
+const currentImageIndex = computed(() => {
+  if (!previewModal.value.item || !previewModal.value.isImage) return -1
+  return previewImagesList.value.findIndex(i => i.path === previewModal.value.item.path)
+})
+
+async function openPreview(item) {
+  if (!item || !item.path) return
+  const ext = (item.ext || '').toLowerCase()
+  const isImg = isImageExt(ext)
+  const isVid = isVideoExt(ext)
+  const isAud = isAudioExt(ext)
+
+  previewModal.value = {
+    show: true,
+    item,
+    isImage: isImg,
+    isMedia: isVid || isAud,
+    isVideo: isVid,
+    isAudio: isAud
+  }
+  previewData.value = ''
+  previewError.value = ''
+  previewLoading.value = true
+
+  try {
+    const raw = await runBridge('preview', item.path)
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.success && res.data) {
+        previewData.value = res.data
+      } else if (res.error === 'too_large') {
+        previewError.value = `File size is ${res.size || item.size}. Tap 'Open in app' to view.`
+      } else {
+        previewError.value = 'Preview not available for this file.'
+      }
+    } else {
+      previewError.value = 'Could not generate preview.'
+    }
+  } catch (e) {
+    previewError.value = 'Failed to load preview.'
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closePreview() {
+  previewModal.value.show = false
+  previewModal.value.item = null
+  previewData.value = ''
+  previewError.value = ''
+}
+
+function navigatePreview(direction) {
+  const list = previewImagesList.value
+  const curIdx = currentImageIndex.value
+  if (curIdx === -1 || list.length <= 1) return
+  const nextIdx = curIdx + direction
+  if (nextIdx >= 0 && nextIdx < list.length) {
+    openPreview(list[nextIdx])
+  }
+}
+
+async function deleteFromPreview() {
+  const item = previewModal.value.item
+  if (!item) return
+  closePreview()
+  await deleteItem(item)
+}
+
+const cookieAccounts = computed(() => {
+  const text = (cookiesText.value || '').toLowerCase()
+  const raw = cookiesText.value || ''
+
+  let igActive = text.includes('instagram.com') && (text.includes('sessionid') || text.includes('ds_user_id'))
+  let igDetail = 'Not configured'
+  if (igActive) {
+    const idMatch = raw.match(/ds_user_id\s+([0-9]+)/i) || raw.match(/ds_user_id=([0-9]+)/i)
+    igDetail = idMatch ? `User ID: ${idMatch[1]}` : 'Session active'
+  }
+
+  let ttActive = text.includes('tiktok.com') && (text.includes('sessionid') || text.includes('mstoken'))
+  let ttDetail = ttActive ? 'Session active' : 'Not configured'
+
+  let ytActive = (text.includes('youtube.com') || text.includes('google.com')) && (text.includes('login_info') || text.includes('sapisid') || text.includes('sid'))
+  let ytDetail = ytActive ? 'Session active' : 'Not configured'
+
+  let xActive = (text.includes('twitter.com') || text.includes('x.com')) && (text.includes('auth_token') || text.includes('ct0'))
+  let xDetail = xActive ? 'Auth token active' : 'Not configured'
+
+  let fbActive = text.includes('facebook.com') && (text.includes('c_user') || text.includes('xs'))
+  let fbDetail = 'Not configured'
+  if (fbActive) {
+    const fbMatch = raw.match(/c_user\s+([0-9]+)/i) || raw.match(/c_user=([0-9]+)/i)
+    fbDetail = fbMatch ? `User ID: ${fbMatch[1]}` : 'Session active'
+  }
+
+  let pinActive = text.includes('pinterest.com') && (text.includes('_auth') || text.includes('_pinterest_sess'))
+  let pinDetail = pinActive ? 'Session active' : 'Not configured'
+
+  let redditActive = text.includes('reddit.com') && text.includes('reddit_session')
+  let redditDetail = redditActive ? 'Session active' : 'Not configured'
+
+  return [
+    { id: 'instagram', name: 'Instagram', icon: 'instagram', active: igActive, detail: igDetail },
+    { id: 'tiktok', name: 'TikTok', icon: 'tiktok', active: ttActive, detail: ttDetail },
+    { id: 'youtube', name: 'YouTube', icon: 'youtube', active: ytActive, detail: ytDetail },
+    { id: 'x', name: 'X (Twitter)', icon: 'x', active: xActive, detail: xDetail },
+    { id: 'facebook', name: 'Facebook', icon: 'facebook', active: fbActive, detail: fbDetail },
+    { id: 'pinterest', name: 'Pinterest', icon: 'pinterest', active: pinActive, detail: pinDetail },
+    { id: 'reddit', name: 'Reddit', icon: 'reddit', active: redditActive, detail: redditDetail }
+  ]
+})
 
 async function deleteItem(item) {
   const ok = await showConfirm({
@@ -1685,18 +2217,28 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    window.addEventListener('focus', checkClipboardSniffer)
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange)
   }
   loadSystemInfo()
   fetchHistory()
   loadCookies()
   fetchLogs()
   checkActiveTask()
+  fetchStorageStats()
+  checkClipboardSniffer()
 })
 
 onUnmounted(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', handleOnline)
     window.removeEventListener('offline', handleOffline)
+    window.removeEventListener('focus', checkClipboardSniffer)
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
   }
   if (pollTimer) clearInterval(pollTimer)
   if (toastTimer) clearTimeout(toastTimer)
@@ -2138,5 +2680,422 @@ onUnmounted(() => {
   font-size: 12px;
   min-width: 74px;
   border-radius: 10px;
+}
+
+/* Clipboard Sniffer Banner */
+.clip-sniffer-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-container-high);
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  animation: dialog-pop 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.clip-sniffer-icon {
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.clip-sniffer-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.clip-sniffer-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.clip-sniffer-url {
+  font-size: 11px;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.clip-sniffer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.clip-action-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+  gap: 4px;
+}
+
+.clip-dismiss-btn {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Storage Card */
+.storage-card {
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-top: 16px;
+}
+
+.storage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.junk-clean-btn {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.junk-clean-btn.active {
+  background: rgba(229, 153, 149, 0.15);
+  color: var(--error);
+  border-color: rgba(229, 153, 149, 0.4);
+}
+
+.storage-bar-track {
+  width: 100%;
+  height: 4px;
+  background: var(--surface-container-high);
+  border-radius: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.storage-bar-fill.media {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Recent Controls (Search & Chips) */
+.recent-controls-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.search-input-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  border-radius: 12px;
+  padding: 6px 12px;
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--on-surface);
+  font-size: 12px;
+  outline: none;
+}
+
+.btn-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.filter-chips-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.filter-chips-row::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-chip.active {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+/* Lightbox / Preview */
+.preview-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(14, 14, 14, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  padding: 16px;
+  touch-action: none;
+}
+
+.preview-card {
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+  animation: dialog-pop 0.15s cubic-bezier(0.2, 0, 0, 1);
+  overflow: hidden;
+}
+
+.preview-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--surface-container-low);
+}
+
+.preview-title-box {
+  min-width: 0;
+  flex: 1;
+}
+
+.preview-filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-meta {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.preview-close-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--on-surface-variant);
+}
+
+.preview-body {
+  flex: 1;
+  min-height: 220px;
+  max-height: calc(90vh - 120px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+.preview-center-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.preview-image-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-media-container {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.preview-video {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: 8px;
+}
+
+.preview-audio-box {
+  width: 100%;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.preview-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.preview-nav-btn.prev {
+  left: 8px;
+}
+
+.preview-nav-btn.next {
+  right: 8px;
+}
+
+.preview-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.preview-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--surface-container-low);
+  background: var(--surface-container-high);
+}
+
+/* Cookie Health Grid */
+.cookie-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.cookie-health-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--surface-container-high);
+  transition: all 0.2s ease;
+}
+
+.cookie-health-item.active {
+  border-color: rgba(99, 219, 142, 0.35);
+  background: rgba(99, 219, 142, 0.08);
+}
+
+.cookie-health-icon {
+  color: var(--on-surface-variant);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cookie-health-item.active .cookie-health-icon {
+  color: var(--primary);
+}
+
+.cookie-health-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.cookie-health-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cookie-health-desc {
+  font-size: 9px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.cookie-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--outline-variant);
+  flex-shrink: 0;
+}
+
+.cookie-status-dot.active {
+  background: #63db8e;
+  box-shadow: 0 0 6px rgba(99, 219, 142, 0.6);
 }
 </style>
