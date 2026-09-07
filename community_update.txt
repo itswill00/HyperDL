@@ -1,8 +1,9 @@
-yo, just pushed v1.3.2
+yo, just dropped v1.3.3
 
-couple quick fixes:
-- fixed the ig bug where video links downloaded as cover photos instead of actual mp4 videos
-- fixed sudden "download paused" issue caused by webview network flicker and process check race condition
-- added atomic task state writes so status updates won't glitch
+quick update on what got fixed:
+- fixed pinterest downloads completely (images, full hd videos, and idea pins/story streams now save cleanly)
+- resolved shortlink expansion for pin.it links
+- fine-tuned stream remuxing with hardware ffmpeg so downloads are faster and smoother
+- checked and verified all platforms (tiktok, ig, yt, x, fb, pinterest) are solid
 
-grab the update in webui or flash the zip from the releases folder / github!
+update directly from the webui or grab the zip in releases / download folder!

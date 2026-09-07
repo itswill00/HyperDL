@@ -92,9 +92,8 @@ def expand_shortlink_fast(url, timeout=3.5):
 
     class FastRedirectHandler(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, hdrs, newurl):
-            m = req.get_method()
             if code in (301, 302, 303, 307, 308):
-                return urllib.request.Request(newurl, headers=req.headers, method=m)
+                return urllib.request.Request(newurl, headers=req.headers, method="GET")
             return None
 
     opener = urllib.request.build_opener(FastRedirectHandler)
@@ -124,6 +123,8 @@ def expand_shortlink_fast(url, timeout=3.5):
     if "tiktok.com" in res.lower() and "/video/" not in res.lower() and "/photo/" not in res.lower():
         return url
     if "instagram.com" in res.lower() and "/p/" not in res.lower() and "/reel/" not in res.lower() and "/tv/" not in res.lower():
+        return url
+    if "pinterest.com" in res.lower() and "/pin/" not in res.lower():
         return url
     return res
 
@@ -458,10 +459,65 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             update_status("error", error=str(e), title=title)
         raise
 
+def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=True):
+    ffmpeg_bin = get_ffmpeg_binary()
+    env = get_runtime_env()
+    if ffmpeg_bin:
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        part_path = out_path + ".tmp.mp4"
+        if os.path.exists(part_path):
+            try:
+                os.remove(part_path)
+            except Exception:
+                pass
+        
+        hdr_args = []
+        user_agent = (headers or {}).get("User-Agent") or USER_AGENT
+        hdr_str = f"User-Agent: {user_agent}\r\n"
+        if headers:
+            for k, v in headers.items():
+                if k.lower() != "user-agent":
+                    hdr_str += f"{k}: {v}\r\n"
+        hdr_args = ["-headers", hdr_str]
+
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-reconnect", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "5",
+        ] + hdr_args + [
+            "-i", m3u8_url,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            "-f", "mp4",
+            part_path
+        ]
+        update_status("downloading", percent=35, title=f"Downloading: {title}")
+        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        if res.returncode == 0 and os.path.exists(part_path) and os.path.getsize(part_path) > 1024:
+            os.replace(part_path, out_path)
+            try:
+                os.chmod(out_path, 0o666)
+            except Exception:
+                pass
+            scan_media_file(out_path)
+            if emit_complete:
+                update_status("completed", percent=100, title=title, file_path=out_path)
+                send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
+            return out_path
+
+    # Fallback to yt-dlp direct extraction
+    outdir = os.path.dirname(out_path) or "."
+    return download_with_ytdlp_direct(m3u8_url, outdir, fmt="video")
+
 def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
         outdir = os.path.dirname(out_path) or "."
         return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False))
+
+    if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
+        return download_hls(item["url"], out_path, title=title, headers=item.get("headers"), emit_complete=emit_complete)
 
     candidates = item.get("candidates", [])
     if "url" in item and not candidates:
@@ -867,6 +923,23 @@ def resolve_pinterest(url, fmt="video"):
     update_status("resolving", title="Resolving Pinterest media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
 
+    if "pin.it" in clean_url.lower():
+        try:
+            req = urllib.request.Request(clean_url, headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            })
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                final_u = resp.geturl()
+                if "/pin/" in final_u:
+                    clean_url = final_u
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") or e.headers.get("location")
+            if loc and "/pin/" in loc:
+                clean_url = loc
+        except Exception:
+            pass
+
     m = re.search(r'pin/(?:[\w-]+--)?(\d+)', clean_url)
     if m:
         pin_id = m.group(1)
@@ -886,30 +959,37 @@ def resolve_pinterest(url, fmt="video"):
             req = urllib.request.Request(api_url, headers=headers)
             with urllib.request.urlopen(req, timeout=5) as resp:
                 d = json.loads(resp.read().decode("utf-8"))
-            pin = d.get("resource_response", {}).get("data", {})
-            title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
+            pin = d.get("resource_response", {}).get("data") or {}
+            raw_title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
+            title = re.sub(r'[\r\n\t]+', ' ', raw_title).strip() or f"Pinterest_{pin_id}"
 
-            videos = pin.get("videos", {}).get("video_list", {})
+            # 1. Direct videos in pin['videos']
+            videos = (pin.get("videos") or {}).get("video_list") or {}
             if isinstance(videos, dict) and videos:
                 mp4s = [v.get("url") for k, v in videos.items() if v.get("url") and not str(v.get("url")).endswith(".m3u8")]
                 if mp4s:
                     return {"url": mp4s[0], "title": title, "ext": "mp4", "kind": "video"}
-                all_vids = [v.get("url") for k, v in videos.items() if v.get("url")]
-                if all_vids:
-                    return {"url": all_vids[0], "title": title, "ext": "mp4", "kind": "video"}
+                m3u8s = [v.get("url") for k, v in videos.items() if v.get("url")]
+                if m3u8s:
+                    return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            story = pin.get("story_pin_data", {})
+            # 2. Check story pin data (Idea Pins)
+            story = pin.get("story_pin_data") or {}
             if isinstance(story, dict):
                 for page in story.get("pages", []):
                     for block in page.get("blocks", []):
                         if int(block.get("block_type") or 0) == 3 and isinstance(block.get("video"), dict):
-                            vlist = block.get("video", {}).get("video_list", {})
-                            for k, v in vlist.items():
-                                if v.get("url") and not str(v.get("url")).endswith(".m3u8"):
-                                    return {"url": v["url"], "title": title, "ext": "mp4", "kind": "video"}
+                            vlist = (block.get("video") or {}).get("video_list") or {}
+                            mp4s = [v.get("url") for k, v in vlist.items() if v.get("url") and not str(v.get("url")).endswith(".m3u8")]
+                            if mp4s:
+                                return {"url": mp4s[0], "title": title, "ext": "mp4", "kind": "video"}
+                            m3u8s = [v.get("url") for k, v in vlist.items() if v.get("url")]
+                            if m3u8s:
+                                return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            images = pin.get("images", {})
-            orig = images.get("orig", {}) if isinstance(images, dict) else {}
+            # 3. Images (orig high-res fallback)
+            images = pin.get("images") or {}
+            orig = images.get("orig") or {} if isinstance(images, dict) else {}
             if orig.get("url"):
                 return {"url": orig["url"], "title": title, "ext": "jpg", "kind": "image"}
         except Exception as e:
@@ -1323,23 +1403,26 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     os.makedirs(outdir, exist_ok=True)
     out_tpl = os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
 
+    extra_dl_args = []
+    if not (".m3u8" in url or "manifest" in url or "/hls/" in url):
+        extra_dl_args = ["--continue", "--concurrent-fragments", "4", "--http-chunk-size", "10M"]
+    else:
+        extra_dl_args = ["--no-part"]
+
     cmd = [
         py_bin,
         ytdlp_bin,
         "--no-warnings",
         "--no-check-certificates",
         "--no-playlist",
-        "--continue",
-        "--concurrent-fragments", "4",
         "--no-mtime",
         "--buffer-size", "256k",
-        "--http-chunk-size", "10M",
         "--extractor-retries", "3",
         "--socket-timeout", "15",
         "--newline",
         "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
         "-o", out_tpl,
-    ] + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
+    ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
 
     env = get_runtime_env()
     update_status("downloading", percent=0, title="Downloading...")

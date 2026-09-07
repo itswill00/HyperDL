@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.2' }}
+          {{ sysInfo.version || 'v1.3.3' }}
         </span>
       </div>
     </header>
