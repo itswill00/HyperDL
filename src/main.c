@@ -520,11 +520,17 @@ static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int
     closedir(d);
 }
 
-static void cmd_list(void) {
+static void cmd_list(const char *sub) {
     ensure_directories();
     printf("[\n");
     int first = 1;
-    scan_dir_recursive(OUTDIR, "", &first, 0);
+    if (sub && strcmp(sub, "vault") == 0) {
+        char vault_path[512];
+        snprintf(vault_path, sizeof(vault_path), "%s/.vault", OUTDIR);
+        scan_dir_recursive(vault_path, "Vault", &first, 0);
+    } else {
+        scan_dir_recursive(OUTDIR, "", &first, 0);
+    }
     printf("\n]\n");
 }
 
@@ -929,7 +935,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.8";
+    char mod_version[32] = "v1.3.9";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1188,6 +1194,61 @@ static void cmd_get_autodl(void) {
     printf("{\"autodl\":%s}\n", active ? "true" : "false");
 }
 
+static void cmd_get_vault_status(void) {
+    int active = (access("/data/adb/hyperdl/vault.enabled", F_OK) == 0);
+    printf("{\"vault_enabled\":%s}\n", active ? "true" : "false");
+}
+
+static void cmd_toggle_vault(const char *val) {
+    ensure_directories();
+    const char *flag_path = "/data/adb/hyperdl/vault.enabled";
+    int target = -1;
+    if (val && *val) {
+        if (strcmp(val, "1") == 0 || strcmp(val, "on") == 0 || strcasecmp(val, "true") == 0) target = 1;
+        else if (strcmp(val, "0") == 0 || strcmp(val, "off") == 0 || strcasecmp(val, "false") == 0) target = 0;
+    }
+    if (target == -1) {
+        target = (access(flag_path, F_OK) != 0);
+    }
+
+    if (target) {
+        int fd = open(flag_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (fd >= 0) close(fd);
+        chmod(flag_path, 0666);
+
+        char vault_dir[512];
+        char nomedia[512];
+        snprintf(vault_dir, sizeof(vault_dir), "%s/.vault", OUTDIR);
+        snprintf(nomedia, sizeof(nomedia), "%s/.vault/.nomedia", OUTDIR);
+        mkdir(vault_dir, 0777);
+        chmod(vault_dir, 0777);
+
+        int nfd = open(nomedia, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (nfd >= 0) close(nfd);
+        chmod(nomedia, 0666);
+
+        const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
+        if (access(conf_path, F_OK) != 0) {
+            FILE *cf = fopen(conf_path, "w");
+            if (cf) {
+                static const char b64_domains[] = "cG9ybmh1Yi5jb20KeG54eC5jb20KeHZpZGVvcy5jb20KcmVkdHViZS5jb20KeGhhbXN0ZXIuY29tCmVwb3JuZXIuY29tCnlvdXBvcm4uY29tCnZqYXYuY29tCmphcGFuaGR2LmNvbQpqYXBhbmVzZXBvcm4ueHh4Cnhoc29jaWFsLmNvbQpiZHNtc3RyZWFrLmNvbQo=";
+                size_t out_len = 0;
+                unsigned char *dec = base64_decode(b64_domains, strlen(b64_domains), &out_len);
+                if (dec) {
+                    fwrite(dec, 1, out_len, cf);
+                    free(dec);
+                }
+                fclose(cf);
+                chmod(conf_path, 0666);
+            }
+        }
+        printf("{\"success\":true,\"vault_enabled\":true}\n");
+    } else {
+        unlink(flag_path);
+        printf("{\"success\":true,\"vault_enabled\":false}\n");
+    }
+}
+
 static void cmd_pause(void) {
     FILE *pf = fopen(PID_FILE, "r");
     pid_t old_pid = 0;
@@ -1300,7 +1361,7 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(action, "probe") == 0) {
         cmd_probe(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {
-        cmd_list();
+        cmd_list(argc > 2 ? argv[2] : NULL);
     } else if (strcmp(action, "delete") == 0) {
         if (argc > 2) {
             cmd_delete(argc - 2, argv + 2);
@@ -1327,6 +1388,10 @@ int main(int argc, char *argv[]) {
         cmd_toggle_autodl(argc > 2 ? argv[2] : "0");
     } else if (strcmp(action, "get_autodl") == 0) {
         cmd_get_autodl();
+    } else if (strcmp(action, "toggle_vault") == 0) {
+        cmd_toggle_vault(argc > 2 ? argv[2] : "");
+    } else if (strcmp(action, "get_vault_status") == 0) {
+        cmd_get_vault_status();
     } else if (strcmp(action, "get_clipboard") == 0) {
         cmd_get_clipboard();
     } else if (strcmp(action, "storage_info") == 0) {

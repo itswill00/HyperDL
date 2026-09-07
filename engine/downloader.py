@@ -76,6 +76,26 @@ def get_effective_outdir(preferred=DEFAULT_OUTDIR):
     return preferred
 
 def get_target_directory(base_outdir, info, url=""):
+    vault_flag = "/data/adb/hyperdl/vault.enabled"
+    vault_conf = "/data/adb/hyperdl/vault_domains.conf"
+    if os.path.exists(vault_flag) and os.path.exists(vault_conf):
+        try:
+            with open(vault_conf, "r") as vf:
+                v_domains = [l.strip().lower() for l in vf if l.strip()]
+                low_u = (url or "").lower()
+                if any(vd in low_u for vd in v_domains):
+                    vault_root = os.path.join(base_outdir, ".vault")
+                    target = os.path.join(vault_root, "Stream")
+                    os.makedirs(target, exist_ok=True)
+                    nm = os.path.join(vault_root, ".nomedia")
+                    if not os.path.exists(nm):
+                        with open(nm, "w") as f:
+                            pass
+                        os.chmod(nm, 0o666)
+                    return target
+        except Exception:
+            pass
+
     platform = info.get("platform")
     if not platform:
         low = (url or "").lower()
@@ -1605,13 +1625,40 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             format_arg = ["-f", "best[ext=mp4]/best"]
 
     os.makedirs(outdir, exist_ok=True)
-    out_tpl = os.path.join(
-        outdir,
-        "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(playlist_index)s_%(title).60s_%(id)s.%(ext)s"
-    ) if is_playlist else os.path.join(
-        outdir,
-        "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(title).60s_%(id)s.%(ext)s"
-    )
+    is_vault = False
+    vault_flag = "/data/adb/hyperdl/vault.enabled"
+    vault_conf = "/data/adb/hyperdl/vault_domains.conf"
+    if os.path.exists(vault_flag) and os.path.exists(vault_conf):
+        try:
+            with open(vault_conf, "r") as vf:
+                v_domains = [l.strip().lower() for l in vf if l.strip()]
+                low_u = (url or "").lower()
+                if any(vd in low_u for vd in v_domains):
+                    is_vault = True
+        except Exception:
+            pass
+
+    if is_vault:
+        vault_root = os.path.join(outdir, ".vault")
+        target_dir = os.path.join(vault_root, "Stream")
+        os.makedirs(target_dir, exist_ok=True)
+        nm = os.path.join(vault_root, ".nomedia")
+        if not os.path.exists(nm):
+            try:
+                with open(nm, "w") as f:
+                    pass
+                os.chmod(nm, 0o666)
+            except Exception:
+                pass
+        out_tpl = os.path.join(target_dir, "%(title).60s_%(id)s.%(ext)s")
+    else:
+        out_tpl = os.path.join(
+            outdir,
+            "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(playlist_index)s_%(title).60s_%(id)s.%(ext)s"
+        ) if is_playlist else os.path.join(
+            outdir,
+            "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(title).60s_%(id)s.%(ext)s"
+        )
 
     extra_dl_args = []
     if not (".m3u8" in url or "manifest" in url or "/hls/" in url):

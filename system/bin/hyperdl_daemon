@@ -68,42 +68,60 @@ case "$1" in
 
         if [ -n "$CLIP" ]; then
           LOW_CLIP="$(echo "$CLIP" | tr '[:upper:]' '[:lower:]')"
+          MATCHED=false
           case "$LOW_CLIP" in
             *tiktok.com*|*douyin.com*|*instagram.com*|*instagr.am*|*twitter.com*|*x.com*|*t.co*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*|*threads.net*)
-              CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
-              [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
-
-              NOW=$(date +%s 2>/dev/null || echo 0)
-              TIME_DIFF=$((NOW - LAST_PROCESSED_TIME))
-
-              if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] || [ "$TIME_DIFF" -gt 15 ]; then
-                LAST_PROCESSED_URL="$CLEAN_URL"
-                LAST_PROCESSED_TIME=$NOW
-                echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
-
-                # If another download is actively running, wait until it finishes completely
-                while [ -f /data/local/tmp/hyperdl.pid ]; do
-                  DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
-                  if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
-                    sleep 2
-                  else
-                    break
-                  fi
-                done
-
-                (cmd notification post -S bigtext -t "HyperDL" "Auto Download" "Downloading media from clipboard: $CLEAN_URL" >/dev/null 2>&1) &
-                BRIDGE="$(find_bridge)"
-                if [ -n "$BRIDGE" ]; then
-                  "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
-                fi
-              fi
+              MATCHED=true
               ;;
             *)
-              if [ -n "$LAST_PROCESSED_URL" ]; then
-                LAST_PROCESSED_URL=""
+              if [ -f /data/adb/hyperdl/vault.enabled ] && [ -f /data/adb/hyperdl/vault_domains.conf ]; then
+                while IFS= read -r vdom || [ -n "$vdom" ]; do
+                  vdom="$(echo "$vdom" | tr -d ' \r\n')"
+                  [ -z "$vdom" ] && continue
+                  case "$LOW_CLIP" in
+                    *"$vdom"*)
+                      MATCHED=true
+                      break
+                      ;;
+                  esac
+                done < /data/adb/hyperdl/vault_domains.conf
               fi
               ;;
           esac
+
+          if [ "$MATCHED" = "true" ]; then
+            CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
+            [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
+
+            NOW=$(date +%s 2>/dev/null || echo 0)
+            TIME_DIFF=$((NOW - LAST_PROCESSED_TIME))
+
+            if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] || [ "$TIME_DIFF" -gt 15 ]; then
+              LAST_PROCESSED_URL="$CLEAN_URL"
+              LAST_PROCESSED_TIME=$NOW
+              echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
+
+              # If another download is actively running, wait until it finishes completely
+              while [ -f /data/local/tmp/hyperdl.pid ]; do
+                DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
+                if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
+                  sleep 2
+                else
+                  break
+                fi
+              done
+
+              (cmd notification post -S bigtext -t "HyperDL" "Auto Download" "Downloading media from clipboard: $CLEAN_URL" >/dev/null 2>&1) &
+              BRIDGE="$(find_bridge)"
+              if [ -n "$BRIDGE" ]; then
+                "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
+              fi
+            fi
+          else
+            if [ -n "$LAST_PROCESSED_URL" ]; then
+              LAST_PROCESSED_URL=""
+            fi
+          fi
         fi
         sleep 2
       done

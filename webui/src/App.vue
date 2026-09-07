@@ -11,8 +11,9 @@
           <Icons name="wifi-off" :size="11" />
           Offline
         </span>
-        <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.8' }}
+        <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
+          {{ sysInfo.version || 'v1.3.9' }}
+          <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>
     </header>
@@ -42,6 +43,15 @@
         >
           <Icons name="info" :size="14" />
           <span>Console</span>
+        </button>
+        <button
+          v-if="isVaultActive"
+          class="tab-btn"
+          :class="{ active: activeTab === 'vault' }"
+          @click="activeTab = 'vault'; fetchVaultHistory()"
+        >
+          <Icons name="lock" :size="14" />
+          <span>Vault</span>
         </button>
       </div>
     </div>
@@ -804,6 +814,84 @@
 
       </div>
 
+      <!-- VAULT TAB -->
+      <div v-show="activeTab === 'vault' && isVaultActive">
+        <section class="md3-card" style="margin-top: 4px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="icon-badge secondary">
+                <Icons name="lock" :size="16" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Private Vault ({{ vaultList.length }})</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">Protected with .nomedia · Hidden from gallery</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button
+                class="btn btn-secondary"
+                style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;"
+                @click="isVaultBlurred = !isVaultBlurred"
+              >
+                <Icons :name="isVaultBlurred ? 'eye' : 'eye-off'" :size="12" />
+                <span>{{ isVaultBlurred ? 'Unblur' : 'Blur' }}</span>
+              </button>
+              <button
+                class="btn btn-secondary"
+                style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;"
+                @click="fetchVaultHistory"
+                title="Refresh vault"
+              >
+                <Icons name="refresh" :size="12" />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div class="md3-list-group" v-if="vaultList.length > 0">
+          <div
+            v-for="item in vaultList"
+            :key="item.path"
+            class="md3-list-row"
+            style="display: flex; align-items: center; gap: 10px;"
+          >
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
+              <div class="icon-badge secondary">
+                <Icons :name="getExtIcon(item.ext)" :size="16" />
+              </div>
+              <div style="min-width: 0; flex: 1;">
+                <div
+                  style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: filter 0.2s ease;"
+                  :style="isVaultBlurred ? 'filter: blur(5px); user-select: none;' : ''"
+                >
+                  {{ item.name }}
+                </div>
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
+                  <span style="color: var(--primary); font-weight: 500;">Vault/Stream · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Play">
+                <Icons name="play" :size="14" />
+              </button>
+              <button class="btn btn-icon" style="color: var(--error);" @click.stop="deleteVaultItem(item)" title="Delete">
+                <Icons name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="md3-card" style="text-align: center; padding: 28px 16px; opacity: 0.7;">
+          <Icons name="lock" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
+          <div style="font-size: 12px; font-weight: 600; color: var(--on-surface);">Vault is empty</div>
+          <div style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">
+            Downloads from stream links will be stored here securely
+          </div>
+        </div>
+      </div>
+
       <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0 16px 0;">
         <div style="display: flex; align-items: center; gap: 12px; font-size: 11px;">
           <a href="https://t.me/noticesa" target="_blank" rel="noopener noreferrer" style="color: var(--on-surface-variant); text-decoration: none; display: flex; align-items: center; gap: 5px;">
@@ -1129,6 +1217,83 @@ function loadActiveTaskFromStorage() {
 }
 
 const historyList = ref([])
+const isVaultActive = ref(false)
+const isVaultBlurred = ref(true)
+const vaultList = ref([])
+
+let versionClickCount = 0
+let versionClickTimer = null
+
+async function onVersionClick() {
+  versionClickCount++
+  if (versionClickTimer) clearTimeout(versionClickTimer)
+  versionClickTimer = setTimeout(() => {
+    versionClickCount = 0
+  }, 2500)
+
+  if (versionClickCount >= 5) {
+    versionClickCount = 0
+    try {
+      const res = await runBridge('toggle_vault')
+      const data = JSON.parse(res)
+      isVaultActive.value = !!data.vault_enabled
+      if (isVaultActive.value) {
+        showToast('Vault Mode: Active', 'success')
+        activeTab.value = 'vault'
+        await fetchVaultHistory()
+      } else {
+        showToast('Vault Mode: Deactivated', 'info')
+        if (activeTab.value === 'vault') {
+          activeTab.value = 'download'
+        }
+      }
+    } catch (e) {
+      showToast('Toggle failed', 'error')
+    }
+  }
+}
+
+async function checkVaultStatus() {
+  try {
+    const raw = await runBridge('get_vault_status')
+    if (raw) {
+      const data = JSON.parse(raw)
+      isVaultActive.value = !!data.vault_enabled
+      if (isVaultActive.value && activeTab.value === 'vault') {
+        fetchVaultHistory()
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchVaultHistory() {
+  try {
+    const raw = await runBridge('list', 'vault')
+    if (raw && raw.startsWith('[')) {
+      const list = JSON.parse(raw)
+      list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
+      vaultList.value = list
+    }
+  } catch (e) {}
+}
+
+async function deleteVaultItem(item) {
+  const prevList = [...vaultList.value]
+  vaultList.value = vaultList.value.filter(i => i.path !== item.path)
+  try {
+    const res = await runBridge('delete', item.path)
+    const data = JSON.parse(res)
+    if (!data.success) {
+      vaultList.value = prevList
+      showToast('Gagal menghapus: ' + (data.error || 'unknown'), 'error')
+    } else {
+      showToast('File vault dihapus', 'success')
+    }
+  } catch (e) {
+    vaultList.value = prevList
+    showToast('Gagal menghapus', 'error')
+  }
+}
 
 function showToast(message, type = 'info') {
   toast.value = { show: true, message, type }
@@ -2244,6 +2409,7 @@ onMounted(() => {
   checkActiveTask()
   fetchStorageStats()
   checkClipboardSniffer()
+  checkVaultStatus()
 })
 
 onUnmounted(() => {
