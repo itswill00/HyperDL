@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.7' }}
+          {{ sysInfo.version || 'v1.3.8' }}
         </span>
       </div>
     </header>
@@ -558,7 +558,7 @@
                   {{ item.name }}
                 </div>
                 <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
-                  {{ item.size }} · {{ (item.ext || '').toLowerCase() }}
+                  <span v-if="item.folder" style="color: var(--primary); font-weight: 500;">{{ item.folder }} · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                 </div>
               </div>
             </div>
@@ -1338,6 +1338,18 @@ async function pasteClipboard() {
     } catch (e) {}
   }
 
+  if (!text) {
+    try {
+      const raw = await runBridge('get_clipboard')
+      if (raw && raw.startsWith('{')) {
+        const parsed = JSON.parse(raw)
+        if (parsed.clipboard_b64) {
+          text = base64DecodeUtf8(parsed.clipboard_b64)
+        }
+      }
+    } catch (e) {}
+  }
+
   if (text && text.trim()) {
     url.value = extractUrl(text)
     showToast('Link pasted', 'success')
@@ -1748,7 +1760,7 @@ const filteredHistoryList = computed(() => {
 
   const q = (searchQuery.value || '').trim().toLowerCase()
   if (q) {
-    list = list.filter(i => (i.name || '').toLowerCase().includes(q))
+    list = list.filter(i => (i.name || '').toLowerCase().includes(q) || (i.folder || '').toLowerCase().includes(q))
   }
   return list
 })
@@ -1812,17 +1824,32 @@ function formatTruncatedUrl(u) {
 }
 
 async function checkClipboardSniffer() {
-  if (typeof navigator === 'undefined' || !navigator.clipboard || !navigator.clipboard.readText) return
-  try {
-    const text = await navigator.clipboard.readText()
-    if (!text) return
-    const foundUrl = extractUrl(text)
-    if (foundUrl && foundUrl.startsWith('http') && foundUrl !== url.value && foundUrl !== lastDismissedClipUrl.value) {
-      detectedClipUrl.value = foundUrl
-    } else if (foundUrl === url.value) {
-      detectedClipUrl.value = ''
-    }
-  } catch (e) {}
+  let text = ''
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
+    try {
+      text = await navigator.clipboard.readText()
+    } catch (e) {}
+  }
+
+  if (!text) {
+    try {
+      const raw = await runBridge('get_clipboard')
+      if (raw && raw.startsWith('{')) {
+        const parsed = JSON.parse(raw)
+        if (parsed.clipboard_b64) {
+          text = base64DecodeUtf8(parsed.clipboard_b64)
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!text) return
+  const foundUrl = extractUrl(text)
+  if (foundUrl && foundUrl.startsWith('http') && foundUrl !== url.value && foundUrl !== lastDismissedClipUrl.value) {
+    detectedClipUrl.value = foundUrl
+  } else if (foundUrl === url.value) {
+    detectedClipUrl.value = ''
+  }
 }
 
 function onVisibilityChange() {

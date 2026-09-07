@@ -75,6 +75,60 @@ def get_effective_outdir(preferred=DEFAULT_OUTDIR):
             continue
     return preferred
 
+def get_target_directory(base_outdir, info, url=""):
+    platform = info.get("platform")
+    if not platform:
+        low = (url or "").lower()
+        if "instagram.com" in low or "instagr.am" in low:
+            platform = "Instagram"
+        elif "tiktok.com" in low or "douyin.com" in low:
+            platform = "TikTok"
+        elif "youtube.com" in low or "youtu.be" in low:
+            platform = "YouTube"
+        elif "twitter.com" in low or "x.com" in low or "t.co" in low:
+            platform = "Twitter"
+        elif "facebook.com" in low or "fb.watch" in low or "fb.com" in low:
+            platform = "Facebook"
+        elif "pinterest.com" in low or "pin.it" in low:
+            platform = "Pinterest"
+        elif "reddit.com" in low or "redd.it" in low:
+            platform = "Reddit"
+        elif "threads.net" in low:
+            platform = "Threads"
+        else:
+            ext_key = str(info.get("extractor_key") or info.get("extractor") or "").strip()
+            platform = ext_key if ext_key else "Media"
+
+    author = info.get("channel") or info.get("uploader") or info.get("uploader_id") or info.get("author") or info.get("creator")
+    if not author:
+        m_ig = re.search(r'instagram\.com/([^/?#]+)/(?:p|reel|reels)/', url or "")
+        if m_ig and m_ig.group(1) not in ("p", "reel", "reels", "tv", "explore"):
+            author = m_ig.group(1)
+        m_tt = re.search(r'tiktok\.com/@([^/?#]+)', url or "")
+        if m_tt:
+            author = m_tt.group(1)
+        m_x = re.search(r'(?:twitter|x)\.com/([^/?#]+)/status', url or "")
+        if m_x:
+            author = m_x.group(1)
+
+    clean_author = sanitize_filename(str(author).strip().lstrip("@")) if author else ""
+    if clean_author.lower() in ("unknown", "null", "none", ""):
+        clean_author = ""
+
+    if platform and clean_author:
+        target = os.path.join(base_outdir, platform, clean_author)
+    elif platform:
+        target = os.path.join(base_outdir, platform)
+    else:
+        target = base_outdir
+
+    try:
+        os.makedirs(target, exist_ok=True)
+        os.chmod(target, 0o777)
+    except Exception:
+        pass
+    return target
+
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
 
 def expand_shortlink_fast(url, timeout=3.5):
@@ -904,20 +958,30 @@ def resolve_instagram(url, fmt="video"):
                         items.append({"url": img_url, "ext": "jpg", "kind": "image"})
 
             if items:
+                author_channel = info.get("channel") or info.get("uploader") or info.get("uploader_id")
                 if fmt in ("photo", "image"):
                     photo_items = [it for it in items if it.get("kind") == "image"]
                     if photo_items:
-                        return {"items": photo_items, "title": title, "ext": "jpg", "kind": "album"}
+                        return {
+                            "items": photo_items, "title": title, "ext": "jpg", "kind": "album",
+                            "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                        }
                 if fmt == "audio":
                     aud_item = next((it for it in items if it.get("audio_url") or it.get("kind") == "video"), None)
                     if aud_item:
-                        return {**aud_item, "title": title}
+                        return {
+                            **aud_item, "title": title,
+                            "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                        }
 
                 return {
                     "items": items,
                     "title": title,
                     "ext": "mp4" if any(it.get("kind") == "video" for it in items) else "jpg",
-                    "kind": "album"
+                    "kind": "album",
+                    "platform": "Instagram",
+                    "channel": author_channel,
+                    "uploader": info.get("uploader")
                 }
         else:
             vurl = None
@@ -929,9 +993,13 @@ def resolve_instagram(url, fmt="video"):
             elif info.get("url") and not formats:
                 vurl = info.get("url")
             
+            author_channel = info.get("channel") or info.get("uploader") or info.get("uploader_id")
             # If a progressive stream with both audio and video exists, return it directly
             if vurl and fmt not in ("photo", "image", "audio"):
-                return {"url": vurl, "title": title, "ext": "mp4", "kind": "video"}
+                return {
+                    "url": vurl, "title": title, "ext": "mp4", "kind": "video",
+                    "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                }
             
             # If video or audio was requested and only DASH separate streams exist, delegate to direct_ytdlp
             # so yt-dlp + ffmpeg downloads and muxes bestvideo+bestaudio into a pristine MP4!
@@ -941,7 +1009,10 @@ def resolve_instagram(url, fmt="video"):
                     "url": clean_url,
                     "fmt": fmt,
                     "is_yt": False,
-                    "title": title
+                    "title": title,
+                    "platform": "Instagram",
+                    "channel": author_channel,
+                    "uploader": info.get("uploader")
                 }
 
             thumbs = info.get("thumbnails") or []
@@ -951,9 +1022,15 @@ def resolve_instagram(url, fmt="video"):
                 else:
                     best = thumbs[-1]
                 if best.get("url"):
-                    return {"url": best["url"], "title": title, "ext": "jpg", "kind": "image"}
+                    return {
+                        "url": best["url"], "title": title, "ext": "jpg", "kind": "image",
+                        "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                    }
             if vurl:
-                return {"url": vurl, "title": title, "ext": "mp4", "kind": "video"}
+                return {
+                    "url": vurl, "title": title, "ext": "mp4", "kind": "video",
+                    "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                }
     except Exception as e:
         print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
 
@@ -963,7 +1040,8 @@ def resolve_instagram(url, fmt="video"):
         "url": clean_url,
         "fmt": fmt,
         "is_yt": False,
-        "title": f"Instagram_{shortcode}"
+        "title": f"Instagram_{shortcode}",
+        "platform": "Instagram"
     }
 
 def resolve_facebook(url, fmt="video"):
@@ -1527,7 +1605,13 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             format_arg = ["-f", "best[ext=mp4]/best"]
 
     os.makedirs(outdir, exist_ok=True)
-    out_tpl = os.path.join(outdir, "%(playlist_index)s_%(title).60s_%(id)s.%(ext)s") if is_playlist else os.path.join(outdir, "%(title).60s_%(id)s.%(ext)s")
+    out_tpl = os.path.join(
+        outdir,
+        "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(playlist_index)s_%(title).60s_%(id)s.%(ext)s"
+    ) if is_playlist else os.path.join(
+        outdir,
+        "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(title).60s_%(id)s.%(ext)s"
+    )
 
     extra_dl_args = []
     if not (".m3u8" in url or "manifest" in url or "/hls/" in url):
@@ -1787,6 +1871,7 @@ def main():
         title = sanitize_filename(info.get("title", "Media"))
         ext = info.get("ext", "mp4")
         media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
+        target_dir = get_target_directory(outdir, info, url)
 
         if info.get("kind") == "album" and (info.get("images") or info.get("items")):
             raw_items = info.get("items") or info.get("images") or []
@@ -1799,7 +1884,7 @@ def main():
                     item_url = it
                     item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
 
-                item_path = os.path.join(outdir, f"{title}_{idx+1}.{item_ext}")
+                item_path = os.path.join(target_dir, f"{title}_{idx+1}.{item_ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
                 hdrs = dict(info.get("headers") or {})
                 if "tikwm.com" in str(item_url):
@@ -1814,20 +1899,20 @@ def main():
                     download_file(item_url, item_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
 
                 scan_media_file(item_path)
-            update_status("completed", percent=100, title=title, file_path=outdir)
-            send_android_notification("Download complete", f"{title} saved ({total} items)")
+            update_status("completed", percent=100, title=title, file_path=target_dir)
+            send_android_notification("Download complete", f"{title} saved to {os.path.basename(target_dir)} ({total} items)")
         else:
             if fmt == "audio":
                 ffmpeg_bin = get_ffmpeg_binary()
                 if ffmpeg_bin:
-                    tmp_raw = os.path.join(outdir, f".tmp_{title}_{media_id}.raw")
+                    tmp_raw = os.path.join(target_dir, f".tmp_{title}_{media_id}.raw")
                     download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
-                    out_path = os.path.join(outdir, f"{title}_{media_id}.flac")
+                    out_path = os.path.join(target_dir, f"{title}_{media_id}.flac")
                     update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
                     res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
                     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
                         fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
-                        out_path = os.path.join(outdir, f"{title}_{media_id}.{fallback_ext}")
+                        out_path = os.path.join(target_dir, f"{title}_{media_id}.{fallback_ext}")
                         if os.path.exists(tmp_raw):
                             os.replace(tmp_raw, out_path)
                     else:
@@ -1845,7 +1930,7 @@ def main():
                     send_android_notification("Download complete", f"{title} saved as FLAC HD")
                     return
             filename = f"{title}_{media_id}.{ext}"
-            out_path = os.path.join(outdir, filename)
+            out_path = os.path.join(target_dir, filename)
             download_media_candidates(info, out_path, title=title)
 
     except Exception as e:

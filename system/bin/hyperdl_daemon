@@ -53,7 +53,12 @@ case "$1" in
     fi
 
     (
-      echo -900 > /proc/$$/oom_score_adj 2>/dev/null || true
+      trap '' HUP INT TERM
+      echo -900 > /proc/self/oom_score_adj 2>/dev/null || true
+
+      LAST_PROCESSED_URL=""
+      LAST_PROCESSED_TIME=0
+
       while true; do
         if [ ! -f /data/adb/hyperdl/autodl.enabled ]; then
           break
@@ -62,29 +67,40 @@ case "$1" in
         CLIP="$(get_clipboard)"
 
         if [ -n "$CLIP" ]; then
-          case "$CLIP" in
-            *tiktok.com*|*douyin.com*|*instagram.com*|*twitter.com*|*x.com*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*)
-              LAST_CLIP="$(cat "$LAST_CLIP_FILE" 2>/dev/null)"
-              if [ "$CLIP" != "$LAST_CLIP" ]; then
-                echo "$CLIP" > "$LAST_CLIP_FILE"
+          LOW_CLIP="$(echo "$CLIP" | tr '[:upper:]' '[:lower:]')"
+          case "$LOW_CLIP" in
+            *tiktok.com*|*douyin.com*|*instagram.com*|*instagr.am*|*twitter.com*|*x.com*|*t.co*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*|*threads.net*)
+              CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
+              [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
 
-                # Extract first valid URL from clipboard text
-                CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
-                [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
+              NOW=$(date +%s 2>/dev/null || echo 0)
+              TIME_DIFF=$((NOW - LAST_PROCESSED_TIME))
 
-                # If a download is already in progress, wait briefly
-                if [ -f /data/local/tmp/hyperdl.pid ]; then
+              if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] || [ "$TIME_DIFF" -gt 15 ]; then
+                LAST_PROCESSED_URL="$CLEAN_URL"
+                LAST_PROCESSED_TIME=$NOW
+                echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
+
+                # If another download is actively running, wait until it finishes completely
+                while [ -f /data/local/tmp/hyperdl.pid ]; do
                   DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
                   if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
-                    sleep 5
+                    sleep 2
+                  else
+                    break
                   fi
-                fi
+                done
 
-                (cmd notification post -S bigtext -t "HyperDL" "Link detected" "Downloading media from clipboard..." >/dev/null 2>&1) &
+                (cmd notification post -S bigtext -t "HyperDL" "Auto Download" "Downloading media from clipboard: $CLEAN_URL" >/dev/null 2>&1) &
                 BRIDGE="$(find_bridge)"
                 if [ -n "$BRIDGE" ]; then
                   "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
                 fi
+              fi
+              ;;
+            *)
+              if [ -n "$LAST_PROCESSED_URL" ]; then
+                LAST_PROCESSED_URL=""
               fi
               ;;
           esac
@@ -92,8 +108,10 @@ case "$1" in
         sleep 2
       done
       rm -f "$PID_FILE"
-    ) &
+    ) </dev/null >/dev/null 2>&1 &
+
     echo $! > "$PID_FILE"
+    chmod 666 "$PID_FILE" 2>/dev/null || true
     ;;
 
   stop)

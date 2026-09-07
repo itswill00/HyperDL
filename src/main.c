@@ -468,40 +468,6 @@ static void cmd_probe(const char *url) {
 }
 
 
-static void cmd_list(void) {
-    DIR *d = opendir(OUTDIR);
-    if (!d) {
-        printf("[]\n");
-        return;
-    }
-
-    printf("[\n");
-    struct dirent *entry;
-    int first = 1;
-    char full_path[1024];
-    struct stat st;
-    char size_str[32];
-
-    while ((entry = readdir(d)) != NULL) {
-        if (entry->d_name[0] == '.') continue;
-
-        snprintf(full_path, sizeof(full_path), "%s/%s", OUTDIR, entry->d_name);
-        if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
-            format_file_size(st.st_size, size_str, sizeof(size_str));
-            const char *dot = strrchr(entry->d_name, '.');
-            const char *ext = dot ? dot + 1 : "";
-
-            if (!first) printf(",\n");
-            first = 0;
-
-            printf("  {\"name\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld}",
-                   entry->d_name, size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size);
-        }
-    }
-    printf("\n]\n");
-    closedir(d);
-}
-
 static int is_junk_filename(const char *name) {
     if (!name || !*name) return 0;
     if (strncmp(name, ".tmp", 4) == 0 || strncmp(name, ".trashed", 8) == 0) return 1;
@@ -513,36 +479,97 @@ static int is_junk_filename(const char *name) {
     return 0;
 }
 
+static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int *first, int depth) {
+    if (depth > 4) return;
+    DIR *d = opendir(base_dir);
+    if (!d) return;
+
+    struct dirent *entry;
+    char full_path[1024];
+    struct stat st;
+    char size_str[32];
+
+    while ((entry = readdir(d)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+
+        snprintf(full_path, sizeof(full_path), "%s/%s", base_dir, entry->d_name);
+        if (stat(full_path, &st) != 0) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            char next_rel[512];
+            if (rel_prefix && *rel_prefix) {
+                snprintf(next_rel, sizeof(next_rel), "%s/%s", rel_prefix, entry->d_name);
+            } else {
+                snprintf(next_rel, sizeof(next_rel), "%s", entry->d_name);
+            }
+            scan_dir_recursive(full_path, next_rel, first, depth + 1);
+        } else if (S_ISREG(st.st_mode)) {
+            if (is_junk_filename(entry->d_name)) continue;
+
+            format_file_size(st.st_size, size_str, sizeof(size_str));
+            const char *dot = strrchr(entry->d_name, '.');
+            const char *ext = dot ? dot + 1 : "";
+
+            if (!*first) printf(",\n");
+            *first = 0;
+
+            printf("  {\"name\":\"%s\",\"folder\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld}",
+                   entry->d_name, rel_prefix ? rel_prefix : "", size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size);
+        }
+    }
+    closedir(d);
+}
+
+static void cmd_list(void) {
+    ensure_directories();
+    printf("[\n");
+    int first = 1;
+    scan_dir_recursive(OUTDIR, "", &first, 0);
+    printf("\n]\n");
+}
+
+static void count_storage_recursive(const char *dir_path, long long *media_count, long long *media_bytes,
+                                   long long *junk_count, long long *junk_bytes, int depth) {
+    if (depth > 4) return;
+    DIR *d = opendir(dir_path);
+    if (!d) return;
+
+    struct dirent *entry;
+    char full_path[1024];
+    struct stat st;
+
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+        if (stat(full_path, &st) != 0) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            if (entry->d_name[0] != '.') {
+                count_storage_recursive(full_path, media_count, media_bytes, junk_count, junk_bytes, depth + 1);
+            }
+        } else if (S_ISREG(st.st_mode)) {
+            if (is_junk_filename(entry->d_name)) {
+                (*junk_count)++;
+                (*junk_bytes) += st.st_size;
+            } else if (entry->d_name[0] != '.') {
+                (*media_count)++;
+                (*media_bytes) += st.st_size;
+            }
+        }
+    }
+    closedir(d);
+}
+
 static void cmd_storage_info(void) {
     ensure_directories();
 
-    DIR *d = opendir(OUTDIR);
     long long media_count = 0;
     long long media_bytes = 0;
     long long junk_count = 0;
     long long junk_bytes = 0;
 
-    if (d) {
-        struct dirent *entry;
-        char full_path[1024];
-        struct stat st;
-
-        while ((entry = readdir(d)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-
-            snprintf(full_path, sizeof(full_path), "%s/%s", OUTDIR, entry->d_name);
-            if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
-                if (is_junk_filename(entry->d_name)) {
-                    junk_count++;
-                    junk_bytes += st.st_size;
-                } else if (entry->d_name[0] != '.') {
-                    media_count++;
-                    media_bytes += st.st_size;
-                }
-            }
-        }
-        closedir(d);
-    }
+    count_storage_recursive(OUTDIR, &media_count, &media_bytes, &junk_count, &junk_bytes, 0);
 
     struct statvfs sv;
     unsigned long long free_bytes = 0;
@@ -571,36 +598,46 @@ static void cmd_storage_info(void) {
            total_bytes, total_sz);
 }
 
-static void cmd_clean_junk(void) {
-    ensure_directories();
-
-    DIR *d = opendir(OUTDIR);
-    if (!d) {
-        printf("{\"success\":true,\"deleted\":0,\"freed_bytes\":0,\"freed_size\":\"0 B\"}\n");
-        return;
-    }
+static void clean_junk_recursive(const char *dir_path, int *deleted, long long *freed_bytes, int depth) {
+    if (depth > 4) return;
+    DIR *d = opendir(dir_path);
+    if (!d) return;
 
     struct dirent *entry;
     char full_path[1024];
     struct stat st;
-    int deleted = 0;
-    long long freed_bytes = 0;
 
     while ((entry = readdir(d)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
-        if (is_junk_filename(entry->d_name)) {
-            snprintf(full_path, sizeof(full_path), "%s/%s", OUTDIR, entry->d_name);
-            if (stat(full_path, &st) == 0 && S_ISREG(st.st_mode)) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+        if (stat(full_path, &st) != 0) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            if (entry->d_name[0] != '.') {
+                clean_junk_recursive(full_path, deleted, freed_bytes, depth + 1);
+                rmdir(full_path);
+            }
+        } else if (S_ISREG(st.st_mode)) {
+            if (is_junk_filename(entry->d_name)) {
                 off_t fsz = st.st_size;
                 if (unlink(full_path) == 0) {
-                    deleted++;
-                    freed_bytes += fsz;
+                    (*deleted)++;
+                    (*freed_bytes) += fsz;
                 }
             }
         }
     }
     closedir(d);
+}
+
+static void cmd_clean_junk(void) {
+    ensure_directories();
+
+    int deleted = 0;
+    long long freed_bytes = 0;
+
+    clean_junk_recursive(OUTDIR, &deleted, &freed_bytes, 0);
 
     char freed_sz[32];
     format_file_size(freed_bytes, freed_sz, sizeof(freed_sz));
@@ -892,7 +929,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.7";
+    char mod_version[32] = "v1.3.8";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1070,6 +1107,52 @@ static void run_daemon_cmd(const char *action) {
     }
 }
 
+static void cmd_get_clipboard(void) {
+    const char *jar = NULL;
+    const char *jar_candidates[] = {
+        "/data/adb/modules/hyperdl/system/bin/clip.jar",
+        "/data/adb/modules_update/hyperdl/system/bin/clip.jar",
+        "/data/adb/hyperdl/clip.jar",
+        "/system/bin/clip.jar",
+        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/clip.jar",
+        NULL
+    };
+    for (int i = 0; jar_candidates[i]; i++) {
+        if (access(jar_candidates[i], R_OK) == 0) {
+            jar = jar_candidates[i];
+            break;
+        }
+    }
+    if (!jar) {
+        printf("{\"clipboard\":\"\"}\n");
+        return;
+    }
+
+    char cmd[512];
+    snprintf(cmd, sizeof(cmd), "ANDROID_ROOT=/system ANDROID_DATA=/data CLASSPATH=\"%s\" app_process /system/bin Clip 2>/dev/null", jar);
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        printf("{\"clipboard\":\"\"}\n");
+        return;
+    }
+
+    char buf[4096] = {0};
+    size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+    pclose(fp);
+
+    while (n > 0 && (buf[n - 1] == '\r' || buf[n - 1] == '\n')) {
+        buf[--n] = '\0';
+    }
+
+    char *b64 = base64_encode((const unsigned char *)buf, n);
+    if (b64) {
+        printf("{\"clipboard_b64\":\"%s\"}\n", b64);
+        free(b64);
+    } else {
+        printf("{\"clipboard\":\"\"}\n");
+    }
+}
+
 static void cmd_toggle_autodl(const char *val) {
     ensure_directories();
     if (val && (strcmp(val, "1") == 0 || strcmp(val, "on") == 0)) {
@@ -1244,6 +1327,8 @@ int main(int argc, char *argv[]) {
         cmd_toggle_autodl(argc > 2 ? argv[2] : "0");
     } else if (strcmp(action, "get_autodl") == 0) {
         cmd_get_autodl();
+    } else if (strcmp(action, "get_clipboard") == 0) {
+        cmd_get_clipboard();
     } else if (strcmp(action, "storage_info") == 0) {
         cmd_storage_info();
     } else if (strcmp(action, "clean_junk") == 0) {
