@@ -107,11 +107,17 @@ def main():
                         rel = os.path.relpath(full, tmp_stdlib)
                         z.write(full, rel)
 
+    sitecustomize_src = os.path.join(PROJECT_DIR, "src", "sitecustomize.py")
+    py_ver_dir = os.path.join(lib_dir, "python3.14")
+    if os.path.exists(sitecustomize_src):
+        os.makedirs(py_ver_dir, exist_ok=True)
+        shutil.copy2(sitecustomize_src, os.path.join(py_ver_dir, "sitecustomize.py"))
+
     env = {
         "PATH": f"{bin_dir}:/system/bin",
         "LD_LIBRARY_PATH": lib_dir,
         "PYTHONHOME": TARGET_DIR,
-        "PYTHONPATH": f"{zip_path}:{dyn_dir}",
+        "PYTHONPATH": f"{zip_path}:{dyn_dir}:{py_ver_dir}",
         "SSL_CERT_FILE": f"{lib_dir}/cacert.pem"
     }
     test_cmd = [f"{bin_dir}/python3", "-c", "import ssl, urllib.request, json, hashlib, zlib; print('Runtime verification passed.')"]

@@ -1538,7 +1538,7 @@ def get_runtime_env():
         env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
         env["LD_LIBRARY_PATH"] = f"{runtime_dir}/lib"
         env["PYTHONHOME"] = runtime_dir
-        env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload"
+        env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload:{runtime_dir}/lib/python3.14"
         env["SSL_CERT_FILE"] = f"{runtime_dir}/lib/cacert.pem"
     return env
 

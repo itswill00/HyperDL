@@ -134,6 +134,11 @@ if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "system/bin/yt-dlp" ]; then
     python3 scripts/optimize_ytdlp.py system/bin/yt-dlp
 fi
 
+if [ -f "src/sitecustomize.py" ]; then
+    mkdir -p runtime/lib/python3.14
+    cp -f src/sitecustomize.py runtime/lib/python3.14/sitecustomize.py
+fi
+
 STAGING_DIR="${PROJECT_DIR}/releases"
 mkdir -p "$STAGING_DIR"
 rm -f "$STAGING_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
@@ -147,7 +152,7 @@ zip -qr9 "$STAGING_DIR/$ZIP_NAME" \
     system \
     runtime \
     webroot \
-    -x "*.git*" "webui/*" "webroot/*.map" "*.py" "*__pycache__*"
+    -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
 
 cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_ALIAS"
 cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_LATEST"
@@ -221,6 +226,7 @@ if [ "$DEPLOY" = "true" ]; then
         chmod 644 \"\$MOD_TARGET/module.prop\" \"\$MOD_TARGET/webroot/index.html\"
         chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
         chmod 0777 /data/adb/hyperdl 2>/dev/null || true
+        chcon -R u:object_r:system_file:s0 \"\$MOD_TARGET\" 2>/dev/null || true
 
         if [ -f /data/adb/hyperdl/autodl.enabled ]; then
             sh \"\$MOD_TARGET/system/bin/hyperdl_daemon\" start >/dev/null 2>&1 &
