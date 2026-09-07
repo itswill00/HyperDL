@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.11' }}
+          {{ sysInfo.version || 'v1.3.12' }}
           <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>
@@ -289,9 +289,9 @@
             ></div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: var(--font-mono);">
-            <span>{{ task.downloaded ? `${task.downloaded} / ${task.total}` : (task.status === 'resolving' ? (task.title || 'Connecting to source...') : (task.status === 'paused' ? 'Download paused' : '')) }}</span>
-            <span>{{ task.speed ? task.speed : (task.status === 'paused' ? `${task.percent}% ready` : '') }}</span>
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--on-surface-variant); margin-top: 8px; font-family: inherit; font-variant-numeric: tabular-nums;">
+            <span>{{ formatProgressInfo(task) }}</span>
+            <span>{{ formatSpeedInfo(task) }}</span>
           </div>
 
           <!-- Paused banner with instant resume -->
@@ -395,7 +395,7 @@
               </div>
               <div>
                 <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination folder</div>
-                <div style="font-size: 11px; color: var(--on-surface-variant); font-family: var(--font-mono);">/Download/HyperDL</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant); font-family: inherit;">/Download/HyperDL</div>
               </div>
             </div>
             <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
@@ -567,7 +567,7 @@
                 <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   {{ item.name }}
                 </div>
-                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px;">
                   <span v-if="item.folder" style="color: var(--primary); font-weight: 500;">{{ item.folder }} · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                 </div>
               </div>
@@ -704,7 +704,7 @@
             <div class="guide-step">
               <div class="step-num">1</div>
               <div class="step-desc">
-                Install a browser extension such as <b>Get cookies.txt LOCALLY</b> on Kiwi Browser, Firefox Android, or desktop Chrome.
+                Install a browser extension such as <b>Get cookies.txt Locally</b> on Kiwi Browser, Firefox Android, or desktop Chrome.
               </div>
             </div>
             <div class="guide-step">
@@ -740,15 +740,15 @@
           <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Python runtime</span>
-              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.python || 'Auto-detecting...' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.python || 'Auto-detecting...' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Audio encoder</span>
-              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
+              <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Available storage</span>
-              <span style="font-family: var(--font-mono); color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Stored cookies</span>
@@ -866,7 +866,7 @@
                 >
                   {{ item.name }}
                 </div>
-                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: var(--font-mono); margin-top: 2px;">
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px;">
                   <span style="color: var(--primary); font-weight: 500;">Vault/Stream · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                 </div>
               </div>
@@ -1001,7 +1001,7 @@
           <div class="preview-title-box">
             <div class="preview-filename">{{ previewModal.item?.name }}</div>
             <div class="preview-meta">
-              {{ previewModal.item?.size }} · {{ (previewModal.item?.ext || '').toUpperCase() }}
+              {{ previewModal.item?.size }} · {{ (previewModal.item?.ext || '').toLowerCase() }}
               <span v-if="previewImagesList.length > 1 && previewModal.isImage">
                 · {{ currentImageIndex + 1 }} of {{ previewImagesList.length }}
               </span>
@@ -1364,6 +1364,36 @@ function formatErrorMessage(err) {
     return 'Media not found (HTTP 404). The link may be broken or deleted.'
   }
   return str
+}
+
+function formatProgressInfo(t) {
+  if (!t) return ''
+  if (t.status === 'resolving') {
+    return t.title || 'Connecting to source...'
+  }
+  if (t.status === 'paused') {
+    return 'Download paused'
+  }
+  if (t.downloaded) {
+    const tot = String(t.total || '').trim()
+    if (tot && tot !== 'N/A' && tot !== 'NA' && tot !== 'None' && tot !== 'null' && tot !== '?') {
+      return `${t.downloaded} / ${tot}`
+    }
+    return (t.percent && t.percent > 0) ? `${t.downloaded} (${t.percent}%)` : t.downloaded
+  }
+  return ''
+}
+
+function formatSpeedInfo(t) {
+  if (!t) return ''
+  const spd = String(t.speed || '').trim()
+  if (spd && spd !== 'N/A' && spd !== 'NA' && spd !== 'None' && spd !== 'null') {
+    return spd
+  }
+  if (t.status === 'paused') {
+    return `${t.percent || 0}% ready`
+  }
+  return ''
 }
 
 function handleOnline() {
@@ -2504,7 +2534,7 @@ onUnmounted(() => {
   border: 1px solid var(--outline-variant);
   border-radius: 12px;
   color: var(--on-surface);
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: 11px;
   line-height: 1.4;
   padding: 10px;
@@ -2561,7 +2591,8 @@ onUnmounted(() => {
 }
 
 .terminal-text {
-  font-family: var(--font-mono);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--on-surface-variant);
   white-space: pre-wrap;
@@ -2893,8 +2924,6 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 600;
   color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .clip-sniffer-url {
@@ -2903,7 +2932,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--font-mono);
+  font-family: inherit;
   margin-top: 2px;
 }
 
@@ -3103,7 +3132,8 @@ onUnmounted(() => {
 .preview-meta {
   font-size: 11px;
   color: var(--on-surface-variant);
-  font-family: var(--font-mono);
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
   margin-top: 2px;
 }
 

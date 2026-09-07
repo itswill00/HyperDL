@@ -11,6 +11,7 @@ import hashlib
 import argparse
 import subprocess
 import shutil
+import threading
 import socket
 import ssl
 import signal
@@ -232,6 +233,138 @@ def humanize_error(e):
         return "Content is private or requires authentication. Please configure cookies."
     return msg
 
+_last_notif_time = 0.0
+_last_notif_pct = -1
+
+def post_android_notification(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
+    """
+    Post real-time download status to the Android system notification bar using /system/bin/cmd notification.
+    Runs as UID 2000 (com.android.shell) so Android NotificationManager enqueues it cleanly.
+    Single-line title and single-line body ensures zero literal escape sequences ('\\n') on any Android OEM.
+    """
+    global _last_notif_time, _last_notif_pct
+
+    if os.path.exists("/data/adb/hyperdl/disable_notifications"):
+        return
+
+    now = time.time()
+    clean_title = (title or "Media").strip()
+    clean_title = clean_title.replace("\r", " ").replace("\n", " ").strip()
+    clean_title = re.sub(r'\s+', ' ', clean_title)
+    if len(clean_title) > 65:
+        clean_title = clean_title[:62] + "..."
+
+    notif_title = "HyperDL"
+    notif_text = ""
+    icon = "@android:drawable/stat_sys_download"
+
+    if status == "resolving":
+        notif_title = "HyperDL"
+        notif_text = f"Connecting to source • {clean_title}" if clean_title != "Media" else "Connecting to media source..."
+        icon = "@android:drawable/stat_sys_download"
+    elif status == "downloading":
+        if (now - _last_notif_time < 2.0) and (abs(percent - _last_notif_pct) < 10):
+            return
+        if (now - _last_notif_time < 1.0):
+            return
+
+        notif_title = clean_title if clean_title != "Media" else "HyperDL • Downloading"
+        
+        details = []
+        if percent > 0:
+            details.append(f"{percent}%")
+        if downloaded and downloaded not in ("N/A", "NA", "None", ""):
+            if total and total not in ("N/A", "NA", "None", "?", ""):
+                details.append(f"{downloaded} / {total}")
+            else:
+                details.append(downloaded)
+        if speed and speed not in ("N/A", "NA", "None", ""):
+            details.append(speed)
+
+        notif_text = " • ".join(details) if details else "Downloading media..."
+        icon = "@android:drawable/stat_sys_download"
+        _last_notif_pct = percent
+    elif status == "completed":
+        fname = os.path.basename(file_path) if file_path else clean_title
+        fname = fname.replace("\r", " ").replace("\n", " ").strip()
+        fname = re.sub(r'\s+', ' ', fname)
+        if len(fname) > 65:
+            fname = fname[:62] + "..."
+        notif_title = fname
+        notif_text = "Download complete • Saved to /Download/HyperDL"
+        icon = "@android:drawable/stat_sys_download_done"
+    elif status == "error":
+        notif_title = "HyperDL • Download failed"
+        err_msg = humanize_error(error) if error else "An unexpected error occurred"
+        err_msg = err_msg.replace("\r", " ").replace("\n", " ").strip()
+        err_msg = re.sub(r'\s+', ' ', err_msg)
+        notif_text = err_msg
+        icon = "@android:drawable/stat_notify_error"
+    elif status == "paused":
+        notif_title = "HyperDL • Download paused"
+        notif_text = f"{clean_title} ({percent}% ready)" if clean_title != "Media" else f"Download paused ({percent}% ready)"
+        icon = "@android:drawable/stat_sys_download"
+    else:
+        return
+
+    _last_notif_time = now
+
+    def _send():
+        cmd = [
+            "/system/bin/cmd", "notification", "post",
+            "-i", icon,
+            "-t", notif_title,
+            "hyperdl_task",
+            notif_text
+        ]
+        try:
+            if os.getuid() == 0:
+                subprocess.run(
+                    cmd,
+                    preexec_fn=lambda: (os.setresgid(2000, 2000, 2000), os.setresuid(2000, 2000, 2000)),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2
+                )
+            else:
+                subprocess.run(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=2
+                )
+        except Exception:
+            try:
+                fallback_cmd = [
+                    "/system/bin/cmd", "notification", "post",
+                    "-t", notif_title,
+                    "hyperdl_task",
+                    notif_text
+                ]
+                if os.getuid() == 0:
+                    subprocess.run(
+                        fallback_cmd,
+                        preexec_fn=lambda: (os.setresgid(2000, 2000, 2000), os.setresuid(2000, 2000, 2000)),
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2
+                    )
+                else:
+                    subprocess.run(
+                        fallback_cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=2
+                    )
+            except Exception:
+                pass
+
+    try:
+        t = threading.Thread(target=_send, daemon=True)
+        t.start()
+    except Exception:
+        pass
+
 def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
     global _last_status
     if percent > 0:
@@ -298,6 +431,20 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         pass
 
     print(json.dumps(data), flush=True)
+
+    try:
+        post_android_notification(
+            status=status,
+            percent=percent,
+            speed=speed,
+            downloaded=downloaded,
+            total=total,
+            title=title,
+            file_path=file_path,
+            error=error
+        )
+    except Exception:
+        pass
 
 def sanitize_filename(name):
     if not name:
@@ -507,7 +654,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                         
                         pct = int((downloaded / total_bytes * 100)) if total_bytes > 0 else 50
                         dl_str = f"{downloaded / (1024*1024):.1f} MB"
-                        tot_str = f"{total_bytes / (1024*1024):.1f} MB" if total_bytes > 0 else "?"
+                        tot_str = f"{total_bytes / (1024*1024):.1f} MB" if total_bytes > 0 else ""
                         
                         update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title)
 
@@ -1679,7 +1826,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         "--extractor-retries", "3",
         "--socket-timeout", "15",
         "--newline",
-        "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s",
+        "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s",
         "-o", out_tpl,
     ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
 
@@ -1697,10 +1844,23 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             try:
                 pct = int(float(pct_str))
             except Exception:
-                pct = 50
+                pct = 0
             dl_str = parts[1].strip() if len(parts) > 1 else ""
             tot_str = parts[2].strip() if len(parts) > 2 else ""
-            spd_str = parts[3].strip() if len(parts) > 3 else ""
+            est_str = parts[3].strip() if len(parts) > 3 else ""
+            spd_str = parts[4].strip() if len(parts) > 4 else ""
+
+            if tot_str in ("N/A", "NA", "none", "None", "null", ""):
+                if est_str and est_str not in ("N/A", "NA", "none", "None", "null"):
+                    tot_str = est_str if est_str.startswith("~") else f"~{est_str.strip()}"
+                else:
+                    tot_str = ""
+
+            if dl_str in ("N/A", "NA", "none", "None", "null"):
+                dl_str = ""
+            if spd_str in ("N/A", "NA", "none", "None", "null"):
+                spd_str = ""
+
             update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title)
         elif "[download] Destination:" in line:
             downloaded_file = line.replace("[download] Destination:", "").strip()

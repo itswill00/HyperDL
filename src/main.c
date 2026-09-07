@@ -935,7 +935,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.11";
+    char mod_version[32] = "v1.3.12";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1331,6 +1331,23 @@ static void cmd_cancel(void) {
         fclose(af);
         chmod(ACTIVE_TASK_FILE, 0666);
     }
+
+    // Update system notification bar to show cancelled
+    pid_t npid = fork();
+    if (npid == 0) {
+        setresgid(2000, 2000, 2000);
+        setresuid(2000, 2000, 2000);
+        execl("/system/bin/cmd", "cmd", "notification", "post",
+              "-i", "@android:drawable/stat_notify_error",
+              "-t", "HyperDL • Download cancelled",
+              "hyperdl_task",
+              "Download cancelled by user", (char *)NULL);
+        _exit(0);
+    }
+    if (npid > 0) {
+        waitpid(npid, NULL, 0);
+    }
+
     printf("{\"success\":true,\"cancelled\":true}\n");
 }
 

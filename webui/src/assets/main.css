@@ -45,7 +45,7 @@
   --on-success: #143818;
 
   --font-sans: system-ui, -apple-system, Roboto, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: inherit;
 }
 
 *, button, input, select, textarea, code {
@@ -69,6 +69,7 @@ html, body, #app {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 .app-shell {

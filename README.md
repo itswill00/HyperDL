@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
-  <img src="https://img.shields.io/badge/Release-v1.3.11-black.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v1.3.12-black.svg" alt="Release">
 </p>
 
 <p align="center">
@@ -202,8 +202,8 @@ Options:
 
 By default, compilation outputs to `/sdcard/HyperDL_Releases/`:
 
-- `HyperDL-v1.3.11-b13110-Standalone.zip`: Canonical release package with full embedded runtime.
-- `HyperDL-v1.3.11.zip`: Standard version alias.
+- `HyperDL-v1.3.12-b13120-Standalone.zip`: Canonical release package with full embedded runtime.
+- `HyperDL-v1.3.12.zip`: Standard version alias.
 - `HyperDL-latest.zip`: Latest build alias for update distribution.
 
 Upon completion, `build.sh` issues an Android MediaStore broadcast (`MEDIA_SCANNER_SCAN_FILE`) to make the package immediately visible to system file managers.
