@@ -162,11 +162,11 @@
               class="btn btn-primary"
               :class="{ 'btn-offline': !isOnline }"
               style="width: 100%; height: 44px; font-size: 14px;"
-              :disabled="!url.trim() || isProcessing || isProbingResolutions"
+              :disabled="!url.trim() || isProcessing"
               @click="startDownload"
             >
-              <Icons :name="!isOnline ? 'wifi-off' : (isProcessing || isProbingResolutions) ? 'refresh' : 'download'" :size="16" />
-              <span>{{ !isOnline ? 'Download (Offline)' : isProcessing ? 'Downloading...' : isProbingResolutions ? 'Checking resolutions...' : 'Download' }}</span>
+              <Icons :name="!isOnline ? 'wifi-off' : isProcessing ? 'refresh' : 'download'" :size="16" />
+              <span>{{ !isOnline ? 'Download (Offline)' : isProcessing ? 'Downloading...' : 'Download' }}</span>
             </button>
           </div>
         </section>
@@ -613,25 +613,15 @@
       <div class="sheet-panel">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select resolution</span>
-            <span v-if="isProbingResolutions" class="badge-pill active" style="font-size: 10px; padding: 2px 7px;">
-              Scanning streams...
-            </span>
+            <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select Resolution</span>
+            <span class="badge-pill" style="font-size: 10px; padding: 2px 7px;">YouTube</span>
           </div>
           <button class="icon-btn" type="button" @click.stop="closeResolutionPicker">
             <Icons name="close" :size="18" />
           </button>
         </div>
 
-        <!-- Subtle non-intrusive stream scan status -->
-        <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 6px 10px; background: var(--surface-container); border-radius: 8px; margin-bottom: 12px;">
-          <div class="spin-loader" style="display: flex; align-items: center;">
-            <Icons name="refresh" :size="13" />
-          </div>
-          <span>Detecting exact file sizes & high-res streams...</span>
-        </div>
-
-        <!-- Loaded resolution list (instant presets or probed streams) -->
+        <!-- Loaded resolution presets (instant 0ms render) -->
         <div v-if="resolutions.length > 0" class="resolution-list">
           <button
             v-for="r in resolutions"
@@ -641,11 +631,11 @@
             @click.stop="downloadWithResolution(r)"
           >
             <span class="res-label">
-              <span class="res-badge">{{ r.height >= 720 ? (r.height >= 2160 ? '4K' : (r.height >= 1440 ? '2K' : 'HD')) : 'SD' }}</span>
+              <span class="res-badge">{{ r.badge || (r.height >= 720 ? (r.height >= 2160 ? '4K' : (r.height >= 1440 ? '2K' : 'HD')) : 'SD') }}</span>
               <span>{{ r.label || (r.height + 'p') }}</span>
               <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
             </span>
-            <span class="res-size">{{ formatFileSize(r.filesize) || (r.isPreset ? 'Instant Select' : 'Best quality') }}</span>
+            <span class="res-size">{{ r.desc || formatFileSize(r.filesize) || 'MP4' }}</span>
           </button>
         </div>
 
@@ -970,10 +960,12 @@ async function pasteClipboard() {
 }
 
 const STANDARD_RESOLUTIONS = [
-  { height: 1080, format_id: '1080', label: '1080p Full HD', ext: 'mp4', isPreset: true },
-  { height: 720, format_id: '720', label: '720p HD', ext: 'mp4', isPreset: true },
-  { height: 480, format_id: '480', label: '480p SD', ext: 'mp4', isPreset: true },
-  { height: 360, format_id: '360', label: '360p', ext: 'mp4', isPreset: true }
+  { height: 2160, format_id: '2160', label: '2160p (4K Ultra HD)', badge: '4K', desc: 'Ultra HD', ext: 'mp4' },
+  { height: 1440, format_id: '1440', label: '1440p (2K QHD)', badge: '2K', desc: 'Quad HD', ext: 'mp4' },
+  { height: 1080, format_id: '1080', label: '1080p Full HD', badge: 'FHD', desc: 'Recommended', ext: 'mp4' },
+  { height: 720, format_id: '720', label: '720p HD', badge: 'HD', desc: 'Fast & Crisp', ext: 'mp4' },
+  { height: 480, format_id: '480', label: '480p SD', badge: 'SD', desc: 'Standard', ext: 'mp4' },
+  { height: 360, format_id: '360', label: '360p Data Saver', badge: 'SD', desc: 'Data Saver', ext: 'mp4' }
 ]
 
 function needsResolutionPicker(u) {
@@ -1009,22 +1001,7 @@ async function startDownload() {
     pendingUrl.value = u
     resolutions.value = [...STANDARD_RESOLUTIONS]
     showResolutionPicker.value = true
-    isProbingResolutions.value = true
-
-    // Non-blocking stream probe to enrich list with detected streams & sizes
-    runBridge('probe', u).then((raw) => {
-      if (!showResolutionPicker.value) return
-      let parsed = null
-      try {
-        const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
-        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw)
-      } catch (e) {}
-      if (parsed && parsed.resolutions && parsed.resolutions.length > 0) {
-        resolutions.value = parsed.resolutions
-      }
-    }).catch(() => {}).finally(() => {
-      isProbingResolutions.value = false
-    })
+    isProbingResolutions.value = false
     return
   }
 

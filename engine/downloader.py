@@ -1128,7 +1128,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             format_arg = ["-f", f"best[height<={h}][ext=mp4]/best[height<={h}]/best"]
     else:
         if ffmpeg_bin:
-            format_arg = ["-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[ext=mp4]/best", "--merge-output-format", "mp4"]
+            format_arg = ["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best", "--merge-output-format", "mp4"]
         else:
             format_arg = ["-f", "best[ext=mp4]/best"]
 
