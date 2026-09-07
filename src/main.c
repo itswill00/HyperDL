@@ -137,7 +137,7 @@ static void cmd_status(void) {
         size_t r = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         buf[r] = '\0';
-        has_status = (r > 0);
+        has_status = (r > 0 && strstr(buf, "\"status\"") != NULL);
     }
 
     FILE *pf = fopen(PID_FILE, "r");
@@ -145,7 +145,9 @@ static void cmd_status(void) {
     int pid_alive = 0;
     if (pf) {
         if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
-            if (kill(pid, 0) == 0) {
+            char proc_path[64];
+            snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
+            if ((kill(pid, 0) == 0 || errno == EPERM) && access(proc_path, F_OK) == 0) {
                 pid_alive = 1;
             }
         }
@@ -156,13 +158,36 @@ static void cmd_status(void) {
         unlink(PID_FILE);
     }
 
-    if (pid_alive && has_status) {
+    // Process is actively running in background - NEVER mutate to paused
+    if (pid_alive) {
+        if (has_status) {
+            printf("%s\n", buf);
+        } else {
+            // Process is alive, but STATUS_FILE is still being initialized
+            FILE *af = fopen(ACTIVE_TASK_FILE, "r");
+            if (af) {
+                char abuf[2048];
+                size_t ar = fread(abuf, 1, sizeof(abuf) - 1, af);
+                fclose(af);
+                abuf[ar] = '\0';
+                if (ar > 0 && strstr(abuf, "\"status\"") != NULL) {
+                    printf("%s\n", abuf);
+                    return;
+                }
+            }
+            printf("{\"status\":\"resolving\",\"percent\":0}\n");
+        }
+        return;
+    }
+
+    // Process is NOT running.
+    // If STATUS_FILE has a completed or error result, report it.
+    if (has_status && (strstr(buf, "\"completed\"") || strstr(buf, "\"error\""))) {
         printf("%s\n", buf);
         return;
     }
 
-    // Process is not running or STATUS_FILE was wiped on reboot.
-    // Check persistent ACTIVE_TASK_FILE in /data/adb/hyperdl/active_task.json
+    // Device reboot or crash recovery: check persistent ACTIVE_TASK_FILE
     FILE *af = fopen(ACTIVE_TASK_FILE, "r");
     if (af) {
         char abuf[2048];
@@ -191,7 +216,7 @@ static void cmd_status(void) {
         }
     }
 
-    if (has_status && (strstr(buf, "\"completed\"") || strstr(buf, "\"error\"") || strstr(buf, "\"paused\""))) {
+    if (has_status && strstr(buf, "\"paused\"")) {
         printf("%s\n", buf);
         return;
     }
@@ -693,7 +718,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.0";
+    char mod_version[32] = "v1.3.2";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

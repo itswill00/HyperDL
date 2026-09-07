@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else>
-          {{ sysInfo.version || 'v1.3.0' }}
+          {{ sysInfo.version || 'v1.3.2' }}
         </span>
       </div>
     </header>
@@ -942,12 +942,9 @@ function handleOnline() {
 
 function handleOffline() {
   isOnline.value = false
-  if (task.value.status === 'downloading' || task.value.status === 'resolving') {
-    pauseDownload('Network disconnected')
-    showToast('Network disconnected: Download paused', 'warning')
-  } else {
-    showToast('Device is offline. Connect to internet to download.', 'warning')
-  }
+  // Never kill/pause running background downloads on transient WebView offline events.
+  // The backend downloader has built-in retry and socket timeout logic.
+  showToast('Network connection unstable', 'warning')
 }
 
 function testConnectivity() {
@@ -1662,6 +1659,9 @@ async function checkActiveTask() {
           if (parsed.url && !url.value) url.value = parsed.url
           isProcessing.value = false
           saveActiveTaskToStorage(task.value)
+          return
+        } else if (parsed.status === 'idle' || parsed.status === 'completed') {
+          saveActiveTaskToStorage(null)
           return
         }
       }

@@ -1,0 +1,8 @@
+yo, just pushed v1.3.2
+
+couple quick fixes:
+- fixed the ig bug where video links downloaded as cover photos instead of actual mp4 videos
+- fixed sudden "download paused" issue caused by webview network flicker and process check race condition
+- added atomic task state writes so status updates won't glitch
+
+grab the update in webui or flash the zip from the releases folder / github!

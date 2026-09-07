@@ -194,10 +194,13 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         "format_id": CURRENT_FORMAT_ID,
         "height": CURRENT_HEIGHT
     }
+    # Write STATUS_FILE atomically to prevent race condition with concurrent C bridge reads
     try:
         os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
-        with open(STATUS_FILE, "w") as f:
+        tmp_status = f"{STATUS_FILE}.tmp.{os.getpid()}"
+        with open(tmp_status, "w") as f:
             json.dump(data, f)
+        os.replace(tmp_status, STATUS_FILE)
         try:
             os.chmod(STATUS_FILE, 0o666)
         except Exception:
@@ -205,10 +208,13 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
     except Exception:
         pass
 
+    # Write ACTIVE_TASK_FILE atomically
     try:
         os.makedirs(CONF_DIR, exist_ok=True)
-        with open(ACTIVE_TASK_FILE, "w") as f:
+        tmp_active = f"{ACTIVE_TASK_FILE}.tmp.{os.getpid()}"
+        with open(tmp_active, "w") as f:
             json.dump(data, f)
+        os.replace(tmp_active, ACTIVE_TASK_FILE)
         try:
             os.chmod(ACTIVE_TASK_FILE, 0o666)
         except Exception:
@@ -703,18 +709,26 @@ def resolve_tiktok(url, fmt="video"):
             "title": "TikTok Media"
         }
 
-def resolve_instagram(url):
+def resolve_instagram(url, fmt="video"):
     update_status("resolving", title="Resolving Instagram media...")
-    shortcode_match = re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', url)
+    clean_url = expand_shortlink_fast(url, timeout=3.5)
+    shortcode_match = re.search(r'/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)', clean_url)
     if not shortcode_match:
-        raise RuntimeError("Invalid Instagram URL format")
+        return {
+            "direct_ytdlp": True,
+            "url": clean_url,
+            "fmt": fmt,
+            "is_yt": False,
+            "title": "Instagram Media"
+        }
     shortcode = shortcode_match.group(1)
 
     cookie_hdr = get_cookie_header("instagram.com")
     hdrs = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Referer": "https://www.instagram.com/"
+        "Referer": "https://www.instagram.com/",
+        "x-ig-app-id": "936619743392459"
     }
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
@@ -730,12 +744,12 @@ def resolve_instagram(url):
                 title = f"Instagram_{shortcode}"
                 if media.get("is_video"):
                     return {"url": media.get("video_url"), "title": title, "ext": "mp4", "kind": "video"}
-                elif media.get("display_url"):
+                elif fmt in ("image", "photo") and media.get("display_url"):
                     return {"url": media.get("display_url"), "title": title, "ext": "jpg", "kind": "image"}
         except Exception as e:
             print(f"Instagram GraphQL query failed: {e}", file=sys.stderr)
 
-    # Fast OpenGraph / Crawler metadata probe (WhatsApp / Facebook bot UA)
+    # Fast OpenGraph crawler probe
     try:
         crawler_hdrs = {
             "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
@@ -751,7 +765,8 @@ def resolve_instagram(url):
             vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
             return {"url": vurl, "title": f"Instagram_{shortcode}", "ext": "mp4", "kind": "video"}
             
-        if "/reel/" not in url.lower() and "/reels/" not in url.lower():
+        # Only return cover photo if user explicitly requested an image/photo
+        if fmt in ("image", "photo"):
             og_img = re.search(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
             if og_img:
                 iurl = pyhtml.unescape(og_img.group(1)).replace("&amp;", "&")
@@ -760,11 +775,11 @@ def resolve_instagram(url):
     except Exception as e:
         print(f"Instagram crawler probe note: {e}", file=sys.stderr)
 
-    # Route directly to single-pass yt-dlp to avoid double invocation delay
+    # Route directly to yt-dlp which reliably extracts and muxes full 1080p/720p video
     return {
         "direct_ytdlp": True,
-        "url": url,
-        "fmt": "video",
+        "url": clean_url,
+        "fmt": fmt,
         "is_yt": False,
         "title": f"Instagram_{shortcode}"
     }
@@ -1542,7 +1557,7 @@ def main():
         elif "twitter.com" in low_url or "x.com" in low_url:
             info = resolve_twitter(url, fmt)
         elif "instagram.com" in low_url or "instagr.am" in low_url:
-            info = resolve_instagram(url)
+            info = resolve_instagram(url, fmt)
         elif "facebook.com" in low_url or "fb.watch" in low_url or "fb.com" in low_url:
             info = resolve_facebook(url, fmt)
         elif "pinterest.com" in low_url or "pin.it" in low_url:
