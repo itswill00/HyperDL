@@ -330,6 +330,7 @@ static void cmd_probe(const char *url) {
     }
 
     if (pid == 0) {
+        nice(19);
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         int dev_null = open("/dev/null", O_WRONLY);

@@ -611,7 +611,7 @@
 
     <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
       <div class="sheet-panel">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 14px; font-weight: 600; color: var(--on-surface);">Select Resolution</span>
             <span class="badge-pill" style="font-size: 10px; padding: 2px 7px;">YouTube</span>
@@ -621,7 +621,15 @@
           </button>
         </div>
 
-        <!-- Loaded resolution presets (instant 0ms render) -->
+        <!-- Scanning banner when probe is running (progressive stream detection) -->
+        <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 7px 10px; background: var(--surface-container-low); border: 1px solid var(--outline-variant); border-radius: 8px; margin-bottom: 10px;">
+          <div class="spin-loader" style="display: flex; align-items: center;">
+            <Icons name="refresh" :size="13" />
+          </div>
+          <span>Detecting real streams & exact file sizes...</span>
+        </div>
+
+        <!-- Loaded resolution list (instant presets smoothly updated to real streams) -->
         <div v-if="resolutions.length > 0" class="resolution-list">
           <button
             v-for="r in resolutions"
@@ -635,7 +643,7 @@
               <span>{{ r.label || (r.height + 'p') }}</span>
               <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
             </span>
-            <span class="res-size">{{ r.desc || formatFileSize(r.filesize) || 'MP4' }}</span>
+            <span class="res-size">{{ formatFileSize(r.filesize) || r.desc || 'Preset' }}</span>
           </button>
         </div>
 
@@ -980,9 +988,15 @@ function formatFileSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB'
 }
 
+let probeTimer = null
+
 function closeResolutionPicker() {
   showResolutionPicker.value = false
   isProbingResolutions.value = false
+  if (probeTimer) {
+    clearTimeout(probeTimer)
+    probeTimer = null
+  }
 }
 
 async function startDownload() {
@@ -1001,7 +1015,30 @@ async function startDownload() {
     pendingUrl.value = u
     resolutions.value = [...STANDARD_RESOLUTIONS]
     showResolutionPicker.value = true
-    isProbingResolutions.value = false
+    isProbingResolutions.value = true
+
+    if (probeTimer) clearTimeout(probeTimer)
+    // Decoupled probe: fire AFTER sheet slide-up animation completes (250ms)
+    // Child process runs with nice(19) so WebView rendering is 100% fluid
+    probeTimer = setTimeout(() => {
+      runBridge('probe', u).then((raw) => {
+        if (!showResolutionPicker.value || pendingUrl.value !== u) return
+        let parsed = null
+        try {
+          const jsonMatch = (raw || '').match(/\[[\s\S]*\]|\{[\s\S]*\}/)
+          parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw)
+        } catch (e) {}
+
+        const list = Array.isArray(parsed) ? parsed : (parsed && parsed.resolutions ? parsed.resolutions : null)
+        if (list && list.length > 0) {
+          resolutions.value = list
+        }
+      }).catch(() => {}).finally(() => {
+        if (pendingUrl.value === u) {
+          isProbingResolutions.value = false
+        }
+      })
+    }, 250)
     return
   }
 
@@ -1011,6 +1048,10 @@ async function startDownload() {
 async function downloadWithResolution(r) {
   showResolutionPicker.value = false
   isProbingResolutions.value = false
+  if (probeTimer) {
+    clearTimeout(probeTimer)
+    probeTimer = null
+  }
   let extraArg = null
   if (r && r.height) {
     extraArg = `--height=${r.height}`

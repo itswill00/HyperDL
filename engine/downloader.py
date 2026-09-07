@@ -1203,34 +1203,27 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
 def probe_resolutions(url):
     import subprocess
+    try:
+        os.nice(19)
+    except Exception:
+        pass
+
     m_url = re.search(r'https?://[^\s<>"]+', url)
     if m_url:
         url = m_url.group(0)
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
-    ffmpeg_bin = get_ffmpeg_binary()
-    ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
-
-    node_bin = None
-    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
-        if os.path.isfile(nc) and os.access(nc, os.X_OK):
-            node_bin = nc
-            break
-    if not node_bin:
-        import shutil
-        node_bin = shutil.which("node")
-    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
 
     cmd = [
         py_bin, ytdlp_bin,
         "-J", "--no-warnings", "--no-check-certificates",
-        "--no-playlist", "--no-check-formats", "--socket-timeout", "10",
+        "--no-playlist", "--no-check-formats", "--socket-timeout", "8",
         "--extractor-retries", "1",
-    ] + js_arg + ffmpeg_arg + cookie_arg + [url]
+    ] + cookie_arg + [url]
 
     env = get_runtime_env()
-    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=25)
     if res.returncode != 0 or not res.stdout.strip():
         return []
 
@@ -1296,13 +1289,16 @@ def probe_resolutions(url):
         entry = by_height[h]
         tot = entry["vsize"] + best_audio_size
         lbl = labels.get(h, f"{h}p")
+        badge = "4K" if h >= 2160 else ("2K" if h >= 1440 else ("FHD" if h >= 1080 else ("HD" if h >= 720 else "SD")))
         results.append({
             "height": h,
             "format_id": str(h),
             "label": lbl,
+            "badge": badge,
             "ext": "mp4",
             "filesize": tot,
-            "fps": entry["fps"]
+            "fps": entry["fps"],
+            "isRealStream": True
         })
 
     return results
