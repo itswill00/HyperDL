@@ -202,8 +202,8 @@ Options:
 
 By default, compilation outputs to `/sdcard/HyperDL_Releases/`:
 
-- `HyperDL-v1.2.1-b1210-Standalone.zip`: Canonical release package with full embedded runtime.
-- `HyperDL-v1.2.1.zip`: Standard version alias.
+- `HyperDL-v1.3.0-b1300-Standalone.zip`: Canonical release package with full embedded runtime.
+- `HyperDL-v1.3.0.zip`: Standard version alias.
 - `HyperDL-latest.zip`: Latest build alias for update distribution.
 
 Upon completion, `build.sh` issues an Android MediaStore broadcast (`MEDIA_SCANNER_SCAN_FILE`) to make the package immediately visible to system file managers.
