@@ -20,6 +20,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <dlfcn.h>
+#include <libgen.h>
 #include "embedded_engine.h"
 
 #define STATUS_FILE        "/data/local/tmp/hyperdl_status.json"
@@ -270,6 +271,12 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
                 url ? url : "", fmt ? fmt : "video");
         fclose(af);
         chmod(ACTIVE_TASK_FILE, 0666);
+    }
+    FILE *lcf = fopen("/data/local/tmp/hyperdl_last_clip.txt", "w");
+    if (lcf) {
+        fprintf(lcf, "%s\n", url ? url : "");
+        fclose(lcf);
+        chmod("/data/local/tmp/hyperdl_last_clip.txt", 0666);
     }
 
     pid_t pid = fork();
@@ -727,6 +734,19 @@ static void cmd_preview(const char *path) {
     free(b64);
 }
 
+static void prune_empty_parents(const char *file_path) {
+    if (!file_path || strncmp(file_path, OUTDIR, strlen(OUTDIR)) != 0) return;
+    char path_buf[1024];
+    snprintf(path_buf, sizeof(path_buf), "%s", file_path);
+    char *parent = dirname(path_buf);
+    while (parent && strcmp(parent, OUTDIR) != 0 && strcmp(parent, "/") != 0 && strlen(parent) > strlen(OUTDIR)) {
+        if (rmdir(parent) != 0) {
+            break; // not empty or failed
+        }
+        parent = dirname(parent);
+    }
+}
+
 static void cmd_delete(int count, char **paths) {
     if (count <= 0) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
@@ -744,6 +764,7 @@ static void cmd_delete(int count, char **paths) {
                      "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1) &",
                      path, path);
             system(scan_cmd);
+            prune_empty_parents(path);
         }
     }
     if (deleted > 0) {
@@ -935,7 +956,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.12";
+    char mod_version[32] = "v1.3.13";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

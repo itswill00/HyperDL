@@ -57,7 +57,14 @@ case "$1" in
       echo -900 > /proc/self/oom_score_adj 2>/dev/null || true
 
       LAST_PROCESSED_URL=""
-      LAST_PROCESSED_TIME=0
+      if [ -f "$LAST_CLIP_FILE" ]; then
+        LAST_PROCESSED_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
+      fi
+      INIT_CLIP="$(get_clipboard)"
+      if [ -n "$INIT_CLIP" ]; then
+        INIT_CLEAN="$(echo "$INIT_CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
+        [ -n "$INIT_CLEAN" ] && LAST_PROCESSED_URL="$INIT_CLEAN"
+      fi
 
       while true; do
         if [ ! -f /data/adb/hyperdl/autodl.enabled ]; then
@@ -93,12 +100,13 @@ case "$1" in
             CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
             [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
 
-            NOW=$(date +%s 2>/dev/null || echo 0)
-            TIME_DIFF=$((NOW - LAST_PROCESSED_TIME))
+            LAST_FILE_URL=""
+            if [ -f "$LAST_CLIP_FILE" ]; then
+              LAST_FILE_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
+            fi
 
-            if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] || [ "$TIME_DIFF" -gt 15 ]; then
+            if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] && [ "$CLEAN_URL" != "$LAST_FILE_URL" ]; then
               LAST_PROCESSED_URL="$CLEAN_URL"
-              LAST_PROCESSED_TIME=$NOW
               echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
 
               # If another download is actively running, wait until it finishes completely
@@ -111,7 +119,6 @@ case "$1" in
                 fi
               done
 
-              (cmd notification post -S bigtext -t "HyperDL" "Auto Download" "Downloading media from clipboard: $CLEAN_URL" >/dev/null 2>&1) &
               BRIDGE="$(find_bridge)"
               if [ -n "$BRIDGE" ]; then
                 "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
@@ -140,5 +147,28 @@ case "$1" in
       fi
       rm -f "$PID_FILE"
     fi
+    ;;
+
+  status)
+    if [ -f "$PID_FILE" ]; then
+      OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
+      if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        echo "running (PID $OLD_PID)"
+        exit 0
+      fi
+    fi
+    echo "stopped"
+    exit 1
+    ;;
+
+  restart)
+    sh "$0" stop
+    sleep 1
+    sh "$0" start
+    ;;
+
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
     ;;
 esac

@@ -824,6 +824,8 @@ def fetch_tikwm(clean_url, fmt="video"):
             if res.get("code") == 0 and res.get("data"):
                 d = res["data"]
                 title = d.get("title") or "TikTok Media"
+                media_id = str(d.get("id") or "")
+                author = (d.get("author") or {}).get("unique_id") or (d.get("author") or {}).get("nickname") or ""
                 
                 if fmt == "audio":
                     music_url = d.get("music") or (d.get("music_info") or {}).get("play")
@@ -832,6 +834,9 @@ def fetch_tikwm(clean_url, fmt="video"):
                             "title": title,
                             "ext": "mp3",
                             "kind": "audio",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
                             "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}, "label": "TikWM Audio"}]
                         }
                 elif d.get("images"):
@@ -844,6 +849,9 @@ def fetch_tikwm(clean_url, fmt="video"):
                         "title": title,
                         "ext": "jpg",
                         "kind": "album",
+                        "id": media_id,
+                        "channel": author,
+                        "platform": "TikTok",
                         "images": img_list,
                         "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
                     }
@@ -881,6 +889,9 @@ def fetch_tikwm(clean_url, fmt="video"):
                             "title": title,
                             "ext": "mp4",
                             "kind": "video",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
                             "candidates": candidates
                         }
         except Exception as e:
@@ -930,6 +941,8 @@ def resolve_tiktok(url, fmt="video"):
 
             if item:
                 title = item.get("desc") or "TikTok Video"
+                media_id = str(item.get("id") or item.get("aweme_id") or "")
+                author = (item.get("author") or {}).get("unique_id") or (item.get("author") or {}).get("nickname") or ""
                 
                 image_post = item.get("imagePost", {})
                 if image_post and image_post.get("images"):
@@ -944,6 +957,9 @@ def resolve_tiktok(url, fmt="video"):
                             "title": title,
                             "ext": "jpg",
                             "kind": "album",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
                             "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
                         }
 
@@ -966,6 +982,9 @@ def resolve_tiktok(url, fmt="video"):
                             "title": title,
                             "ext": "mp3",
                             "kind": "audio",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
                             "candidates": [{"url": music_url, "headers": tt_headers, "label": "Direct Audio"}],
                             "fallback": lambda: fetch_tikwm(clean_url, "audio")
                         }
@@ -996,6 +1015,9 @@ def resolve_tiktok(url, fmt="video"):
                         "title": title,
                         "ext": "mp4",
                         "kind": "video",
+                        "id": media_id,
+                        "channel": author,
+                        "platform": "TikTok",
                         "candidates": candidates,
                         "fallback": lambda: fetch_tikwm(clean_url, fmt)
                     }
@@ -1057,7 +1079,24 @@ def resolve_instagram(url, fmt="video"):
             og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\']\s+content=["\']([^"\']+)["\']', html)
             if og_vid:
                 vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
-                return {"url": vurl, "title": f"Instagram_{shortcode}", "ext": "mp4", "kind": "video"}
+                og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
+                author = None
+                raw_title = f"Instagram_{shortcode}"
+                if og_title:
+                    t_str = pyhtml.unescape(og_title.group(1))
+                    m_auth = re.search(r'\(@([A-Za-z0-9_.]+)\)', t_str)
+                    if m_auth:
+                        author = m_auth.group(1)
+                    raw_title = t_str.split("on Instagram:")[0].strip() if "on Instagram:" in t_str else t_str
+                return {
+                    "url": vurl,
+                    "title": raw_title,
+                    "ext": "mp4",
+                    "kind": "video",
+                    "id": shortcode,
+                    "channel": author,
+                    "platform": "Instagram"
+                }
         except Exception:
             pass
 
@@ -1131,14 +1170,14 @@ def resolve_instagram(url, fmt="video"):
                     if photo_items:
                         return {
                             "items": photo_items, "title": title, "ext": "jpg", "kind": "album",
-                            "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                            "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                         }
                 if fmt == "audio":
                     aud_item = next((it for it in items if it.get("audio_url") or it.get("kind") == "video"), None)
                     if aud_item:
                         return {
                             **aud_item, "title": title,
-                            "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                            "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                         }
 
                 return {
@@ -1146,6 +1185,7 @@ def resolve_instagram(url, fmt="video"):
                     "title": title,
                     "ext": "mp4" if any(it.get("kind") == "video" for it in items) else "jpg",
                     "kind": "album",
+                    "id": shortcode,
                     "platform": "Instagram",
                     "channel": author_channel,
                     "uploader": info.get("uploader")
@@ -1165,7 +1205,8 @@ def resolve_instagram(url, fmt="video"):
             if vurl and fmt not in ("photo", "image", "audio"):
                 return {
                     "url": vurl, "title": title, "ext": "mp4", "kind": "video",
-                    "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                    "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader"),
+                    "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "Instagram", "channel": author_channel, "id": shortcode}
                 }
             
             # If video or audio was requested and only DASH separate streams exist, delegate to direct_ytdlp
@@ -1177,6 +1218,7 @@ def resolve_instagram(url, fmt="video"):
                     "fmt": fmt,
                     "is_yt": False,
                     "title": title,
+                    "id": shortcode,
                     "platform": "Instagram",
                     "channel": author_channel,
                     "uploader": info.get("uploader")
@@ -1483,6 +1525,8 @@ def resolve_twitter(url, fmt="video"):
             "title": "X Media"
         }
     status_id = m.group(1)
+    m_auth = re.search(r'(?:twitter|x)\.com/([^/?#]+)/status', clean_url)
+    author = m_auth.group(1) if m_auth and m_auth.group(1) not in ("i", "intent", "search") else ""
 
     cookie_hdr = get_cookie_header("x.com") or get_cookie_header("twitter.com")
     cookies_map = load_cookies("x.com")
@@ -1490,9 +1534,9 @@ def resolve_twitter(url, fmt="video"):
         cookies_map = load_cookies("twitter.com")
 
     csrf = cookies_map.get("ct0")
-    auth = cookies_map.get("auth_token")
+    auth_token = cookies_map.get("auth_token")
 
-    if csrf and auth and cookie_hdr:
+    if csrf and auth_token and cookie_hdr:
         try:
             bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
             api_endpoint = "https://x.com/i/api/graphql/2ICDjqPd81tulZcYrtpTuQ/TweetResultByRestId"
@@ -1532,6 +1576,7 @@ def resolve_twitter(url, fmt="video"):
             media_list = legacy.get("extended_entities", {}).get("media") or legacy.get("entities", {}).get("media") or []
             if media_list:
                 title = legacy.get("full_text") or f"Tweet_{status_id}"
+                fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": author, "id": status_id, "platform": "Twitter"}
                 images = []
                 for media in media_list:
                     mtype = str(media.get("type") or "").lower()
@@ -1540,15 +1585,15 @@ def resolve_twitter(url, fmt="video"):
                         mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
                         if mp4s:
                             mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
-                            return {"url": mp4s[0]["url"], "title": title, "ext": "mp4", "kind": "video"}
+                            return {"url": mp4s[0]["url"], "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                     elif mtype == "photo":
                         p_url = media.get("media_url_https")
                         if p_url:
                             images.append(p_url)
                 if images:
                     if len(images) == 1:
-                        return {"url": images[0], "title": title, "ext": "jpg", "kind": "image"}
-                    return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
+                        return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
+                    return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
         except Exception as e:
             print(f"Twitter GraphQL API note: {e}", file=sys.stderr)
 
@@ -1571,20 +1616,22 @@ def resolve_twitter(url, fmt="video"):
                 if not data:
                     continue
                 title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
+                g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
+                fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
 
                 v_url = data.get("video_url")
                 if not v_url and data.get("tweet", {}).get("media", {}).get("videos"):
                     v_url = data["tweet"]["media"]["videos"][0].get("url")
                 if v_url:
-                    return {"url": v_url, "title": title, "ext": "mp4", "kind": "video"}
+                    return {"url": v_url, "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
 
                 photos = data.get("mediaURLs")
                 if not photos and data.get("tweet", {}).get("media", {}).get("photos"):
                     photos = [p.get("url") for p in data["tweet"]["media"]["photos"] if p.get("url")]
                 if photos:
                     if len(photos) == 1:
-                        return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image"}
-                    return {"images": photos, "title": title, "ext": "jpg", "kind": "album"}
+                        return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
+                    return {"images": photos, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
             except Exception:
                 continue
 
@@ -1593,7 +1640,10 @@ def resolve_twitter(url, fmt="video"):
         "url": clean_url,
         "fmt": fmt,
         "is_yt": False,
-        "title": f"Tweet_{status_id}"
+        "title": f"Tweet_{status_id}",
+        "id": status_id,
+        "channel": author,
+        "platform": "Twitter"
     }
 
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
@@ -1729,7 +1779,59 @@ def resolve_ytdlp(url, fmt="video", is_yt=False):
         "title": "Media"
     }
 
+def resolve_youtube_post(url):
+    m = re.search(r'youtube\.com/post/([A-Za-z0-9_-]+)', url)
+    post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        m_data = re.search(r'var ytInitialData = ({.*?});</script>', html)
+        if not m_data:
+            return None
+        data = json.loads(m_data.group(1))
+        s = json.dumps(data)
+
+        raw_thumbs = re.findall(r'\"backstageImageRenderer\":\s*\{\"image\":\s*\{\"thumbnails\":\s*(\[.*?\])', s)
+        images = []
+        for rt in raw_thumbs:
+            try:
+                th_list = json.loads(rt)
+                if th_list:
+                    images.append(th_list[-1]["url"])
+            except Exception:
+                pass
+
+        title = "YouTube Post"
+        content_m = re.search(r'\"contentText\":\s*\{\"runs\":\s*(\[.*?\])\}', s)
+        if content_m:
+            try:
+                runs = json.loads(content_m.group(1))
+                t = "".join(r.get("text", "") for r in runs).strip()
+                if t:
+                    title = t
+            except Exception:
+                pass
+
+        author = "YouTube"
+        author_m = re.search(r'\"authorText\":\s*\{.*?\"runs\":\s*\[\{\"text\":\s*\"(.*?)\"', s) or re.search(r'\"authorText\":\s*\{\"simpleText\":\s*\"(.*?)\"', s)
+        if author_m:
+            author = author_m.group(1)
+
+        if images:
+            if len(images) == 1:
+                return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": post_id, "platform": "YouTube", "channel": author}
+            return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": post_id, "platform": "YouTube", "channel": author}
+    except Exception as e:
+        print(f"YouTube community post note: {e}", file=sys.stderr)
+    return None
+
 def resolve_youtube(url, fmt="video"):
+    if "/post/" in url.lower():
+        post_res = resolve_youtube_post(url)
+        if post_res:
+            return post_res
     return {
         "direct_ytdlp": True,
         "url": url,
@@ -1871,6 +1973,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         elif "[ExtractAudio] Destination:" in line:
             downloaded_file = line.replace("[ExtractAudio] Destination:", "").strip().strip('"')
             title = os.path.splitext(os.path.basename(downloaded_file))[0]
+        elif "[download]" in line and "has already been downloaded" in line:
+            m_dl = re.search(r'\[download\]\s+(.*?)\s+has already been downloaded', line)
+            if m_dl:
+                downloaded_file = m_dl.group(1).strip().strip('"')
+                title = os.path.splitext(os.path.basename(downloaded_file))[0]
 
     proc.wait()
     if proc.returncode != 0:
@@ -1878,14 +1985,14 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
 
     if not downloaded_file or not os.path.exists(downloaded_file):
-        files = [
-            os.path.join(outdir, f)
-            for f in os.listdir(outdir)
-            if not f.endswith('.part') and not f.endswith('.ytdl') and not f.endswith('.temp')
-        ]
-        if files:
-            files.sort(key=os.path.getmtime, reverse=True)
-            downloaded_file = files[0]
+        candidates = []
+        for r, _, fnames in os.walk(outdir):
+            for fn in fnames:
+                if not fn.startswith('.') and not any(fn.endswith(bad) for bad in ('.part', '.ytdl', '.temp', '.tmp', '.raw')):
+                    candidates.append(os.path.join(r, fn))
+        if candidates:
+            candidates.sort(key=os.path.getmtime, reverse=True)
+            downloaded_file = candidates[0]
             title = os.path.splitext(os.path.basename(downloaded_file))[0]
 
     if downloaded_file and os.path.exists(downloaded_file):
@@ -2079,6 +2186,7 @@ def main():
         ext = info.get("ext", "mp4")
         media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
         target_dir = get_target_directory(outdir, info, url)
+        base_title = re.sub(rf'[_ -]*{re.escape(media_id)}.*$', '', title).strip() or title
 
         if info.get("kind") == "album" and (info.get("images") or info.get("items")):
             raw_items = info.get("items") or info.get("images") or []
@@ -2091,7 +2199,10 @@ def main():
                     item_url = it
                     item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
 
-                item_path = os.path.join(target_dir, f"{title}_{idx+1}.{item_ext}")
+                if not item_url:
+                    continue
+
+                item_path = os.path.join(target_dir, f"{base_title}_{media_id}_{idx+1}.{item_ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
                 hdrs = dict(info.get("headers") or {})
                 if "tikwm.com" in str(item_url):
@@ -2101,9 +2212,9 @@ def main():
                     it_cand = dict(it)
                     if "headers" not in it_cand and hdrs:
                         it_cand["headers"] = hdrs
-                    download_media_candidates(it_cand, item_path, title=f"{title}_{idx+1}", emit_complete=False)
+                    download_media_candidates(it_cand, item_path, title=f"{base_title}_{media_id}_{idx+1}", emit_complete=False)
                 else:
-                    download_file(item_url, item_path, title=f"{title}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
+                    download_file(item_url, item_path, title=f"{base_title}_{media_id}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
 
                 scan_media_file(item_path)
             update_status("completed", percent=100, title=title, file_path=target_dir)
@@ -2112,14 +2223,14 @@ def main():
             if fmt == "audio":
                 ffmpeg_bin = get_ffmpeg_binary()
                 if ffmpeg_bin:
-                    tmp_raw = os.path.join(target_dir, f".tmp_{title}_{media_id}.raw")
+                    tmp_raw = os.path.join(target_dir, f".tmp_{base_title}_{media_id}.raw")
                     download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
-                    out_path = os.path.join(target_dir, f"{title}_{media_id}.flac")
+                    out_path = os.path.join(target_dir, f"{base_title}_{media_id}.flac")
                     update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
                     res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
                     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
                         fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
-                        out_path = os.path.join(target_dir, f"{title}_{media_id}.{fallback_ext}")
+                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.{fallback_ext}")
                         if os.path.exists(tmp_raw):
                             os.replace(tmp_raw, out_path)
                     else:
@@ -2136,7 +2247,7 @@ def main():
                     update_status("completed", percent=100, title=title, file_path=out_path)
                     send_android_notification("Download complete", f"{title} saved as FLAC HD")
                     return
-            filename = f"{title}_{media_id}.{ext}"
+            filename = f"{base_title}_{media_id}.{ext}"
             out_path = os.path.join(target_dir, filename)
             download_media_candidates(info, out_path, title=title)
 
