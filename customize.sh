@@ -55,8 +55,8 @@ chmod 755 "$MODPATH/system/bin/hyperdl_daemon" 2>/dev/null
 chmod 755 "$MODPATH/system/bin/yt-dlp" 2>/dev/null
 chmod 644 "$MODPATH/system/bin/clip.jar" 2>/dev/null
 chmod 755 "$MODPATH/runtime/bin/python3" 2>/dev/null
-chmod 755 "$MODPATH/runtime/bin/ffmpeg" 2>/dev/null
-chmod 755 "$MODPATH/runtime/bin/ffprobe" 2>/dev/null
+chmod 755 "$MODPATH/runtime/bin/ffmpeg" "$MODPATH/runtime/bin/ffmpeg.bin" 2>/dev/null || true
+chmod 755 "$MODPATH/runtime/bin/ffprobe" "$MODPATH/runtime/bin/ffprobe.bin" 2>/dev/null || true
 chmod 755 "$MODPATH/service.sh" 2>/dev/null
 chmod 755 "$MODPATH/uninstall.sh" 2>/dev/null
 chmod 644 "$MODPATH/module.prop" 2>/dev/null

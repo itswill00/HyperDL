@@ -32,13 +32,17 @@ def main():
     os.chmod(f"{bin_dir}/python3", 0o755)
 
     for tool in ["ffmpeg", "ffprobe"]:
-        tool_dst = f"{bin_dir}/{tool}"
-        if not os.path.exists(tool_dst):
+        tool_bin = f"{bin_dir}/{tool}.bin"
+        tool_wrap = f"{bin_dir}/{tool}"
+        if not os.path.exists(tool_bin):
             tool_src = f"{TERMUX_USR}/bin/{tool}"
             if os.path.exists(tool_src):
-                shutil.copy(tool_src, tool_dst)
-                os.chmod(tool_dst, 0o755)
-                print(f"Bundled {tool} into {tool_dst}")
+                shutil.copy(tool_src, tool_bin)
+                os.chmod(tool_bin, 0o755)
+                print(f"Bundled {tool} into {tool_bin}")
+        with open(tool_wrap, "w") as wf:
+            wf.write(f'#!/system/bin/sh\nDIR="${{0%/*}}"\nexport LD_LIBRARY_PATH="/system/lib64:/system/lib"\nif [ -x "$DIR/{tool}.bin" ]; then\n    exec "$DIR/{tool}.bin" "$@"\nfi\nexec {tool} "$@"\n')
+        os.chmod(tool_wrap, 0o755)
 
     core_libs = [
         "libpython3.14.so", "libandroid-support.so", "libcrypto.so.3", "libssl.so.3",

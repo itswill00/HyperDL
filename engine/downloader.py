@@ -227,7 +227,9 @@ def humanize_error(e):
         return "Network security error: SSL certificate verification failed. Check device date/time."
     if "http error 403" in low or "forbidden" in low:
         return "Access denied by platform (HTTP 403). Session cookies may be required."
-    if "http error 404" in low or "not found" in low:
+    if "ffmpeg" in low and ("not found" in low or "not installed" in low):
+        return "FFmpeg postprocessing failed. Please verify module installation."
+    if "http error 404" in low or "404 not found" in low or "404: not found" in low:
         return "Media not found (HTTP 404). Link may be expired or deleted."
     if "private video" in low or "login required" in low:
         return "Content is private or requires authentication. Please configure cookies."
@@ -1751,7 +1753,8 @@ def get_ffmpeg_binary():
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
-    env = get_runtime_env()
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = "/system/lib64:/system/lib"
     for c in candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
             try:
