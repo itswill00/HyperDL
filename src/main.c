@@ -344,7 +344,9 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         }
 
         if (bundle_path) {
-            if (fid_arg[0])
+            if (fid_arg[0] && ht_arg[0])
+                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, ht_arg, (char *)NULL);
+            else if (fid_arg[0])
                 execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
             else if (ht_arg[0])
                 execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
@@ -355,7 +357,9 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
             snprintf(launcher, sizeof(launcher),
                      "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
                      EMBEDDED_ENGINE_B64);
-            if (fid_arg[0])
+            if (fid_arg[0] && ht_arg[0])
+                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, ht_arg, (char *)NULL);
+            else if (fid_arg[0])
                 execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
             else if (ht_arg[0])
                 execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
@@ -747,6 +751,19 @@ static void prune_empty_parents(const char *file_path) {
     }
 }
 
+static void safe_sql_escape(const char *src, char *dst, size_t dst_size) {
+    size_t j = 0;
+    for (size_t i = 0; src && src[i] && j + 2 < dst_size; i++) {
+        if (src[i] == '\'') {
+            dst[j++] = '\'';
+            dst[j++] = '\'';
+        } else {
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
+}
+
 static void cmd_delete(int count, char **paths) {
     if (count <= 0) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
@@ -758,11 +775,13 @@ static void cmd_delete(int count, char **paths) {
         if (!path || !*path) continue;
         if (unlink(path) == 0) {
             deleted++;
-            char scan_cmd[1024];
+            char safe_data[1024];
+            safe_sql_escape(path, safe_data, sizeof(safe_data));
+            char scan_cmd[2048];
             snprintf(scan_cmd, sizeof(scan_cmd),
                      "(content delete --uri content://media/external/file --where \"_data='%s'\" >/dev/null 2>&1; "
                      "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1) &",
-                     path, path);
+                     safe_data, path);
             system(scan_cmd);
             prune_empty_parents(path);
         }
@@ -956,7 +975,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.13";
+    char mod_version[32] = "v1.3.14";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

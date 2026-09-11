@@ -40,8 +40,27 @@ def main():
                 shutil.copy(tool_src, tool_bin)
                 os.chmod(tool_bin, 0o755)
                 print(f"Bundled {tool} into {tool_bin}")
+        wrapper_sh = f'''#!/system/bin/sh
+case "$0" in
+    */*) DIR="${{0%/*}}" ;;
+    *) DIR="$(command -v "$0" 2>/dev/null)"; DIR="${{DIR%/*}}" ;;
+esac
+export LD_LIBRARY_PATH="/system/lib64:/system/lib"
+if [ -n "$DIR" ] && [ -x "$DIR/{tool}.bin" ]; then
+    exec "$DIR/{tool}.bin" "$@"
+fi
+for cand in /data/adb/modules/hyperdl/runtime/bin/{tool}.bin /data/data/com.termux/files/home/HyperDL_Module/runtime/bin/{tool}.bin; do
+    if [ -x "$cand" ]; then
+        exec "$cand" "$@"
+    fi
+done
+if [ -x /system/bin/{tool} ]; then
+    exec /system/bin/{tool} "$@"
+fi
+exec {tool}.bin "$@"
+'''
         with open(tool_wrap, "w") as wf:
-            wf.write(f'#!/system/bin/sh\nDIR="${{0%/*}}"\nexport LD_LIBRARY_PATH="/system/lib64:/system/lib"\nif [ -x "$DIR/{tool}.bin" ]; then\n    exec "$DIR/{tool}.bin" "$@"\nfi\nexec {tool} "$@"\n')
+            wf.write(wrapper_sh)
         os.chmod(tool_wrap, 0o755)
 
     core_libs = [

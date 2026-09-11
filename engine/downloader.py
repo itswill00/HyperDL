@@ -476,9 +476,7 @@ def scan_media_file(file_path):
 
 def send_android_notification(title, text):
     try:
-        safe_title = str(title).replace('"', '\\"')
-        safe_text = str(text).replace('"', '\\"')
-        os.system(f'(cmd notification post -S bigtext -t "{safe_title}" "HyperDL" "{safe_text}" >/dev/null 2>&1) &')
+        post_android_notification(status="completed", title=title, file_path=text)
     except Exception:
         pass
 
@@ -561,7 +559,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
     if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
         if emit_complete:
             update_status("completed", percent=100, title=title, file_path=out_path)
-            send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
         return out_path
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -599,7 +596,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                 scan_media_file(out_path)
                 if emit_complete:
                     update_status("completed", percent=100, title=title, file_path=out_path)
-                    send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
                 return out_path
             # If server rejects Range header (400 or 403), retry full stream from 0
             if "Range" in hdrs:
@@ -674,7 +670,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
 
             if emit_complete:
                 update_status("completed", percent=100, title=title, file_path=out_path)
-                send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
             return out_path
     except Exception as e:
         # DO NOT remove part_path! Keep downloaded bytes for resume!
@@ -684,7 +679,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
 
 def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=True):
     ffmpeg_bin = get_ffmpeg_binary()
-    env = get_runtime_env()
+    env = get_ffmpeg_env()
     if ffmpeg_bin:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         part_path = out_path + ".tmp.mp4"
@@ -727,7 +722,6 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
             scan_media_file(out_path)
             if emit_complete:
                 update_status("completed", percent=100, title=title, file_path=out_path)
-                send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
             return out_path
 
     # Fallback to yt-dlp direct extraction
@@ -750,7 +744,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
             hdrs = item.get("headers") or {}
             download_file(item["url"], tmp_v, title=f"{title} [Video]", headers=hdrs, emit_error=True, emit_complete=False)
             download_file(item["audio_url"], tmp_a, title=f"{title} [Audio]", headers=hdrs, emit_error=True, emit_complete=False)
-            res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", out_path], capture_output=True)
+            res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", out_path], env=get_ffmpeg_env(), capture_output=True)
             for tmp_f in (tmp_v, tmp_a):
                 if os.path.exists(tmp_f):
                     try:
@@ -765,7 +759,6 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
                 scan_media_file(out_path)
                 if emit_complete:
                     update_status("completed", percent=100, title=title, file_path=out_path)
-                    send_android_notification("Download complete", f"{title} saved")
                 return out_path
         # If ffmpeg missing or muxing failed, fallback to downloading video stream directly
         return download_file(item["url"], out_path, title=title, headers=item.get("headers"), emit_error=True, emit_complete=emit_complete)
@@ -1741,8 +1734,22 @@ def get_runtime_env():
         env["SSL_CERT_FILE"] = f"{runtime_dir}/lib/cacert.pem"
     return env
 
+def get_ffmpeg_env():
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = "/system/lib64:/system/lib"
+    runtime_dir = "/data/adb/modules/hyperdl/runtime"
+    if not os.path.isdir(runtime_dir):
+        update_dir = "/data/adb/modules_update/hyperdl/runtime"
+        if os.path.isdir(update_dir):
+            runtime_dir = update_dir
+        else:
+            candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
+            if os.path.isdir(candidate_dev):
+                runtime_dir = candidate_dev
+    env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
+    return env
+
 def get_ffmpeg_binary():
-    import shutil
     candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
@@ -1753,8 +1760,7 @@ def get_ffmpeg_binary():
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
-    env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = "/system/lib64:/system/lib"
+    env = get_ffmpeg_env()
     for c in candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
             try:
@@ -2001,7 +2007,6 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     if downloaded_file and os.path.exists(downloaded_file):
         scan_media_file(downloaded_file)
         update_status("completed", percent=100, title=title, file_path=downloaded_file)
-        send_android_notification("Download complete", f"{title} saved to Download/HyperDL")
         return downloaded_file
 
     raise RuntimeError("Media file not found after download completed")
@@ -2221,7 +2226,6 @@ def main():
 
                 scan_media_file(item_path)
             update_status("completed", percent=100, title=title, file_path=target_dir)
-            send_android_notification("Download complete", f"{title} saved to {os.path.basename(target_dir)} ({total} items)")
         else:
             if fmt == "audio":
                 ffmpeg_bin = get_ffmpeg_binary()
@@ -2230,7 +2234,7 @@ def main():
                     download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
                     out_path = os.path.join(target_dir, f"{base_title}_{media_id}.flac")
                     update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
-                    res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], capture_output=True)
+                    res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], env=get_ffmpeg_env(), capture_output=True)
                     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
                         fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
                         out_path = os.path.join(target_dir, f"{base_title}_{media_id}.{fallback_ext}")
@@ -2248,7 +2252,6 @@ def main():
                         pass
                     scan_media_file(out_path)
                     update_status("completed", percent=100, title=title, file_path=out_path)
-                    send_android_notification("Download complete", f"{title} saved as FLAC HD")
                     return
             filename = f"{base_title}_{media_id}.{ext}"
             out_path = os.path.join(target_dir, filename)
