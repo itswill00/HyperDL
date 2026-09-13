@@ -121,6 +121,8 @@ def get_target_directory(base_outdir, info, url=""):
             platform = "Bilibili"
         elif "streamable.com" in low:
             platform = "Streamable"
+        elif "bsky.app" in low:
+            platform = "Bluesky"
         else:
             ext_key = str(info.get("extractor_key") or info.get("extractor") or "").strip()
             platform = ext_key if ext_key else "Media"
@@ -136,6 +138,9 @@ def get_target_directory(base_outdir, info, url=""):
         m_x = re.search(r'(?:twitter|x)\.com/([^/?#]+)/status', url or "")
         if m_x:
             author = m_x.group(1)
+        m_bsky = re.search(r'bsky\.app/profile/([^/?#]+)', url or "")
+        if m_bsky:
+            author = m_bsky.group(1)
 
     clean_author = sanitize_filename(str(author).strip().lstrip("@")) if author else ""
     if clean_author.lower() in ("unknown", "null", "none", ""):
@@ -1882,6 +1887,82 @@ def get_ffmpeg_binary():
             pass
     return None
 
+def resolve_bluesky(url, fmt="video"):
+    update_status("resolving", title="Resolving Bluesky media...")
+    m = re.search(r'bsky\.app/profile/([^/?#]+)/post/([^/?#]+)', url)
+    if not m:
+        return {"direct_ytdlp": True, "url": url, "fmt": fmt, "platform": "Bluesky"}
+    actor, rkey = m.group(1), m.group(2)
+    api_url = f"https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=at://{actor}/app.bsky.feed.post/{rkey}&depth=0"
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        post = (data.get("thread") or {}).get("post") or {}
+        author_info = post.get("author") or {}
+        author = author_info.get("handle") or actor
+        raw_text = ((post.get("record") or {}).get("text") or "").strip()
+        clean_text = re.sub(r'[\r\n\t]+', ' ', raw_text).strip()
+        title = clean_text[:60].strip() if clean_text else f"Bluesky post by {author}"
+        title = title or f"Bluesky_{rkey}"
+
+        embed = post.get("embed") or {}
+        if embed.get("$type") == "app.bsky.embed.recordWithMedia#view":
+            embed = embed.get("media") or {}
+
+        embed_type = embed.get("$type", "")
+
+        # 1. Video stream (HLS m3u8 playlist)
+        if "video" in embed_type or "playlist" in embed:
+            playlist_url = embed.get("playlist")
+            if playlist_url:
+                return {
+                    "url": playlist_url,
+                    "title": title,
+                    "id": rkey,
+                    "ext": "mp4",
+                    "is_m3u8": True,
+                    "platform": "Bluesky",
+                    "author": author,
+                    "channel": author
+                }
+
+        # 2. Images: single image or carousel album
+        images = embed.get("images") or []
+        if images:
+            if len(images) == 1:
+                img_url = images[0].get("fullsize") or images[0].get("thumb")
+                return {
+                    "url": img_url,
+                    "title": title,
+                    "id": rkey,
+                    "ext": "jpg",
+                    "platform": "Bluesky",
+                    "author": author,
+                    "channel": author
+                }
+            items = []
+            for img in images:
+                i_url = img.get("fullsize") or img.get("thumb")
+                if i_url:
+                    items.append({"url": i_url, "ext": "jpg"})
+            return {
+                "kind": "album",
+                "items": items,
+                "title": title,
+                "id": rkey,
+                "platform": "Bluesky",
+                "author": author,
+                "channel": author
+            }
+
+    except Exception as e:
+        print(f"Bluesky API note: {e}", file=sys.stderr)
+
+    # ponytail: public XRPC handles unauthenticated single/album media; yt-dlp fallback if API changes
+    return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Bluesky_{rkey}", "platform": "Bluesky"}
+
 def resolve_threads(url, fmt="video"):
     update_status("resolving", title="Resolving Threads media...")
     # Threads posts are served by Meta's CDN — scrape OG tags like the Instagram fast path
@@ -2455,6 +2536,8 @@ def main():
             info = resolve_streamable(url, fmt)
         elif "bilibili.com" in low_url or "b23.tv" in low_url:
             info = resolve_bilibili(url, fmt)
+        elif "bsky.app" in low_url:
+            info = resolve_bluesky(url, fmt)
         else:
             info = resolve_ytdlp(url, fmt, is_yt=False)
 

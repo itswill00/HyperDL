@@ -77,7 +77,7 @@ case "$1" in
           LOW_CLIP="$(echo "$CLIP" | tr '[:upper:]' '[:lower:]')"
           MATCHED=false
           case "$LOW_CLIP" in
-            *tiktok.com*|*douyin.com*|*instagram.com*|*instagr.am*|*twitter.com*|*x.com*|*t.co*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*|*threads.net*|*streamable.com*|*bilibili.com*|*b23.tv*)
+            *tiktok.com*|*douyin.com*|*instagram.com*|*instagr.am*|*twitter.com*|*x.com*|*t.co*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*|*threads.net*|*streamable.com*|*bilibili.com*|*b23.tv*|*bsky.app*|*twitch.tv*)
               MATCHED=true
               ;;
             *)

@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
-  <img src="https://img.shields.io/badge/Release-v1.3.16-black.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v1.3.17-black.svg" alt="Release">
 </p>
 
 <p align="center">
@@ -113,6 +113,10 @@ The module packages an isolated ARM64 native runtime, compiled Python bytecode e
 | **Pinterest** | Videos, Pins, Story Media, Original Images | PinResource Unauth JSON API | yt-dlp Extractor |
 | **Reddit** | Videos (MP4), Image Galleries, Single Posts | Reddit JSON API / Old Reddit | yt-dlp Extractor |
 | **X (Twitter)** | Videos, Photos, Animated GIFs | GraphQL API / FxTwitter / VxTwitter | yt-dlp Extractor |
+| **Bluesky** | Videos (MP4), Photos, Image Galleries | AT Protocol Public XRPC | yt-dlp Extractor |
+| **Threads** | Videos (MP4), Photos | OpenGraph Embedded Scrape | yt-dlp Extractor |
+| **Bilibili** | Videos, Audio | Web API / Scraper | yt-dlp DASH Remuxing |
+| **Streamable** | Videos (MP4) | Streamable JSON API | yt-dlp Extractor |
 | **Direct URLs** | MP4, WEBM, MP3, M3U8 Streams | Chunked Direct Streamer | Python urllib Pipeline |
 
 ---
@@ -157,7 +161,7 @@ HyperDL/
 
 ### Method 1: Flashing via Root Manager (Recommended)
 
-1. Download the latest release package (`HyperDL-v1.3.16.zip`) from the Releases page.
+1. Download the latest release package (`HyperDL-v1.3.17.zip`) from the Releases page.
 2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
 3. Navigate to **Modules** > **Install from storage**.
 4. Select the zip file and confirm installation.
@@ -202,8 +206,8 @@ Options:
 
 By default, compilation outputs to `/sdcard/HyperDL_Releases/`:
 
-- `HyperDL-v1.3.16-b13160-Standalone.zip`: Canonical release package with full embedded runtime.
-- `HyperDL-v1.3.16.zip`: Standard version alias.
+- `HyperDL-v1.3.17-b13170-Standalone.zip`: Canonical release package with full embedded runtime.
+- `HyperDL-v1.3.17.zip`: Standard version alias.
 - `HyperDL-latest.zip`: Latest build alias for update distribution.
 
 Upon completion, `build.sh` issues an Android MediaStore broadcast (`MEDIA_SCANNER_SCAN_FILE`) to make the package immediately visible to system file managers.

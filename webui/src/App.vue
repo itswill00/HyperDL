@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.16' }}
+          {{ sysInfo.version || 'v1.3.17' }}
           <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>
@@ -1310,7 +1310,11 @@ const supportedPlatforms = [
   { id: 'youtube', name: 'YouTube' },
   { id: 'facebook', name: 'Facebook' },
   { id: 'reddit', name: 'Reddit' },
-  { id: 'pinterest', name: 'Pinterest' }
+  { id: 'pinterest', name: 'Pinterest' },
+  { id: 'bluesky', name: 'Bluesky' },
+  { id: 'threads', name: 'Threads' },
+  { id: 'bilibili', name: 'Bilibili' },
+  { id: 'streamable', name: 'Streamable' }
 ]
 
 const detectedPlatform = computed(() => {
@@ -1322,6 +1326,10 @@ const detectedPlatform = computed(() => {
   if (u.includes('facebook.com') || u.includes('fb.watch') || u.includes('fb.com')) return { name: 'Facebook', id: 'facebook' }
   if (u.includes('reddit.com') || u.includes('redd.it')) return { name: 'Reddit', id: 'reddit' }
   if (u.includes('pinterest.com') || u.includes('pin.it')) return { name: 'Pinterest', id: 'pinterest' }
+  if (u.includes('bsky.app')) return { name: 'Bluesky', id: 'bluesky' }
+  if (u.includes('threads.net')) return { name: 'Threads', id: 'threads' }
+  if (u.includes('bilibili.com') || u.includes('b23.tv')) return { name: 'Bilibili', id: 'bilibili' }
+  if (u.includes('streamable.com')) return { name: 'Streamable', id: 'streamable' }
   return { name: 'Direct link', id: 'link' }
 })
 
