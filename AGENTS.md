@@ -37,3 +37,9 @@
      2. Meminta user secara eksplisit untuk mencoba dan menguji sendiri fitur/fix tersebut di device atau WebUI mereka.
      3. User memberikan konfirmasi tegas bahwa semuanya sudah benar-benar stabil, aman, dan bebas bug.
    - HANYA setelah ada lampu hijau/konfirmasi eksplisit dari user, agen baru diizinkan mengeksekusi `./build.sh --release` atau mempublikasikan rilis baru.
+
+7. **Strict Repository Role Separation (Zero Tags on Source Repo)**:
+   - Repo `itswill00/HyperDL` murni HANYA untuk kode sumber (codebase only).
+   - DILARANG KERAS membuat git tag rilis lokal ataupun mem-push git tag rilis ke remote `itswill00/HyperDL`.
+   - DILARANG membuat GitHub Releases di `itswill00/HyperDL`.
+   - Seluruh tag rilis, GitHub Releases (`gh release create`), biner flashable, dan metadata `update.json` HANYA didistribusikan melalui repo publik `itswill00/HyperDL-Release`.
