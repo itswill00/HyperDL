@@ -1305,11 +1305,13 @@ async function applyModuleOta() {
     if (raw && raw.startsWith('{')) {
       const res = JSON.parse(raw)
       if (res.success) {
-        otaStatusText.value = 'Update successful! Reloading interface...'
+        showUpdateModal.value = false
+        moduleUpdateInfo.value.has_update = false
+        if (res.version) sysInfo.value.version = res.version
         showToast(`HyperDL successfully updated to ${res.version || 'latest'}!`, 'success')
         setTimeout(() => {
           window.location.reload()
-        }, 1500)
+        }, 1200)
         return
       } else {
         showToast(`Update failed: ${res.error || 'Unknown error'}`, 'error')
