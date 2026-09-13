@@ -69,7 +69,7 @@
 
         <main class="content-area">
 
-            <div v-show="activeTab === 'download'">
+            <div v-show="activeTab === 'download'" class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -620,7 +620,7 @@
         </div>
       </div>
 
-      <div v-show="activeTab === 'cookies'">
+      <div v-show="activeTab === 'cookies'" class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -741,7 +741,7 @@
 
       </div>
 
-            <div v-show="activeTab === 'console'">
+            <div v-show="activeTab === 'console'" class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 12px;">
@@ -760,7 +760,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <div style="display: flex; flex-direction: column;">
                 <span style="color: var(--on-surface-variant);">HyperDL OTA</span>
-                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">Hot-update tanpa reboot</span>
+                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">Hot-update without reboot</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.19' }}</span>
@@ -865,7 +865,7 @@
       </div>
 
       <!-- VAULT TAB -->
-      <div v-show="activeTab === 'vault' && isVaultActive">
+      <div v-show="activeTab === 'vault' && isVaultActive" class="tab-pane">
         <section class="md3-card" style="margin-top: 4px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1051,7 +1051,7 @@
             <Icons name="download" :size="20" />
           </div>
           <div>
-            <div class="dialog-title" style="margin-bottom: 2px;">Pembaruan Tersedia</div>
+            <div class="dialog-title" style="margin-bottom: 2px;">Update Available</div>
             <div style="font-size: 11px; color: var(--on-surface-variant);">{{ sysInfo.version || 'v1.3.19' }} → {{ moduleUpdateInfo.latest_version }}</div>
           </div>
         </div>
@@ -1059,7 +1059,7 @@
         <div style="background: var(--surface-container); border-radius: 12px; padding: 10px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
             <span style="font-size: 9px; font-weight: 700; background: rgba(168, 199, 250, 0.2); color: #a8c7fa; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">OTA Hot-Patch</span>
-            <span style="font-size: 10px; color: var(--on-surface-variant);">~250 KB · Tanpa Reboot</span>
+            <span style="font-size: 10px; color: var(--on-surface-variant);">~250 KB · No Reboot Required</span>
           </div>
           <div v-if="moduleUpdateInfo.notes" style="font-size: 11px; color: var(--on-surface); line-height: 1.4; margin-top: 6px;">
             {{ moduleUpdateInfo.notes }}
@@ -1068,12 +1068,12 @@
 
         <div v-if="isApplyingOta" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(168, 199, 250, 0.1); border-radius: 8px; margin-bottom: 12px;">
           <span class="spin-loader" style="width: 14px; height: 14px; flex-shrink: 0;"></span>
-          <span style="font-size: 11px; color: var(--primary);">{{ otaStatusText || 'Sedang memproses pembaruan...' }}</span>
+          <span style="font-size: 11px; color: var(--primary);">{{ otaStatusText || 'Processing update...' }}</span>
         </div>
 
         <div class="dialog-actions">
           <button class="btn btn-secondary dialog-btn" type="button" :disabled="isApplyingOta" @click.stop="showUpdateModal = false">
-            Nanti
+            Later
           </button>
           <button
             class="btn btn-primary dialog-btn"
@@ -1082,7 +1082,7 @@
             @click.stop="applyModuleOta"
           >
             <span v-if="isApplyingOta" class="spin-loader" style="width: 12px; height: 12px; margin-right: 4px;"></span>
-            <span>{{ isApplyingOta ? 'Memasang...' : 'Perbarui (OTA)' }}</span>
+            <span>{{ isApplyingOta ? 'Installing...' : 'Update (OTA)' }}</span>
           </button>
         </div>
       </div>
@@ -1303,16 +1303,16 @@ async function checkModuleUpdate(silent = false) {
       if (data.has_update) {
         showUpdateModal.value = true
         if (!silent) {
-          showToast(`Pembaruan tersedia: ${data.latest_version}`, 'info')
+          showToast(`Update available: ${data.latest_version}`, 'info')
         }
       } else if (!silent) {
-        showToast(`HyperDL sudah versi terbaru (${data.current_version || sysInfo.value.version})`, 'success')
+        showToast(`HyperDL is up to date (${data.current_version || sysInfo.value.version})`, 'success')
       }
     } else if (!silent) {
-      showToast('Gagal memeriksa pembaruan', 'error')
+      showToast('Failed to check for updates', 'error')
     }
   } catch (e) {
-    if (!silent) showToast('Gagal memeriksa pembaruan: ' + String(e), 'error')
+    if (!silent) showToast('Failed to check for updates: ' + String(e), 'error')
   } finally {
     isCheckingUpdate.value = false
   }
@@ -1321,27 +1321,27 @@ async function checkModuleUpdate(silent = false) {
 async function applyModuleOta() {
   if (isApplyingOta.value) return
   isApplyingOta.value = true
-  otaStatusText.value = 'Mengunduh paket OTA (~250 KB)...'
+  otaStatusText.value = 'Downloading OTA package (~250 KB)...'
   try {
-    otaStatusText.value = 'Memasang pembaruan & menyinkronkan binary...'
+    otaStatusText.value = 'Installing update & syncing binaries...'
     const raw = await runBridge('apply_ota', moduleUpdateInfo.value.ota_url || '')
     if (raw && raw.startsWith('{')) {
       const res = JSON.parse(raw)
       if (res.success) {
-        otaStatusText.value = 'Pembaruan berhasil! Memuat ulang antarmuka...'
-        showToast(`HyperDL berhasil diperbarui ke ${res.version || 'versi terbaru'}!`, 'success')
+        otaStatusText.value = 'Update successful! Reloading interface...'
+        showToast(`HyperDL successfully updated to ${res.version || 'latest'}!`, 'success')
         setTimeout(() => {
           window.location.reload()
         }, 1500)
         return
       } else {
-        showToast(`Gagal update: ${res.error || 'Terjadi kesalahan'}`, 'error')
+        showToast(`Update failed: ${res.error || 'Unknown error'}`, 'error')
       }
     } else {
-      showToast('Gagal update: Respon sistem tidak valid', 'error')
+      showToast('Update failed: Invalid system response', 'error')
     }
   } catch (e) {
-    showToast(`Pembaruan gagal: ${String(e)}`, 'error')
+    showToast(`Update failed: ${String(e)}`, 'error')
   } finally {
     isApplyingOta.value = false
     otaStatusText.value = ''
@@ -1504,13 +1504,13 @@ async function deleteVaultItem(item) {
     const data = JSON.parse(res)
     if (!data.success) {
       vaultList.value = prevList
-      showToast('Gagal menghapus: ' + (data.error || 'unknown'), 'error')
+      showToast('Failed to delete: ' + (data.error || 'unknown'), 'error')
     } else {
-      showToast('File vault dihapus', 'success')
+      showToast('Vault file deleted', 'success')
     }
   } catch (e) {
     vaultList.value = prevList
-    showToast('Gagal menghapus', 'error')
+    showToast('Failed to delete file', 'error')
   }
 }
 
@@ -2750,7 +2750,13 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), background 0.18s cubic-bezier(0.2, 0, 0, 1), color 0.18s ease, box-shadow 0.18s ease;
+  user-select: none;
+  will-change: transform;
+}
+
+.tab-btn:active {
+  transform: scale(0.95);
 }
 
 .tab-btn.active {
@@ -2836,17 +2842,18 @@ onUnmounted(() => {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
 }
 
 .toast-fade-enter-from {
   opacity: 0;
-  transform: translate(-50%, 15px);
+  transform: translate(-50%, 14px) scale(0.96);
 }
 
 .toast-fade-leave-to {
   opacity: 0;
-  transform: translate(-50%, -10px);
+  transform: translate(-50%, -8px) scale(0.96);
 }
 
 /* Resolution Picker Sheet Modal */
@@ -2858,22 +2865,26 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .sheet-panel {
   width: 100%;
   max-width: 520px;
   background: var(--surface-container);
-  border-top-left-radius: 20px;
-  border-top-right-radius: 20px;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
   border: 1px solid var(--surface-container-high);
   border-bottom: none;
   padding: 18px 16px calc(24px + var(--window-inset-bottom, 0px)) 16px;
   max-height: 75vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.6);
-  animation: sheet-up 0.18s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
+  animation: sheet-up 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
 }
 
 @keyframes sheet-up {
@@ -3082,13 +3093,21 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   padding: 24px;
   touch-action: none;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes backdrop-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .dialog-card {
@@ -3098,18 +3117,35 @@ onUnmounted(() => {
   padding: 20px;
   width: 100%;
   max-width: 320px;
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
-  animation: dialog-pop 0.15s cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  animation: dialog-pop 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
 }
 
 @keyframes dialog-pop {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.92) translateY(8px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
+  }
+}
+
+.tab-pane {
+  animation: tabFadeIn 0.22s cubic-bezier(0.2, 0, 0, 1);
+  will-change: opacity, transform;
+}
+
+@keyframes tabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
