@@ -31,3 +31,9 @@
    - Release zips are stored strictly in `/sdcard/HyperDL_Releases/`.
    - **OTA-Only Default**: Perbaikan scraper (`engine/downloader.py`), WebUI (`webui/`), atau bridge (`src/main.c`) WAJIB dirilis sebagai **OTA-Only** (`HyperDL-OTA-vX.Y.Z.zip`), jangan rilis Standalone (~44 MB) kecuali runtime Python/FFmpeg (`runtime/`) beneran berubah atau user minta standalone secara eksplisit.
 
+6. **Strict Release Gate (Mandatory User Confirmation)**:
+   - DILARANG KERAS membuat tag rilis GitHub (`gh release create`), push tag rilis, atau update release feed metadata publik sebelum:
+     1. Semua perbaikan sudah diuji secara lokal dan di-deploy ke modul HP (`./build.sh --deploy`).
+     2. Meminta user secara eksplisit untuk mencoba dan menguji sendiri fitur/fix tersebut di device atau WebUI mereka.
+     3. User memberikan konfirmasi tegas bahwa semuanya sudah benar-benar stabil, aman, dan bebas bug.
+   - HANYA setelah ada lampu hijau/konfirmasi eksplisit dari user, agen baru diizinkan mengeksekusi `./build.sh --release` atau mempublikasikan rilis baru.
