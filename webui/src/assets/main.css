@@ -182,7 +182,7 @@ html, body, #app {
   padding: 16px;
   margin-bottom: 12px;
   border: 1px solid var(--surface-container-high);
-  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .md3-card:hover {
@@ -415,7 +415,7 @@ html, body, #app {
   height: 100%;
   background: linear-gradient(90deg, var(--on-surface-variant) 0%, var(--primary) 100%);
   border-radius: 4px;
-  transition: width 0.3s ease;
+  transition: width 0.32s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .progress-fill.paused {

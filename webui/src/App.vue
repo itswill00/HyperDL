@@ -214,7 +214,7 @@
           </div>
         </section>
 
-                <section v-if="task.status !== 'idle'" class="md3-card" :style="{ borderColor: task.status === 'paused' ? 'var(--secondary)' : 'var(--primary)' }">
+                <section v-if="task.status !== 'idle'" class="md3-card task-card-active" :style="{ borderColor: task.status === 'paused' ? 'var(--secondary)' : 'var(--primary)' }">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
               <div class="icon-badge" :class="{ secondary: task.status === 'paused' }">
@@ -995,8 +995,8 @@
         </div>
 
         <div style="display: flex; gap: 8px; margin-top: 12px;">
-          <button v-if="!isProbingResolutions" class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
-            Best Available Quality
+          <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
+            {{ isProbingResolutions ? 'Download Best (Skip probe)' : 'Best Available Quality' }}
           </button>
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click.stop="closeResolutionPicker">
             Cancel
@@ -1797,8 +1797,7 @@ async function startDownload() {
   if (!url.value.trim() || isProcessing.value) return
 
   if (!isOnline.value) {
-    showToast('No internet connection. Connect to Wi-Fi or mobile data.', 'warning')
-    return
+    showToast('Device may be offline. Attempting download...', 'warning')
   }
 
   const clean = extractUrl(url.value)
@@ -1880,8 +1879,7 @@ async function pauseDownload(reason = '') {
 async function resumeDownload() {
   if (isProcessing.value) return
   if (!isOnline.value) {
-    showToast('No internet connection. Connect to Wi-Fi or mobile data.', 'warning')
-    return
+    showToast('Device may be offline. Attempting resume...', 'warning')
   }
   const targetUrl = task.value.url || url.value
   if (!targetUrl) {
@@ -1903,29 +1901,30 @@ async function resumeDownload() {
 }
 
 async function cancelDownload() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  task.value = {
+    status: 'idle',
+    percent: 0,
+    speed: '',
+    downloaded: '',
+    total: '',
+    title: '',
+    file_path: '',
+    error: '',
+    url: '',
+    fmt: 'video',
+    format_id: '',
+    height: ''
+  }
+  saveActiveTaskToStorage(null)
+  isProcessing.value = false
+  showToast('Download cancelled', 'info')
+
   try {
     await runBridge('cancel')
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-    task.value = {
-      status: 'idle',
-      percent: 0,
-      speed: '',
-      downloaded: '',
-      total: '',
-      title: '',
-      file_path: '',
-      error: '',
-      url: '',
-      fmt: 'video',
-      format_id: '',
-      height: ''
-    }
-    saveActiveTaskToStorage(null)
-    isProcessing.value = false
-    showToast('Download cancelled', 'info')
     fetchLogs()
   } catch (e) {
     showToast('Failed to cancel download', 'error')
@@ -2822,18 +2821,24 @@ onUnmounted(() => {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1), transform 0.22s cubic-bezier(0.2, 0, 0, 1);
   will-change: opacity, transform;
 }
 
 .toast-fade-enter-from {
   opacity: 0;
-  transform: translate(-50%, 14px) scale(0.96);
+  transform: translate(-50%, 8px) scale(0.97);
+}
+
+.toast-fade-enter-to,
+.toast-fade-leave-from {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
 }
 
 .toast-fade-leave-to {
   opacity: 0;
-  transform: translate(-50%, -8px) scale(0.96);
+  transform: translate(-50%, 4px) scale(0.97);
 }
 
 .sheet-overlay {
@@ -2862,7 +2867,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
-  animation: sheet-up 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: sheet-up 0.28s cubic-bezier(0.2, 0, 0, 1);
   will-change: transform;
 }
 
@@ -2953,6 +2958,18 @@ onUnmounted(() => {
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
+  animation: res-list-fade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes res-list-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .resolution-row {
@@ -3104,7 +3121,7 @@ onUnmounted(() => {
 @keyframes dialog-pop {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(8px);
+    transform: scale(0.96) translateY(4px);
   }
   to {
     opacity: 1;
@@ -3113,14 +3130,14 @@ onUnmounted(() => {
 }
 
 .tab-pane {
-  animation: tabFadeIn 0.22s cubic-bezier(0.2, 0, 0, 1);
+  animation: tabFadeIn 0.2s cubic-bezier(0.2, 0, 0, 1);
   will-change: opacity, transform;
 }
 
 @keyframes tabFadeIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(2px);
   }
   to {
     opacity: 1;
@@ -3165,7 +3182,35 @@ onUnmounted(() => {
   border-radius: 12px;
   padding: 8px 12px;
   margin-top: 10px;
-  animation: dialog-pop 0.18s cubic-bezier(0.2, 0, 0, 1);
+  animation: banner-slide-down 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+@keyframes banner-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.task-card-active {
+  animation: task-appear 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+@keyframes task-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .clip-sniffer-icon {
