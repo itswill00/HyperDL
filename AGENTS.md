@@ -29,3 +29,5 @@
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.
    - Release zips are stored strictly in `/sdcard/HyperDL_Releases/`.
+   - **OTA-Only Default**: Perbaikan scraper (`engine/downloader.py`), WebUI (`webui/`), atau bridge (`src/main.c`) WAJIB dirilis sebagai **OTA-Only** (`HyperDL-OTA-vX.Y.Z.zip`), jangan rilis Standalone (~44 MB) kecuali runtime Python/FFmpeg (`runtime/`) beneran berubah atau user minta standalone secara eksplisit.
+
