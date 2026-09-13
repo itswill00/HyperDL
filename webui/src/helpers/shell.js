@@ -66,7 +66,7 @@ export function base64DecodeUtf8(str) {
 export async function openMediaFile(filePath) {
   if (!filePath) return
   const safePath = "'" + String(filePath).replace(/'/g, "'\\''") + "'"
-  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open ${safePath}; fi`
+  const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so open ${safePath}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open ${safePath}; fi`
   try {
     return await execCommand(cmd, 10000)
   } catch (e) {
@@ -75,7 +75,7 @@ export async function openMediaFile(filePath) {
 }
 
 export async function openFolder() {
-  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open_folder; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open_folder; fi`
+  const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open_folder; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so open_folder; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open_folder; fi`
   try {
     return await execCommand(cmd, 10000)
   } catch (e) {

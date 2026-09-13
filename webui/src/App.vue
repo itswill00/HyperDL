@@ -22,7 +22,7 @@
             Update {{ moduleUpdateInfo.latest_version }}
           </button>
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.19' }}
+            {{ sysInfo.version || 'v1.3.20' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -763,7 +763,7 @@
                 <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">Hot-update without reboot</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.19' }}</span>
+                <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.20' }}</span>
                 <button
                   class="btn"
                   :class="moduleUpdateInfo.has_update ? 'btn-primary' : 'btn-secondary'"
@@ -1052,7 +1052,7 @@
           </div>
           <div>
             <div class="dialog-title" style="margin-bottom: 2px;">Update Available</div>
-            <div style="font-size: 11px; color: var(--on-surface-variant);">{{ sysInfo.version || 'v1.3.19' }} → {{ moduleUpdateInfo.latest_version }}</div>
+            <div style="font-size: 11px; color: var(--on-surface-variant);">{{ sysInfo.version || 'v1.3.20' }} → {{ moduleUpdateInfo.latest_version }}</div>
           </div>
         </div>
 
@@ -1714,7 +1714,7 @@ function dismissTask() {
 async function runBridge(action, ...args) {
   const safeAction = shellEscape(action)
   const safeParams = args.map(shellEscape).join(' ')
-  const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
+  const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
   const timeoutMs = action === 'probe' ? 50000 : (action === 'apply_ota' ? 60000 : 15000)
   const res = await execCommand(cmd, timeoutMs)

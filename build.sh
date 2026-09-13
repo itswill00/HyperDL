@@ -85,7 +85,7 @@ done
 
 if [ "$CLEAN" = "true" ]; then
     echo "cleaning build artifacts and caches..."
-    rm -rf webui/dist webroot/index.html system/bin/libhyperdl.so system/bin/hyperdl.bundle runtime
+    rm -rf webui/dist webroot/index.html bin/libhyperdl.so bin/hyperdl.bundle runtime
 fi
 
 if [ -f "scripts/bundle_engine.py" ]; then
@@ -95,13 +95,13 @@ fi
 
 if [ -f "src/main.c" ]; then
     echo "compiling c native bridge..."
-    mkdir -p system/bin
-    clang -O3 -Wall -Wextra src/main.c -o system/bin/libhyperdl.so
-    strip --strip-unneeded system/bin/libhyperdl.so
-    chmod 755 system/bin/libhyperdl.so
+    mkdir -p bin
+    clang -O3 -Wall -Wextra src/main.c -o bin/libhyperdl.so
+    strip --strip-unneeded bin/libhyperdl.so
+    chmod 755 bin/libhyperdl.so
 fi
 
-chmod 755 system/bin/* 2>/dev/null || true
+chmod 755 bin/* 2>/dev/null || true
 
 if [ -d "webui" ]; then
     if [ ! -d "webui/node_modules" ]; then
@@ -130,14 +130,14 @@ if [ ! -f "runtime/bin/python3" ] || [ ! -f "runtime/bin/ffmpeg" ]; then
     fi
 fi
 
-if [ ! -f "system/bin/yt-dlp" ]; then
+if [ ! -f "bin/yt-dlp" ]; then
     echo "fetching latest standalone yt-dlp..."
-    curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o system/bin/yt-dlp
-    chmod 755 system/bin/yt-dlp
+    curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o bin/yt-dlp
+    chmod 755 bin/yt-dlp
 fi
 
-if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "system/bin/yt-dlp" ]; then
-    python3 scripts/optimize_ytdlp.py system/bin/yt-dlp
+if [ -f "scripts/optimize_ytdlp.py" ] && [ -f "bin/yt-dlp" ]; then
+    python3 scripts/optimize_ytdlp.py bin/yt-dlp
 fi
 
 if [ -f "src/sitecustomize.py" ]; then
@@ -155,7 +155,7 @@ zip -qr9 "$STAGING_DIR/$ZIP_NAME" \
     customize.sh \
     service.sh \
     uninstall.sh \
-    system \
+    bin \
     runtime \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
@@ -170,10 +170,10 @@ OTA_LATEST="HyperDL-OTA-latest.zip"
 echo "packaging lightweight ota zip..."
 zip -qr9 "$STAGING_DIR/$OTA_NAME" \
     module.prop \
-    system/bin/hyperdl.bundle \
-    system/bin/libhyperdl.so \
-    system/bin/hyperdl_daemon \
-    system/bin/clip.jar \
+    bin/hyperdl.bundle \
+    bin/libhyperdl.so \
+    bin/hyperdl_daemon \
+    bin/clip.jar \
     webroot \
     -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
 
@@ -228,39 +228,46 @@ if [ "$DEPLOY" = "true" ]; then
         fi
 
         MOD_TARGET=\"/data/adb/modules/hyperdl\"
-        mkdir -p \"\$MOD_TARGET/system/bin\"
+        mkdir -p \"\$MOD_TARGET/bin\"
         mkdir -p \"\$MOD_TARGET/webroot\"
         mkdir -p /storage/emulated/0/Download/HyperDL
-        rm -rf \"\$MOD_TARGET/engine\"
+        rm -rf \"\$MOD_TARGET/engine\" \"\$MOD_TARGET/system\"
 
         cp -f module.prop \"\$MOD_TARGET/module.prop\"
         cp -f customize.sh \"\$MOD_TARGET/customize.sh\"
         cp -f service.sh \"\$MOD_TARGET/service.sh\"
         cp -f uninstall.sh \"\$MOD_TARGET/uninstall.sh\"
-        cp -f system/bin/libhyperdl.so \"\$MOD_TARGET/system/bin/libhyperdl.so\"
-        cp -f system/bin/hyperdl.bundle \"\$MOD_TARGET/system/bin/hyperdl.bundle\"
-        cp -f system/bin/hyperdl_daemon \"\$MOD_TARGET/system/bin/hyperdl_daemon\"
-        [ -f system/bin/clip.jar ] && cp -f system/bin/clip.jar \"\$MOD_TARGET/system/bin/clip.jar\"
+        cp -f bin/libhyperdl.so \"\$MOD_TARGET/bin/libhyperdl.so\"
+        cp -f bin/hyperdl.bundle \"\$MOD_TARGET/bin/hyperdl.bundle\"
+        cp -f bin/hyperdl_daemon \"\$MOD_TARGET/bin/hyperdl_daemon\"
+        [ -f bin/clip.jar ] && cp -f bin/clip.jar \"\$MOD_TARGET/bin/clip.jar\"
         mkdir -p /data/adb/hyperdl
-        [ -f system/bin/clip.jar ] && cp -f system/bin/clip.jar /data/adb/hyperdl/clip.jar
-        [ -f system/bin/yt-dlp ] && cp -f system/bin/yt-dlp \"\$MOD_TARGET/system/bin/yt-dlp\"
+        [ -f bin/clip.jar ] && cp -f bin/clip.jar /data/adb/hyperdl/clip.jar
+        [ -f bin/yt-dlp ] && cp -f bin/yt-dlp \"\$MOD_TARGET/bin/yt-dlp\"
         cp -f webroot/index.html \"\$MOD_TARGET/webroot/index.html\"
 
         rm -rf \"\$MOD_TARGET/runtime\"
         mkdir -p \"\$MOD_TARGET/runtime\"
         cp -rf runtime/* \"\$MOD_TARGET/runtime/\"
 
-        chmod 755 \"\$MOD_TARGET/system/bin/\"*
-        chmod 644 \"\$MOD_TARGET/system/bin/clip.jar\" 2>/dev/null || true
+        chmod 755 \"\$MOD_TARGET/bin/\"*
+        chmod 644 \"\$MOD_TARGET/bin/clip.jar\" 2>/dev/null || true
         chmod 755 \"\$MOD_TARGET/runtime/bin/\"* 2>/dev/null || true
         chmod 755 \"\$MOD_TARGET/service.sh\" \"\$MOD_TARGET/uninstall.sh\"
         chmod 644 \"\$MOD_TARGET/module.prop\" \"\$MOD_TARGET/webroot/index.html\"
         chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
         chmod 0777 /data/adb/hyperdl 2>/dev/null || true
+
+        for mgr_bin in /data/adb/ap/bin /data/adb/ksu/bin /data/adb/modules/bin; do
+            if [ -d \"\$mgr_bin\" ]; then
+                ln -sf \"\$MOD_TARGET/bin/libhyperdl.so\" \"\$mgr_bin/hyperdl\" 2>/dev/null || true
+            fi
+        done
+
         chcon -R u:object_r:system_file:s0 \"\$MOD_TARGET\" 2>/dev/null || true
 
         if [ -f /data/adb/hyperdl/autodl.enabled ]; then
-            sh \"\$MOD_TARGET/system/bin/hyperdl_daemon\" start >/dev/null 2>&1 &
+            sh \"\$MOD_TARGET/bin/hyperdl_daemon\" start >/dev/null 2>&1 &
         fi
     "; then
         echo "deploy complete: live module updated successfully"

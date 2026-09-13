@@ -23,8 +23,15 @@ mkdir -p /data/adb/hyperdl 2>/dev/null || true
 chmod 0777 /data/adb/hyperdl 2>/dev/null || true
 
 # 4. Synchronize clip.jar to persistent config dir if missing
-if [ -f "$MODDIR/system/bin/clip.jar" ] && [ ! -f /data/adb/hyperdl/clip.jar ]; then
-    cp -f "$MODDIR/system/bin/clip.jar" /data/adb/hyperdl/clip.jar 2>/dev/null || true
+CLIP_JAR=""
+for j in "$MODDIR/bin/clip.jar" "$MODDIR/system/bin/clip.jar"; do
+    if [ -f "$j" ]; then
+        CLIP_JAR="$j"
+        break
+    fi
+done
+if [ -n "$CLIP_JAR" ] && [ ! -f /data/adb/hyperdl/clip.jar ]; then
+    cp -f "$CLIP_JAR" /data/adb/hyperdl/clip.jar 2>/dev/null || true
     chmod 644 /data/adb/hyperdl/clip.jar 2>/dev/null || true
 fi
 
@@ -46,7 +53,7 @@ fi
 # 8. Start auto clipboard daemon if enabled by user
 if [ -f /data/adb/hyperdl/autodl.enabled ]; then
     DAEMON_BIN=""
-    for d in "$MODDIR/system/bin/hyperdl_daemon" /data/adb/modules/hyperdl/system/bin/hyperdl_daemon; do
+    for d in "$MODDIR/bin/hyperdl_daemon" /data/adb/modules/hyperdl/bin/hyperdl_daemon "$MODDIR/system/bin/hyperdl_daemon" /data/adb/modules/hyperdl/system/bin/hyperdl_daemon; do
         if [ -x "$d" ]; then
             DAEMON_BIN="$d"
             break

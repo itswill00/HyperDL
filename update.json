@@ -1,8 +1,8 @@
 {
-  "version": "v1.3.19",
-  "versionCode": 13190,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.19/HyperDL-v1.3.19.zip",
-  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.19/HyperDL-OTA-v1.3.19.zip",
+  "version": "v1.3.20",
+  "versionCode": 13200,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.20/HyperDL-v1.3.20.zip",
+  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.20/HyperDL-OTA-v1.3.20.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Multi-platform clipboard photo extraction fix & in-app OTA updates"
+  "notes": "Migrate from system/bin to bin to eliminate bootloops on Magic Mount and Knox Defex"
 }

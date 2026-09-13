@@ -46,5 +46,5 @@ def optimize_ytdlp(ytdlp_path):
     return True
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "system/bin/yt-dlp"
+    target = sys.argv[1] if len(sys.argv) > 1 else ("bin/yt-dlp" if os.path.exists("bin/yt-dlp") else "system/bin/yt-dlp")
     optimize_ytdlp(target)

@@ -9,7 +9,7 @@ import subprocess
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_PY = os.path.join(PROJECT_DIR, "engine", "downloader.py")
-OUT_BUNDLE = os.path.join(PROJECT_DIR, "system", "bin", "hyperdl.bundle")
+OUT_BUNDLE = os.path.join(PROJECT_DIR, "bin", "hyperdl.bundle")
 OUT_HEADER = os.path.join(PROJECT_DIR, "src", "embedded_engine.h")
 
 def main():

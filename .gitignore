@@ -20,6 +20,7 @@ webui/.vite/
 .vscode/
 .idea/
 runtime/
+bin/yt-dlp
 system/bin/yt-dlp
 
 # Temporary announcement & note files

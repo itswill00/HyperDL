@@ -225,6 +225,22 @@ static void cmd_status(void) {
     printf("{\"status\":\"idle\",\"percent\":0}\n");
 }
 
+static const char *get_bundle_path(void) {
+    static const char *candidates[] = {
+        "/data/adb/modules/hyperdl/bin/hyperdl.bundle",
+        "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle",
+        "/data/adb/modules_update/hyperdl/bin/hyperdl.bundle",
+        "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle",
+        "/data/data/com.termux/files/home/HyperDL_Module/bin/hyperdl.bundle",
+        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        if (access(candidates[i], R_OK) == 0) return candidates[i];
+    }
+    return NULL;
+}
+
 static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height) {
     ensure_directories();
 
@@ -249,14 +265,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         return;
     }
 
-    const char *bundle_path = NULL;
-    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
-    }
+    const char *bundle_path = get_bundle_path();
 
     FILE *sf = fopen(STATUS_FILE, "w");
     if (sf) {
@@ -314,7 +323,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
                 snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
                 snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
                 snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
                 setenv("PATH", path_env, 1);
                 setenv("PYTHONHOME", moddir, 1);
@@ -393,14 +402,7 @@ static void cmd_probe(const char *url) {
         return;
     }
 
-    const char *bundle_path = NULL;
-    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
-    }
+    const char *bundle_path = get_bundle_path();
 
     if (strstr(python_bin, "runtime")) {
         char moddir[512];
@@ -412,7 +414,7 @@ static void cmd_probe(const char *url) {
             snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
             snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
             snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
             setenv("PATH", path_env, 1);
             setenv("PYTHONHOME", moddir, 1);
@@ -485,14 +487,7 @@ static void run_python_action(const char *subaction, const char *extra_arg) {
         return;
     }
 
-    const char *bundle_path = NULL;
-    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
-    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
-        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
-    }
+    const char *bundle_path = get_bundle_path();
 
     if (strstr(python_bin, "runtime")) {
         char moddir[512];
@@ -504,7 +499,7 @@ static void run_python_action(const char *subaction, const char *extra_arg) {
             snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
             snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
             snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
 
             setenv("PATH", path_env, 1);
             setenv("PYTHONHOME", moddir, 1);
@@ -1074,7 +1069,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.19";
+    char mod_version[32] = "v1.3.20";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1233,8 +1228,11 @@ static void run_daemon_cmd(const char *action) {
             if (devnull > STDERR_FILENO) close(devnull);
         }
         const char *daemon_paths[] = {
+            "/data/adb/modules/hyperdl/bin/hyperdl_daemon",
             "/data/adb/modules/hyperdl/system/bin/hyperdl_daemon",
+            "/data/adb/modules_update/hyperdl/bin/hyperdl_daemon",
             "/data/adb/modules_update/hyperdl/system/bin/hyperdl_daemon",
+            "/data/data/com.termux/files/home/HyperDL_Module/bin/hyperdl_daemon",
             "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl_daemon",
             "/system/bin/hyperdl_daemon",
             NULL
@@ -1255,10 +1253,13 @@ static void run_daemon_cmd(const char *action) {
 static void cmd_get_clipboard(void) {
     const char *jar = NULL;
     const char *jar_candidates[] = {
+        "/data/adb/modules/hyperdl/bin/clip.jar",
         "/data/adb/modules/hyperdl/system/bin/clip.jar",
+        "/data/adb/modules_update/hyperdl/bin/clip.jar",
         "/data/adb/modules_update/hyperdl/system/bin/clip.jar",
         "/data/adb/hyperdl/clip.jar",
         "/system/bin/clip.jar",
+        "/data/data/com.termux/files/home/HyperDL_Module/bin/clip.jar",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/clip.jar",
         NULL
     };

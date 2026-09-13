@@ -1821,8 +1821,11 @@ YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/
 
 def get_or_download_ytdlp():
     candidates = [
+        "/data/adb/modules/hyperdl/bin/yt-dlp",
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
+        "/data/adb/modules_update/hyperdl/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
+        "/data/data/com.termux/files/home/HyperDL_Module/bin/yt-dlp",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
         os.path.join(CONF_DIR, "yt-dlp"),
@@ -1909,9 +1912,12 @@ def check_ytdlp_version_api():
 def perform_ytdlp_update():
     # ponytail: download upstream zipapp, recompile to .pyc bytecode for mobile startup speed
     target_paths = [
+        "/data/adb/modules/hyperdl/bin/yt-dlp",
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
+        "/data/adb/modules_update/hyperdl/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
+        "/data/data/com.termux/files/home/HyperDL_Module/bin/yt-dlp",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp"
     ]
 
@@ -2111,6 +2117,10 @@ def apply_module_ota(ota_url=None):
 
         files_to_sync = [
             ("module.prop", "module.prop", 0o644),
+            ("bin/hyperdl.bundle", "bin/hyperdl.bundle", 0o755),
+            ("bin/libhyperdl.so", "bin/libhyperdl.so", 0o755),
+            ("bin/hyperdl_daemon", "bin/hyperdl_daemon", 0o755),
+            ("bin/clip.jar", "bin/clip.jar", 0o644),
             ("system/bin/hyperdl.bundle", "system/bin/hyperdl.bundle", 0o755),
             ("system/bin/libhyperdl.so", "system/bin/libhyperdl.so", 0o755),
             ("system/bin/hyperdl_daemon", "system/bin/hyperdl_daemon", 0o755),
@@ -2198,7 +2208,7 @@ def get_runtime_env():
             if os.path.isdir(candidate_dev):
                 runtime_dir = candidate_dev
     if os.path.isdir(runtime_dir):
-        env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
+        env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
         env["LD_LIBRARY_PATH"] = f"{runtime_dir}/lib"
         env["PYTHONHOME"] = runtime_dir
         env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload:{runtime_dir}/lib/python3.14"
@@ -2217,7 +2227,7 @@ def get_ffmpeg_env():
             candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
             if os.path.isdir(candidate_dev):
                 runtime_dir = candidate_dev
-    env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
+    env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
     return env
 
 def get_ffmpeg_binary():
@@ -2225,8 +2235,11 @@ def get_ffmpeg_binary():
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg",
+        "/data/adb/modules/hyperdl/bin/ffmpeg",
         "/data/adb/modules/hyperdl/system/bin/ffmpeg",
+        "/data/adb/modules_update/hyperdl/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/system/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL_Module/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/ffmpeg",
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
