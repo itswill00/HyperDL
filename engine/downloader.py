@@ -2515,7 +2515,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
 
     node_bin = None
-    for nc in ["/system/bin/node", "/system/xbin/node"]:
+    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
         if os.path.isfile(nc) and os.access(nc, os.X_OK):
             node_bin = nc
             break
@@ -2532,9 +2532,13 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     elif height:
         h = int(height)
         if ffmpeg_bin:
-            format_arg = ["-f", f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={h}]+bestaudio/best[height<={h}]/best", "--merge-output-format", "mp4"]
+            format_arg = [
+                "-f",
+                f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={h}]+bestaudio/bestvideo[width<={h}]+bestaudio/best[height<={h}]/best[width<={h}]/best",
+                "--merge-output-format", "mp4"
+            ]
         else:
-            format_arg = ["-f", f"best[height<={h}][ext=mp4]/best[height<={h}]/best"]
+            format_arg = ["-f", f"best[height<={h}][ext=mp4]/best[height<={h}]/best[width<={h}]/best"]
     else:
         if ffmpeg_bin:
             format_arg = ["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best", "--merge-output-format", "mp4"]
@@ -2585,87 +2589,94 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     playlist_arg = ["--yes-playlist"] if is_playlist else ["--no-playlist"]
 
-    cmd = [
-        py_bin,
-        ytdlp_bin,
-        "--no-warnings",
-        "--no-check-certificates",
-    ] + playlist_arg + [
-        "--no-mtime",
-        "--buffer-size", "256k",
-        "--extractor-retries", "3",
-        "--socket-timeout", "15",
-        "--newline",
-        "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s",
-        "-o", out_tpl,
-    ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
+    cookie_attempts = [cookie_arg, []] if cookie_arg else [[]]
+    for attempt_idx, active_cookies in enumerate(cookie_attempts):
+        cmd = [
+            py_bin,
+            ytdlp_bin,
+            "--no-warnings",
+            "--no-check-certificates",
+        ] + playlist_arg + [
+            "--no-mtime",
+            "--buffer-size", "256k",
+            "--extractor-retries", "3",
+            "--socket-timeout", "15",
+            "--newline",
+            "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s",
+            "-o", out_tpl,
+        ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
 
-    env = get_runtime_env()
-    t_proc_start = time.time()
-    update_status("downloading", percent=0, title="Downloading...")
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env = get_runtime_env()
+        t_proc_start = time.time()
+        update_status("downloading", percent=0, title="Downloading...")
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    stderr_lines = []
-    def _drain_stderr():
-        try:
-            for eline in proc.stderr:
-                stderr_lines.append(eline)
-        except Exception:
-            pass
-
-    t_err = threading.Thread(target=_drain_stderr, daemon=True)
-    t_err.start()
-
-    title = "Media"
-    downloaded_file = None
-    for line in proc.stdout:
-        line = line.strip()
-        if "|" in line:
-            parts = line.split("|")
-            pct_str = parts[0].replace("%", "").strip()
+        stderr_lines = []
+        def _drain_stderr():
             try:
-                pct = int(float(pct_str))
+                for eline in proc.stderr:
+                    stderr_lines.append(eline)
             except Exception:
-                pct = 0
-            dl_str = parts[1].strip() if len(parts) > 1 else ""
-            tot_str = parts[2].strip() if len(parts) > 2 else ""
-            est_str = parts[3].strip() if len(parts) > 3 else ""
-            spd_str = parts[4].strip() if len(parts) > 4 else ""
+                pass
 
-            if tot_str in ("N/A", "NA", "none", "None", "null", ""):
-                if est_str and est_str not in ("N/A", "NA", "none", "None", "null"):
-                    tot_str = est_str if est_str.startswith("~") else f"~{est_str.strip()}"
-                else:
-                    tot_str = ""
+        t_err = threading.Thread(target=_drain_stderr, daemon=True)
+        t_err.start()
 
-            if dl_str in ("N/A", "NA", "none", "None", "null"):
-                dl_str = ""
-            if spd_str in ("N/A", "NA", "none", "None", "null"):
-                spd_str = ""
+        title = "Media"
+        downloaded_file = None
+        for line in proc.stdout:
+            line = line.strip()
+            if "|" in line:
+                parts = line.split("|")
+                pct_str = parts[0].replace("%", "").strip()
+                try:
+                    pct = int(float(pct_str))
+                except Exception:
+                    pct = 0
+                dl_str = parts[1].strip() if len(parts) > 1 else ""
+                tot_str = parts[2].strip() if len(parts) > 2 else ""
+                est_str = parts[3].strip() if len(parts) > 3 else ""
+                spd_str = parts[4].strip() if len(parts) > 4 else ""
 
-            update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title)
-        elif "[download] Destination:" in line:
-            downloaded_file = line.replace("[download] Destination:", "").strip()
-            title = os.path.splitext(os.path.basename(downloaded_file))[0]
-        elif "[Merger] Merging formats into" in line:
-            downloaded_file = line.replace("[Merger] Merging formats into", "").strip().strip('"')
-            title = os.path.splitext(os.path.basename(downloaded_file))[0]
-            update_status("downloading", percent=99, speed="", title=f"{title} (Merging formats...)")
-        elif "[ExtractAudio] Destination:" in line:
-            downloaded_file = line.replace("[ExtractAudio] Destination:", "").strip().strip('"')
-            title = os.path.splitext(os.path.basename(downloaded_file))[0]
-            update_status("downloading", percent=99, speed="", title=f"{title} (Extracting audio...)")
-        elif "[download]" in line and "has already been downloaded" in line:
-            m_dl = re.search(r'\[download\]\s+(.*?)\s+has already been downloaded', line)
-            if m_dl:
-                downloaded_file = m_dl.group(1).strip().strip('"')
+                if tot_str in ("N/A", "NA", "none", "None", "null", ""):
+                    if est_str and est_str not in ("N/A", "NA", "none", "None", "null"):
+                        tot_str = est_str if est_str.startswith("~") else f"~{est_str.strip()}"
+                    else:
+                        tot_str = ""
+
+                if dl_str in ("N/A", "NA", "none", "None", "null"):
+                    dl_str = ""
+                if spd_str in ("N/A", "NA", "none", "None", "null"):
+                    spd_str = ""
+
+                update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title)
+            elif "[download] Destination:" in line:
+                downloaded_file = line.replace("[download] Destination:", "").strip()
                 title = os.path.splitext(os.path.basename(downloaded_file))[0]
+            elif "[Merger] Merging formats into" in line:
+                downloaded_file = line.replace("[Merger] Merging formats into", "").strip().strip('"')
+                title = os.path.splitext(os.path.basename(downloaded_file))[0]
+                update_status("downloading", percent=99, speed="", title=f"{title} (Merging formats...)")
+            elif "[ExtractAudio] Destination:" in line:
+                downloaded_file = line.replace("[ExtractAudio] Destination:", "").strip().strip('"')
+                title = os.path.splitext(os.path.basename(downloaded_file))[0]
+                update_status("downloading", percent=99, speed="", title=f"{title} (Extracting audio...)")
+            elif "[download]" in line and "has already been downloaded" in line:
+                m_dl = re.search(r'\[download\]\s+(.*?)\s+has already been downloaded', line)
+                if m_dl:
+                    downloaded_file = m_dl.group(1).strip().strip('"')
+                    title = os.path.splitext(os.path.basename(downloaded_file))[0]
 
-    proc.wait()
-    t_err.join(timeout=1.5)
-    if proc.returncode != 0:
-        err = "".join(stderr_lines).strip()
-        raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
+        proc.wait()
+        t_err.join(timeout=1.5)
+        if proc.returncode != 0:
+            err = "".join(stderr_lines).strip()
+            if active_cookies and attempt_idx == 0:
+                print(f"yt-dlp failed with cookies, retrying without cookies: {err[-120:]}", file=sys.stderr)
+                update_status("downloading", percent=0, title="Retrying download without cookies...")
+                continue
+            raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
+        break
 
     if not downloaded_file or not os.path.exists(downloaded_file):
         candidates = []
@@ -2704,15 +2715,27 @@ def probe_resolutions(url):
     py_bin = get_python_binary()
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
 
+    node_bin = None
+    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+        if os.path.isfile(nc) and os.access(nc, os.X_OK):
+            node_bin = nc
+            break
+    if not node_bin:
+        node_bin = shutil.which("node")
+    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
+
     cmd = [
         py_bin, ytdlp_bin,
         "-J", "--no-warnings", "--no-check-certificates",
         "--no-playlist", "--no-check-formats", "--socket-timeout", "8",
         "--extractor-retries", "1",
-    ] + cookie_arg + [url]
+    ] + js_arg + cookie_arg + [url]
 
     env = get_runtime_env()
     res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=25)
+    if (res.returncode != 0 or not res.stdout.strip()) and cookie_arg:
+        cmd_no_cookie = [c for c in cmd if c != COOKIES_PATH and c != "--cookies"]
+        res = subprocess.run(cmd_no_cookie, env=env, capture_output=True, text=True, timeout=25)
     if res.returncode != 0 or not res.stdout.strip():
         return []
 
@@ -2737,7 +2760,9 @@ def probe_resolutions(url):
     by_height = {}
     for f in formats:
         h = f.get("height")
-        if not h or h < 144:
+        w = f.get("width")
+        eff_h = min(h, w) if (h and w and w < h) else h
+        if not eff_h or eff_h < 144:
             continue
         vcodec = f.get("vcodec", "none")
         if vcodec == "none":
@@ -2755,8 +2780,8 @@ def probe_resolutions(url):
             if br:
                 vsize = int((br * 1024 / 8) * duration)
 
-        if h not in by_height or vsize > by_height[h]["vsize"]:
-            by_height[h] = {"height": h, "vsize": vsize, "fps": fps}
+        if eff_h not in by_height or vsize > by_height[eff_h]["vsize"]:
+            by_height[eff_h] = {"height": eff_h, "vsize": vsize, "fps": fps}
 
     if not by_height:
         return []

@@ -1,8 +1,8 @@
 {
-  "version": "v1.3.20",
-  "versionCode": 13200,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.20/HyperDL-v1.3.20.zip",
-  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.20/HyperDL-OTA-v1.3.20.zip",
+  "version": "v1.3.21",
+  "versionCode": 13210,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.21/HyperDL-v1.3.21.zip",
+  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.21/HyperDL-OTA-v1.3.21.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Migrate from system/bin to bin to eliminate bootloops on Magic Mount and Knox Defex"
+  "notes": "Fix YouTube downloader resolution selection and cookie bot-detection fallback"
 }

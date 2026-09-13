@@ -1,21 +1,18 @@
-🔥 HyperDL v1.2.0
+🔥 HyperDL v1.3.20
 
-A clean, standalone media downloader root module for KernelSU, APatch, and Magisk. Everything runs 100% locally on your device with built-in Python and FFmpeg (no Termux or extra setup required).
+Hotfix update addressing bootloop / splash screen freezes on several devices (Samsung Knox DEFEX & non-OverlayFS kernels), plus internal codebase optimization.
 
-✨ What's Working:
-• YouTube: instant 144p–4K resolution picker + FLAC HD audio
-• TikTok: watermark-free video, audio, and photo slides
-• Twitter / X: videos, GIFs, and full-res photos
-• Reddit & Pinterest: videos and image galleries
-• WebUI: Material 3 design, download cancel button, and multi-select checkboxes for batch delete
-
-📌 Notes:
-• Instagram photos and private posts require your cookies in the WebUI "Cookies" tab to get past Meta login walls.
+✨ What's New & Fixed:
+• Critical Bootloop Fix: Completely removed /system overlay mounts. Binaries now live in module bin/ with native root PATH symlinks (HyperRing pattern).
+• Samsung & Magic Mount Immunity: No more Knox DEFEX panics or tmpfs deadlocks during early init.
+• Safe Auto-Migration: Automatically purges legacy system mounts from previous installs without touching your downloaded media.
+• Codebase Optimization: Leaner, stripped binaries and faster bridge execution.
+• In-App OTA Hot-Patch: Users on v1.3.18+ can update directly inside WebUI (~184 KB) without rebooting.
 
 📦 Download:
-• GitHub Release: https://github.com/itswill00/HyperDL/releases/tag/v1.2.0
+• GitHub Release: https://github.com/itswill00/HyperDL-Release/releases/tag/v1.3.20
 
 💬 Feedback & Discussion: @noticesa
 ☕ Support development: https://sociabuzz.com/noticesa/tribe
 
-#HyperDL #KernelSU #APatch #Magisk #Module
+#HyperDL #KernelSU #APatch #Magisk #Module #Update
