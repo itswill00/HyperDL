@@ -1093,7 +1093,8 @@ def resolve_instagram(url, fmt="video"):
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9"
             }
-            req = urllib.request.Request(f"https://www.instagram.com/reel/{shortcode}/", headers=crawler_hdrs)
+            probe_path = "reel" if ("/reel/" in clean_url or "/reels/" in clean_url) else "p"
+            req = urllib.request.Request(f"https://www.instagram.com/{probe_path}/{shortcode}/", headers=crawler_hdrs)
             with urllib.request.urlopen(req, timeout=3.5) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
             
@@ -1212,27 +1213,22 @@ def resolve_instagram(url, fmt="video"):
                     "uploader": info.get("uploader")
                 }
         else:
-            vurl = None
+            author_channel = info.get("channel") or info.get("uploader") or info.get("uploader_id")
             formats = info.get("formats") or []
             prog_formats = [f for f in formats if is_progressive_instagram_format(f)]
-            if prog_formats:
+            v_fmts = [f for f in formats if (f.get("vcodec") and f.get("vcodec") != "none") or str(f.get("format_id", "")).endswith("v") or ".mp4" in str(f.get("url", "")).lower()]
+
+            # 1. Progressive video stream (best quality single mp4)
+            if prog_formats and fmt not in ("photo", "image"):
                 best_prog = max(prog_formats, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0) or (f.get("tbr") or 0))
-                vurl = best_prog.get("url")
-            elif info.get("url") and not formats:
-                vurl = info.get("url")
-            
-            author_channel = info.get("channel") or info.get("uploader") or info.get("uploader_id")
-            # If a progressive stream with both audio and video exists, return it directly
-            if vurl and fmt not in ("photo", "image", "audio"):
                 return {
-                    "url": vurl, "title": title, "ext": "mp4", "kind": "video",
+                    "url": best_prog.get("url"), "title": title, "ext": "mp4", "kind": "video",
                     "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader"),
                     "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "Instagram", "channel": author_channel, "id": shortcode}
                 }
-            
-            # If video or audio was requested and only DASH separate streams exist, delegate to direct_ytdlp
-            # so yt-dlp + ffmpeg downloads and muxes bestvideo+bestaudio into a pristine MP4!
-            if fmt not in ("photo", "image") and formats:
+
+            # 2. DASH video streams (delegate to yt-dlp to mux bestvideo+bestaudio)
+            if v_fmts and fmt not in ("photo", "image"):
                 return {
                     "direct_ytdlp": True,
                     "url": clean_url,
@@ -1245,22 +1241,42 @@ def resolve_instagram(url, fmt="video"):
                     "uploader": info.get("uploader")
                 }
 
-            if vurl:
+            # 3. Direct video url in info (if yt-dlp populated info['url'] with an actual video)
+            info_url = info.get("url") or ""
+            is_info_video = (
+                (info.get("vcodec") and info.get("vcodec") != "none") or
+                info.get("ext") == "mp4" or
+                ".mp4" in info_url.lower() or
+                ".m3u8" in info_url.lower()
+            )
+            if info_url and is_info_video and fmt not in ("photo", "image"):
                 return {
-                    "url": vurl, "title": title, "ext": "mp4", "kind": "video",
-                    "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                    "url": info_url, "title": title, "ext": "mp4", "kind": "video",
+                    "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                 }
 
-            thumbs = info.get("thumbnails") or []
-            if thumbs and (fmt in ("photo", "image") or not formats):
-                if any((t.get("width") or 0) > 0 for t in thumbs):
-                    best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
-                else:
-                    best = thumbs[-1]
-                if best.get("url") and fmt != "audio":
+            # 4. Photos / Images: If NO video was found and format is not audio
+            if fmt != "audio":
+                img_url = None
+                if info_url and not is_info_video:
+                    img_url = info_url
+                if not img_url:
+                    thumbs = info.get("thumbnails") or []
+                    if thumbs:
+                        if any((t.get("width") or 0) > 0 for t in thumbs):
+                            best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                        else:
+                            best = thumbs[-1]
+                        img_url = best.get("url")
+                if img_url:
+                    img_ext = "jpg"
+                    if ".png" in img_url.lower():
+                        img_ext = "png"
+                    elif ".webp" in img_url.lower():
+                        img_ext = "webp"
                     return {
-                        "url": best["url"], "title": title, "ext": "jpg", "kind": "image",
-                        "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                        "url": img_url, "title": title, "ext": img_ext, "kind": "image",
+                        "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                     }
     except Exception as e:
         print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
@@ -1343,6 +1359,15 @@ def resolve_facebook(url, fmt="video"):
                 "candidates": candidates,
                 "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
             }
+
+        # Facebook photo extraction fallback
+        if fmt != "audio":
+            og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html) or \
+                     re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html)
+            if og_img:
+                img_u = pyhtml.unescape(og_img.group(1)).replace("&amp;", "&")
+                if img_u and not any(bad in img_u.lower() for bad in ("facebook_logo", "rsrc.php", "fb_logo")):
+                    return {"url": img_u, "title": title, "ext": "jpg", "kind": "image", "platform": "Facebook"}
     except Exception as e:
         print(f"Facebook direct scrape note: {e}", file=sys.stderr)
 
@@ -1422,14 +1447,45 @@ def resolve_pinterest(url, fmt="video"):
                             if m3u8s:
                                 return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            # 3. Images (orig high-res fallback) - only if not requesting video/audio
-            if fmt not in ("video", "audio"):
+            # 3. Check story pin images (Idea Pins with photos)
+            if isinstance(story, dict) and fmt != "audio":
+                story_imgs = []
+                for page in story.get("pages", []):
+                    for block in page.get("blocks", []):
+                        img_obj = block.get("image") or {}
+                        if isinstance(img_obj, dict):
+                            i_url = (img_obj.get("images", {}).get("orig", {}) or {}).get("url")
+                            if i_url:
+                                story_imgs.append(i_url)
+                if story_imgs:
+                    if len(story_imgs) == 1:
+                        return {"url": story_imgs[0], "title": title, "ext": "jpg", "kind": "image", "platform": "Pinterest", "id": pin_id}
+                    return {"images": story_imgs, "title": title, "ext": "jpg", "kind": "album", "platform": "Pinterest", "id": pin_id}
+
+            # 4. Standard pin images (orig high-res fallback)
+            if fmt != "audio":
                 images = pin.get("images") or {}
                 orig = images.get("orig") or {} if isinstance(images, dict) else {}
                 if orig.get("url"):
-                    return {"url": orig["url"], "title": title, "ext": "jpg", "kind": "image"}
+                    ext = "png" if ".png" in str(orig["url"]).lower() else "jpg"
+                    return {"url": orig["url"], "title": title, "ext": ext, "kind": "image", "platform": "Pinterest", "id": pin_id}
         except Exception as e:
             print(f"Pinterest API note: {e}", file=sys.stderr)
+
+        # Fallback to Pinterest HTML OpenGraph scrape if API failed or no media in JSON
+        if fmt != "audio":
+            try:
+                req_html = urllib.request.Request(clean_url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req_html, timeout=4) as resp:
+                    p_html = resp.read().decode("utf-8", errors="ignore")
+                og_img = re.search(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', p_html)
+                if og_img:
+                    img_u = pyhtml.unescape(og_img.group(1)).replace("&amp;", "&")
+                    if img_u:
+                        ext = "png" if ".png" in img_u.lower() else "jpg"
+                        return {"url": img_u, "title": f"Pinterest_{pin_id}", "ext": ext, "kind": "image", "platform": "Pinterest", "id": pin_id}
+            except Exception:
+                pass
 
     return {
         "direct_ytdlp": True,
@@ -1508,8 +1564,17 @@ def resolve_reddit(url, fmt="video"):
                                 return {"images": images, "title": title, "ext": "jpg", "kind": "album"}
 
                         post_url = pyhtml.unescape(post.get("url") or "")
-                        if any(post_url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")):
-                            return {"url": post_url, "title": title, "ext": "jpg", "kind": "image"}
+                        if any(ext in post_url.lower() for ext in (".jpg", ".jpeg", ".png", ".webp")):
+                            ext = "png" if ".png" in post_url.lower() else "jpg"
+                            return {"url": post_url, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
+
+                        preview_imgs = post.get("preview", {}).get("images", [])
+                        if preview_imgs and fmt != "audio":
+                            src_u = (preview_imgs[0].get("source") or {}).get("url")
+                            if src_u:
+                                clean_src = pyhtml.unescape(src_u).replace("&amp;", "&")
+                                ext = "png" if ".png" in clean_src.lower() else "jpg"
+                                return {"url": clean_src, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
 
                         media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
                         rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
@@ -1622,9 +1687,10 @@ def resolve_twitter(url, fmt="video"):
                     # Video found in tweet metadata, but direct MP4 variant missing (e.g. m3u8 only) -> fallback to yt-dlp
                     return fb_lambda()
                 if images and fmt != "audio":
+                    fb_album = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": "album", "is_yt": False, "title": title, "channel": author, "id": status_id, "platform": "Twitter"}
                     if len(images) == 1:
-                        return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
-                    return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
+                        return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_album}
+                    return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_album}
         except Exception as e:
             print(f"Twitter GraphQL API note: {e}", file=sys.stderr)
 
@@ -1734,9 +1800,10 @@ def resolve_twitter(url, fmt="video"):
                 photos = [p.get("url") for p in (data.get("photos") or []) if p.get("url")]
 
             if photos:
+                fb_album = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": "album", "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
                 if len(photos) == 1:
-                    return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
-                return {"images": photos, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
+                    return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_album}
+                return {"images": photos, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_album}
 
     return {
         "direct_ytdlp": True,
@@ -2021,7 +2088,7 @@ def resolve_bluesky(url, fmt="video"):
 
         # 2. Images: single image or carousel album
         images = embed.get("images") or []
-        if images:
+        if images and fmt != "audio":
             if len(images) == 1:
                 img_url = images[0].get("fullsize") or images[0].get("thumb")
                 return {
@@ -2029,6 +2096,7 @@ def resolve_bluesky(url, fmt="video"):
                     "title": title,
                     "id": rkey,
                     "ext": "jpg",
+                    "kind": "image",
                     "platform": "Bluesky",
                     "author": author,
                     "channel": author
@@ -2037,12 +2105,13 @@ def resolve_bluesky(url, fmt="video"):
             for img in images:
                 i_url = img.get("fullsize") or img.get("thumb")
                 if i_url:
-                    items.append({"url": i_url, "ext": "jpg"})
+                    items.append({"url": i_url, "ext": "jpg", "kind": "image"})
             return {
                 "kind": "album",
                 "items": items,
                 "title": title,
                 "id": rkey,
+                "ext": "jpg",
                 "platform": "Bluesky",
                 "author": author,
                 "channel": author
@@ -2080,8 +2149,8 @@ def resolve_threads(url, fmt="video"):
             m_auth = re.search(r'threads\.net/@([^/]+)', url)
             author = m_auth.group(1) if m_auth else None
             return {"url": vurl, "title": title, "ext": "mp4", "kind": "video", "id": post_id, "channel": author, "platform": "Threads"}
-        # Images: only if not requesting video/audio
-        if fmt not in ("video", "audio"):
+        # Images: only if not requesting audio (no video found above)
+        if fmt != "audio":
             images = re.findall(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
             if not images:
                 images = re.findall(r'content=["\']([^"\']+)["\']\s+property=["\']og:image["\']', html)
@@ -2286,6 +2355,8 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     if fmt == "audio":
         format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "flac", "--audio-quality", "0"]
+    elif fmt in ("album", "photo", "image"):
+        format_arg = []
     elif format_id and not height:
         format_arg = ["-f", format_id]
     elif height:
@@ -2658,7 +2729,7 @@ def main():
             return
 
         title = sanitize_filename(info.get("title", "Media"))
-        ext = info.get("ext", "mp4")
+        ext = info.get("ext") or ("jpg" if info.get("kind") == "image" else "mp4")
         media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
         target_dir = get_target_directory(outdir, info, url)
         base_title = re.sub(rf'[_ -]*{re.escape(media_id)}.*$', '', title).strip() or title
@@ -2669,13 +2740,19 @@ def main():
             for idx, it in enumerate(raw_items):
                 if isinstance(it, dict):
                     item_url = it.get("url")
-                    item_ext = it.get("ext") or ("mp4" if it.get("kind") == "video" else ext)
+                    item_ext = it.get("ext") or ("mp4" if it.get("kind") == "video" else ("jpg" if it.get("kind") == "image" else ext))
                 else:
                     item_url = it
                     item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
 
                 if not item_url:
                     continue
+
+                if item_ext == "mp4" and any(e in str(item_url).lower() for e in (".jpg", ".jpeg", ".png", ".webp")):
+                    for e in (".jpg", ".jpeg", ".png", ".webp"):
+                        if e in str(item_url).lower():
+                            item_ext = e.lstrip(".")
+                            break
 
                 item_path = os.path.join(target_dir, f"{base_title}_{media_id}_{idx+1}.{item_ext}")
                 update_status("downloading", percent=int((idx+1)/total*100), title=f"{title} ({idx+1}/{total})")
@@ -2695,6 +2772,8 @@ def main():
             update_status("completed", percent=100, title=title, file_path=target_dir)
         else:
             if fmt == "audio":
+                if info.get("kind") == "image" or ext in ("jpg", "jpeg", "png", "webp"):
+                    raise RuntimeError("Cannot extract audio: this post only contains photos/images.")
                 ffmpeg_bin = get_ffmpeg_binary()
                 if ffmpeg_bin:
                     tmp_raw = os.path.join(target_dir, f".tmp_{base_title}_{media_id}.raw")
@@ -2720,6 +2799,13 @@ def main():
                     scan_media_file(out_path)
                     update_status("completed", percent=100, title=title, file_path=out_path)
                     return
+            if info.get("kind") == "image" and ext == "mp4":
+                ext = "jpg"
+            if ext == "mp4" and any(e in str(info.get("url", "")).lower() for e in (".jpg", ".jpeg", ".png", ".webp")):
+                for e in (".jpg", ".jpeg", ".png", ".webp"):
+                    if e in str(info.get("url", "")).lower():
+                        ext = e.lstrip(".")
+                        break
             filename = f"{base_title}_{media_id}.{ext}"
             out_path = os.path.join(target_dir, filename)
             download_media_candidates(info, out_path, title=title)
