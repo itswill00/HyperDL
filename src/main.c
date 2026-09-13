@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <dlfcn.h>
 #include <libgen.h>
+#include <poll.h>
 #include "embedded_engine.h"
 
 #define STATUS_FILE        "/data/local/tmp/hyperdl_status.json"
@@ -541,15 +542,44 @@ static void run_python_action(const char *subaction, const char *extra_arg) {
 
     char output[65536] = "";
     size_t total = 0;
-    ssize_t n;
-    while (total < sizeof(output) - 1 && (n = read(pipefd[0], output + total, sizeof(output) - total - 1)) > 0) {
-        total += n;
+    int child_exited = 0;
+    int status = 0;
+
+    while (total < sizeof(output) - 1) {
+        if (!child_exited) {
+            pid_t w = waitpid(pid, &status, WNOHANG);
+            if (w == pid || w < 0) {
+                child_exited = 1;
+            }
+        }
+
+        struct pollfd pfd;
+        pfd.fd = pipefd[0];
+        pfd.events = POLLIN | POLLHUP | POLLERR;
+        pfd.revents = 0;
+
+        int poll_timeout = child_exited ? 100 : 300;
+        int ret = poll(&pfd, 1, poll_timeout);
+
+        if (ret > 0 && (pfd.revents & POLLIN)) {
+            ssize_t n = read(pipefd[0], output + total, sizeof(output) - total - 1);
+            if (n > 0) {
+                total += n;
+            } else if (n == 0) {
+                break;
+            }
+        }
+
+        if (child_exited && (ret <= 0 || !(pfd.revents & POLLIN))) {
+            break;
+        }
     }
     output[total] = '\0';
     close(pipefd[0]);
 
-    int status;
-    waitpid(pid, &status, 0);
+    if (!child_exited) {
+        waitpid(pid, &status, 0);
+    }
 
     if (total > 0) {
         printf("%s\n", output);

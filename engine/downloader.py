@@ -2139,7 +2139,14 @@ def apply_module_ota(ota_url=None):
                 daemon_script = os.path.join(target_mod, "system", "bin", "hyperdl_daemon")
             if os.path.exists(daemon_script):
                 try:
-                    subprocess.Popen(["sh", daemon_script, "start"], start_new_session=True)
+                    subprocess.Popen(
+                        ["sh", daemon_script, "start"],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        close_fds=True,
+                        start_new_session=True
+                    )
                     restarted_daemon = True
                 except Exception:
                     pass
