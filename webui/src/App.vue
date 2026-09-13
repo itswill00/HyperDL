@@ -120,7 +120,6 @@
             </button>
           </div>
 
-          <!-- Smart Clipboard Sniffer Banner -->
           <div v-if="detectedClipUrl" class="clip-sniffer-banner">
             <div class="clip-sniffer-icon">
               <Icons name="clipboard" :size="15" />
@@ -235,7 +234,6 @@
                 {{ task.status === 'paused' ? 'Paused' : `${task.percent}%` }}
               </span>
 
-              <!-- Downloading / Resolving controls -->
               <template v-if="task.status === 'resolving' || task.status === 'downloading'">
                 <button
                   class="btn btn-secondary"
@@ -257,7 +255,6 @@
                 </button>
               </template>
 
-              <!-- Paused controls -->
               <template v-else-if="task.status === 'paused'">
                 <button
                   class="btn btn-primary"
@@ -279,7 +276,6 @@
                 </button>
               </template>
 
-              <!-- Completed or Error dismiss -->
               <button
                 v-else-if="task.status === 'completed' || task.status === 'error'"
                 class="icon-btn"
@@ -305,7 +301,6 @@
             <span>{{ formatSpeedInfo(task) }}</span>
           </div>
 
-          <!-- Paused banner with instant resume -->
           <div v-if="task.status === 'paused'" style="margin-top: 10px; font-size: 12px; background: rgba(255, 183, 77, 0.12); border: 1px solid rgba(255, 183, 77, 0.3); padding: 9px 12px; border-radius: 8px; color: #ffb74d;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
               <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
@@ -325,7 +320,6 @@
             </div>
           </div>
 
-          <!-- Error details -->
           <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
             <div style="display: flex; align-items: flex-start; gap: 8px;">
               <Icons :name="isNetworkError(task.error) ? 'wifi-off' : 'info'" :size="15" style="color: var(--error); flex-shrink: 0; margin-top: 1px;" />
@@ -413,7 +407,6 @@
           </div>
         </div>
 
-        <!-- Storage Breakdown & Quick Cleaner Card -->
         <div class="storage-card" v-if="storageStats.free_size || storageStats.media_count > 0">
           <div class="storage-header">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -456,9 +449,7 @@
           </div>
         </div>
 
-        <!-- Recent downloads header / contextual selection toolbar -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px; min-height: 32px;">
-          <!-- Selection Mode active: Contextual Action Bar -->
           <template v-if="selectedFiles.size > 0">
             <div style="display: flex; align-items: center; gap: 8px;">
               <button class="icon-btn" style="width: 28px; height: 28px;" @click="clearSelection" title="Cancel selection">
@@ -479,7 +470,6 @@
             </div>
           </template>
 
-          <!-- Normal Mode: Section Title & Actions -->
           <template v-else>
             <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
             <div style="display: flex; gap: 6px; align-items: center;" v-if="historyList.length > 0">
@@ -493,7 +483,6 @@
           </template>
         </div>
 
-        <!-- Search and Category Filters -->
         <div class="recent-controls-card" v-if="historyList.length > 0">
           <div class="search-input-box">
             <Icons name="search" :size="14" style="color: var(--on-surface-variant); flex-shrink: 0;" />
@@ -556,7 +545,6 @@
             :class="{ 'row-selected': selectedFiles.has(item.path) }"
             style="display: flex; align-items: center; gap: 10px;"
           >
-            <!-- Multi-select checkbox -->
             <label class="custom-checkbox" @click.stop>
               <input
                 type="checkbox"
@@ -584,7 +572,6 @@
               </div>
             </div>
 
-            <!-- Action buttons -->
             <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
               <template v-if="isImageExt(item.ext)">
                 <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview image">
@@ -669,7 +656,6 @@
           </div>
         </section>
 
-        <!-- Platform Accounts & Cookie Health Status -->
         <div class="section-title">Account sessions</div>
         <div class="md3-card" style="padding: 12px;">
           <div class="cookie-health-grid">
@@ -864,7 +850,6 @@
 
       </div>
 
-      <!-- VAULT TAB -->
       <div v-show="activeTab === 'vault' && isVaultActive" class="tab-pane">
         <section class="md3-card" style="margin-top: 4px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -984,7 +969,6 @@
           </button>
         </div>
 
-        <!-- Scanning banner when probe is running (progressive stream detection) -->
         <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 7px 10px; background: var(--surface-container-low); border: 1px solid var(--outline-variant); border-radius: 8px; margin-bottom: 10px;">
           <div class="spin-loader" style="display: flex; align-items: center;">
             <Icons name="refresh" :size="13" />
@@ -992,7 +976,6 @@
           <span>Detecting real streams & exact file sizes...</span>
         </div>
 
-        <!-- Loaded resolution list (instant presets smoothly updated to real streams) -->
         <div v-if="resolutions.length > 0" class="resolution-list">
           <button
             v-for="r in resolutions"
@@ -1010,7 +993,6 @@
           </button>
         </div>
 
-        <!-- Action buttons: Best Quality & Cancel -->
         <div style="display: flex; gap: 8px; margin-top: 12px;">
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
             Best Available Quality
@@ -1022,7 +1004,6 @@
       </div>
     </div>
 
-    <!-- Custom In-App Material 3 Confirmation Dialog -->
     <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
       <div class="dialog-card">
         <div class="dialog-title">{{ confirmDialog.title }}</div>
@@ -1043,7 +1024,6 @@
       </div>
     </div>
 
-    <!-- Custom In-App Material 3 OTA Update Dialog -->
     <div v-if="showUpdateModal" class="dialog-backdrop" @click.self="!isApplyingOta && (showUpdateModal = false)">
       <div class="dialog-card" style="max-width: 340px;">
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
@@ -1088,10 +1068,8 @@
       </div>
     </div>
 
-    <!-- In-App Quick Preview / Lightbox Modal -->
     <div v-if="previewModal.show" class="preview-backdrop" @click.self="closePreview">
       <div class="preview-card">
-        <!-- Preview Top Bar -->
         <div class="preview-top-bar">
           <div class="preview-title-box">
             <div class="preview-filename">{{ previewModal.item?.name }}</div>
@@ -1107,7 +1085,6 @@
           </button>
         </div>
 
-        <!-- Preview Body -->
         <div class="preview-body">
           <div v-if="previewLoading" class="preview-center-box">
             <div class="spinner"></div>
@@ -1150,7 +1127,6 @@
           </div>
         </div>
 
-        <!-- Preview Bottom Actions -->
         <div class="preview-bottom-bar">
           <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 12px; gap: 6px;" @click="openMedia(previewModal.item?.path)">
             <Icons name="external-link" :size="14" />
@@ -1633,8 +1609,6 @@ function handleOnline() {
 
 function handleOffline() {
   isOnline.value = false
-  // Never kill/pause running background downloads on transient WebView offline events.
-  // The backend downloader has built-in retry and socket timeout logic.
   showToast('Network connection unstable', 'warning')
 }
 
@@ -1835,8 +1809,6 @@ async function startDownload() {
     isProbingResolutions.value = true
 
     if (probeTimer) clearTimeout(probeTimer)
-    // Decoupled probe: fire AFTER sheet slide-up animation completes (250ms)
-    // Child process runs with nice(19) so WebView rendering is 100% fluid
     probeTimer = setTimeout(() => {
       runBridge('probe', u).then((raw) => {
         if (!showResolutionPicker.value || pendingUrl.value !== u) return
@@ -1918,7 +1890,7 @@ async function resumeDownload() {
     extraArg = `--format-id=${task.value.format_id}`
   }
   showToast('Resuming download...', 'info')
-  await doDownload(targetUrl, fmt, extraArg, true /* isResume */)
+  await doDownload(targetUrl, fmt, extraArg, true )
 }
 
 async function cancelDownload() {
@@ -2642,7 +2614,6 @@ async function checkActiveTask() {
     }
   } catch (e) {}
 
-  // Fallback: check localStorage for unfinished task (reboot recovery)
   const saved = loadActiveTaskFromStorage()
   if (saved && (saved.status === 'downloading' || saved.status === 'resolving' || saved.status === 'paused')) {
     task.value = {
@@ -2856,7 +2827,6 @@ onUnmounted(() => {
   transform: translate(-50%, -8px) scale(0.96);
 }
 
-/* Resolution Picker Sheet Modal */
 .sheet-overlay {
   position: fixed;
   inset: 0;
@@ -3177,7 +3147,6 @@ onUnmounted(() => {
   border-radius: 10px;
 }
 
-/* Clipboard Sniffer Banner */
 .clip-sniffer-banner {
   display: flex;
   align-items: center;
@@ -3244,7 +3213,6 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-/* Storage Card */
 .storage-card {
   background: var(--surface-container-low);
   border: 1px solid var(--surface-container-high);
@@ -3290,7 +3258,6 @@ onUnmounted(() => {
   transition: width 0.3s ease;
 }
 
-/* Recent Controls (Search & Chips) */
 .recent-controls-card {
   display: flex;
   flex-direction: column;
@@ -3360,7 +3327,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* Lightbox / Preview */
 .preview-backdrop {
   position: fixed;
   top: 0;
@@ -3523,7 +3489,6 @@ onUnmounted(() => {
   background: var(--surface-container-high);
 }
 
-/* Cookie Health Grid */
 .cookie-health-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));

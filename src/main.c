@@ -1,11 +1,3 @@
-/*
- * HyperDL Native IPC & Engine Bridge (libhyperdl.so)
- * High-performance C executable replacing legacy shell wrappers.
- *
- * Copyright (C) 2026 @itswill00
- * Licensed under the GNU General Public License v3.0
- */
-
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,12 +151,10 @@ static void cmd_status(void) {
         unlink(PID_FILE);
     }
 
-    // Process is actively running in background - NEVER mutate to paused
     if (pid_alive) {
         if (has_status) {
             printf("%s\n", buf);
         } else {
-            // Process is alive, but STATUS_FILE is still being initialized
             FILE *af = fopen(ACTIVE_TASK_FILE, "r");
             if (af) {
                 char abuf[2048];
@@ -181,14 +171,11 @@ static void cmd_status(void) {
         return;
     }
 
-    // Process is NOT running.
-    // If STATUS_FILE has a completed or error result, report it.
     if (has_status && (strstr(buf, "\"completed\"") || strstr(buf, "\"error\""))) {
         printf("%s\n", buf);
         return;
     }
 
-    // Device reboot or crash recovery: check persistent ACTIVE_TASK_FILE
     FILE *af = fopen(ACTIVE_TASK_FILE, "r");
     if (af) {
         char abuf[2048];
@@ -298,7 +285,6 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         setsid();
         signal(SIGHUP, SIG_IGN);
 
-        // Protect background download from OEM LMK task killers (HyperOS, ColorOS, XOS)
         int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY);
         if (oom_fd >= 0) {
             write(oom_fd, "-900\n", 5);
@@ -839,7 +825,7 @@ static void prune_empty_parents(const char *file_path) {
     char *parent = dirname(path_buf);
     while (parent && strcmp(parent, OUTDIR) != 0 && strcmp(parent, "/") != 0 && strlen(parent) > strlen(OUTDIR)) {
         if (rmdir(parent) != 0) {
-            break; // not empty or failed
+            break;
         }
         parent = dirname(parent);
     }
@@ -1472,7 +1458,6 @@ static void cmd_cancel(void) {
         chmod(ACTIVE_TASK_FILE, 0666);
     }
 
-    // Update system notification bar to show cancelled
     pid_t npid = fork();
     if (npid == 0) {
         setresgid(2000, 2000, 2000);

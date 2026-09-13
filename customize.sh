@@ -10,7 +10,6 @@ fi
 
 ui_print "- Installing HyperDL..."
 
-# Stop any running daemons or downloads from previous version before extracting
 if [ -f /data/local/tmp/hyperdl_clip.pid ]; then
     kill -9 $(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
     rm -f /data/local/tmp/hyperdl_clip.pid
@@ -22,7 +21,6 @@ fi
 pkill -9 -f hyperdl_daemon 2>/dev/null || true
 pkill -9 -f hyperdl.bundle 2>/dev/null || true
 
-# Purge legacy system overlay directory from older versions to prevent bootloops
 rm -rf "$MODPATH/system" 2>/dev/null || true
 
 ui_print "- Extracting files..."
@@ -36,13 +34,11 @@ chmod 0777 /data/adb/hyperdl 2>/dev/null || true
 mkdir -p /data/local/tmp 2>/dev/null || true
 chmod 0777 /data/local/tmp 2>/dev/null || true
 
-# Synchronize clip.jar to persistent config directory
 if [ -f "$MODPATH/bin/clip.jar" ]; then
     cp -f "$MODPATH/bin/clip.jar" /data/adb/hyperdl/clip.jar 2>/dev/null || true
     chmod 644 /data/adb/hyperdl/clip.jar 2>/dev/null || true
 fi
 
-# Ensure .nomedia in .vault if vault directory exists
 if [ -d /storage/emulated/0/Download/HyperDL/.vault ]; then
     touch /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
     chmod 0666 /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
@@ -66,14 +62,12 @@ chmod 755 "$MODPATH/uninstall.sh" 2>/dev/null
 chmod 644 "$MODPATH/module.prop" 2>/dev/null
 chmod 644 "$MODPATH/webroot/index.html" 2>/dev/null
 
-# Create root manager PATH symlinks (KSU / APatch / Magisk)
 for mgr_bin in /data/adb/ap/bin /data/adb/ksu/bin /data/adb/modules/bin; do
     if [ -d "$mgr_bin" ]; then
         ln -sf "$MODPATH/bin/libhyperdl.so" "$mgr_bin/hyperdl" 2>/dev/null || true
     fi
 done
 
-# Enforce system SELinux contexts for Android 10-15+ compatibility
 chcon -R u:object_r:system_file:s0 "$MODPATH" 2>/dev/null || true
 
 if [ -f "$MODPATH/webroot/index.html" ]; then

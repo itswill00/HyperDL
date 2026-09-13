@@ -21,7 +21,6 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
-# Protect all operations from hanging sockets
 socket.setdefaulttimeout(15)
 
 STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
@@ -205,7 +204,6 @@ def expand_shortlink_fast(url, timeout=3.5):
         except Exception:
             res = url
 
-    # Guard: if expansion stripped the video path (e.g. redirected to homepage with ?_r=1 or /)
     if "tiktok.com" in res.lower() and "/video/" not in res.lower() and "/photo/" not in res.lower():
         return url
     if "instagram.com" in res.lower() and "/p/" not in res.lower() and "/reel/" not in res.lower() and "/tv/" not in res.lower():
@@ -417,7 +415,6 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         "format_id": CURRENT_FORMAT_ID,
         "height": CURRENT_HEIGHT
     }
-    # Write STATUS_FILE atomically to prevent race condition with concurrent C bridge reads
     try:
         os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
         tmp_status = f"{STATUS_FILE}.tmp.{os.getpid()}"
@@ -431,7 +428,6 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
     except Exception:
         pass
 
-    # Write ACTIVE_TASK_FILE atomically
     try:
         os.makedirs(CONF_DIR, exist_ok=True)
         tmp_active = f"{ACTIVE_TASK_FILE}.tmp.{os.getpid()}"
@@ -478,7 +474,6 @@ def scan_media_file(file_path):
         pass
     try:
         quoted = urllib.parse.quote(file_path)
-        # Dual-mode media scanning (Android 10 broadcast + Android 11-15 scoped storage content insert)
         cmd = (
             f'(am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://{quoted}" >/dev/null 2>&1; '
             f'content insert --uri content://media/external/file --bind _data:s:"{file_path}" >/dev/null 2>&1) &'
@@ -568,7 +563,6 @@ def solve_tiktok_challenge(html_text):
         return ""
 
 def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
-    # If completed file already exists and is non-empty, avoid redundant re-download
     if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
         if emit_complete:
             update_status("completed", percent=100, title=title, file_path=out_path)
@@ -599,7 +593,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
         try:
             resp = urllib.request.urlopen(req, timeout=40)
         except urllib.error.HTTPError as e:
-            # HTTP 416: Requested Range Not Satisfiable (file is likely already fully downloaded in .part)
             if e.code == 416 and existing_bytes > 0:
                 os.replace(part_path, out_path)
                 try:
@@ -610,7 +603,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                 if emit_complete:
                     update_status("completed", percent=100, title=title, file_path=out_path)
                 return out_path
-            # If server rejects Range header (400 or 403), retry full stream from 0
             if "Range" in hdrs:
                 del hdrs["Range"]
                 if os.path.exists(part_path):
@@ -698,7 +690,6 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                 update_status("completed", percent=100, title=title, file_path=out_path)
             return out_path
     except Exception as e:
-        # DO NOT remove part_path! Keep downloaded bytes for resume!
         if emit_error:
             update_status("error", error=str(e), title=title)
         raise
@@ -750,7 +741,6 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
                 update_status("completed", percent=100, title=title, file_path=out_path)
             return out_path
 
-    # Fallback to yt-dlp direct extraction
     outdir = os.path.dirname(out_path) or "."
     return download_with_ytdlp_direct(m3u8_url, outdir, fmt="video")
 
@@ -787,7 +777,6 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
                 if emit_complete:
                     update_status("completed", percent=100, title=title, file_path=out_path)
                 return out_path
-        # If ffmpeg missing or muxing failed, fallback to downloading video stream directly
         return download_file(item["url"], out_path, title=title, headers=item.get("headers"), emit_error=True, emit_complete=emit_complete)
 
     candidates = item.get("candidates", [])
@@ -1086,7 +1075,6 @@ def resolve_instagram(url, fmt="video"):
         }
     shortcode = shortcode_match.group(1)
 
-    # Fast OpenGraph crawler probe first (ideal for public single reels/videos without waiting for yt-dlp)
     if fmt == "video":
         try:
             crawler_hdrs = {
@@ -1123,7 +1111,6 @@ def resolve_instagram(url, fmt="video"):
         except Exception:
             pass
 
-    # Deep extraction via yt_dlp InstagramIE (supports cookies, albums, carousels, and private posts)
     try:
         ytdlp_bin = get_or_download_ytdlp()
         if ytdlp_bin and ytdlp_bin not in sys.path:
@@ -1219,7 +1206,6 @@ def resolve_instagram(url, fmt="video"):
             prog_formats = [f for f in formats if is_progressive_instagram_format(f)]
             v_fmts = [f for f in formats if (f.get("vcodec") and f.get("vcodec") != "none") or str(f.get("format_id", "")).endswith("v") or ".mp4" in str(f.get("url", "")).lower()]
 
-            # 1. Progressive video stream (best quality single mp4)
             if prog_formats and fmt not in ("photo", "image"):
                 best_prog = max(prog_formats, key=lambda f: (f.get("width") or 0) * (f.get("height") or 0) or (f.get("tbr") or 0))
                 return {
@@ -1228,7 +1214,6 @@ def resolve_instagram(url, fmt="video"):
                     "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "Instagram", "channel": author_channel, "id": shortcode}
                 }
 
-            # 2. DASH video streams (delegate to yt-dlp to mux bestvideo+bestaudio)
             if v_fmts and fmt not in ("photo", "image"):
                 return {
                     "direct_ytdlp": True,
@@ -1242,7 +1227,6 @@ def resolve_instagram(url, fmt="video"):
                     "uploader": info.get("uploader")
                 }
 
-            # 3. Direct video url in info (if yt-dlp populated info['url'] with an actual video)
             info_url = info.get("url") or ""
             is_info_video = (
                 (info.get("vcodec") and info.get("vcodec") != "none") or
@@ -1256,7 +1240,6 @@ def resolve_instagram(url, fmt="video"):
                     "id": shortcode, "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                 }
 
-            # 4. Photos / Images: If NO video was found and format is not audio
             if fmt != "audio":
                 img_url = None
                 if info_url and not is_info_video:
@@ -1282,7 +1265,6 @@ def resolve_instagram(url, fmt="video"):
     except Exception as e:
         print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
 
-    # Route fallback to yt-dlp CLI
     return {
         "direct_ytdlp": True,
         "url": clean_url,
@@ -1361,7 +1343,6 @@ def resolve_facebook(url, fmt="video"):
                 "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
             }
 
-        # Facebook photo extraction fallback
         if fmt != "audio":
             og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html) or \
                      re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html)
@@ -1424,7 +1405,6 @@ def resolve_pinterest(url, fmt="video"):
             raw_title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
             title = re.sub(r'[\r\n\t]+', ' ', raw_title).strip() or f"Pinterest_{pin_id}"
 
-            # 1. Direct videos in pin['videos']
             videos = (pin.get("videos") or {}).get("video_list") or {}
             if isinstance(videos, dict) and videos:
                 mp4s = [v.get("url") for k, v in videos.items() if v.get("url") and not str(v.get("url")).endswith(".m3u8")]
@@ -1434,7 +1414,6 @@ def resolve_pinterest(url, fmt="video"):
                 if m3u8s:
                     return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            # 2. Check story pin data (Idea Pins)
             story = pin.get("story_pin_data") or {}
             if isinstance(story, dict):
                 for page in story.get("pages", []):
@@ -1448,7 +1427,6 @@ def resolve_pinterest(url, fmt="video"):
                             if m3u8s:
                                 return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            # 3. Check story pin images (Idea Pins with photos)
             if isinstance(story, dict) and fmt != "audio":
                 story_imgs = []
                 for page in story.get("pages", []):
@@ -1463,7 +1441,6 @@ def resolve_pinterest(url, fmt="video"):
                         return {"url": story_imgs[0], "title": title, "ext": "jpg", "kind": "image", "platform": "Pinterest", "id": pin_id}
                     return {"images": story_imgs, "title": title, "ext": "jpg", "kind": "album", "platform": "Pinterest", "id": pin_id}
 
-            # 4. Standard pin images (orig high-res fallback)
             if fmt != "audio":
                 images = pin.get("images") or {}
                 orig = images.get("orig") or {} if isinstance(images, dict) else {}
@@ -1473,7 +1450,6 @@ def resolve_pinterest(url, fmt="video"):
         except Exception as e:
             print(f"Pinterest API note: {e}", file=sys.stderr)
 
-        # Fallback to Pinterest HTML OpenGraph scrape if API failed or no media in JSON
         if fmt != "audio":
             try:
                 req_html = urllib.request.Request(clean_url, headers={"User-Agent": USER_AGENT})
@@ -1514,7 +1490,6 @@ def resolve_reddit(url, fmt="video"):
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
-    # Try RapidSave mirror first as Reddit actively blocks .json endpoints without OAuth
     try:
         rs_url = f"https://rapidsave.com/info?url={urllib.parse.quote(clean_url)}"
         rs_req = urllib.request.Request(rs_url, headers={"User-Agent": USER_AGENT})
@@ -1677,7 +1652,6 @@ def resolve_twitter(url, fmt="video"):
                         if mp4s:
                             mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
                             if fmt == "audio":
-                                # Use lowest-bitrate mp4 as audio source; ffmpeg strips video in main()
                                 return {"url": mp4s[-1]["url"], "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                             return {"url": mp4s[0]["url"], "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                     elif mtype == "photo":
@@ -1685,7 +1659,6 @@ def resolve_twitter(url, fmt="video"):
                         if p_url:
                             images.append(p_url)
                 if has_video_in_media:
-                    # Video found in tweet metadata, but direct MP4 variant missing (e.g. m3u8 only) -> fallback to yt-dlp
                     return fb_lambda()
                 if images and fmt != "audio":
                     fb_album = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": "album", "is_yt": False, "title": title, "channel": author, "id": status_id, "platform": "Twitter"}
@@ -1718,14 +1691,12 @@ def resolve_twitter(url, fmt="video"):
                 continue
 
     has_video_indicator = False
-    # Priority 1: Search for VIDEO across all returned results
     for ep, data in results:
         title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
         g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
         fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
 
         v_url = None
-        # Check vxTwitter media_extended & video_url
         if "vxtwitter" in ep:
             v_url = data.get("video_url")
             for m in (data.get("media_extended") or []):
@@ -1735,14 +1706,12 @@ def resolve_twitter(url, fmt="video"):
                         v_url = m.get("url")
             if data.get("video_url"):
                 has_video_indicator = True
-        # Check fxTwitter tweet.media.videos
         elif "fxtwitter" in ep:
             vids = data.get("tweet", {}).get("media", {}).get("videos") or []
             if vids:
                 has_video_indicator = True
                 if vids[0].get("url"):
                     v_url = vids[0].get("url")
-        # Check syndication mediaDetails & video
         elif "syndication" in ep:
             for md in (data.get("mediaDetails") or []):
                 if str(md.get("type", "")).lower() in ("video", "animated_gif"):
@@ -1768,7 +1737,6 @@ def resolve_twitter(url, fmt="video"):
         if v_url:
             return {"url": v_url, "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
 
-    # If ANY endpoint reported that this tweet contains video, NEVER return images/thumbnails!
     if has_video_indicator:
         return {
             "direct_ytdlp": True,
@@ -1781,7 +1749,6 @@ def resolve_twitter(url, fmt="video"):
             "platform": "Twitter"
         }
 
-    # Priority 2: If NO video was found and fmt is NOT audio, check for genuine photos
     if fmt != "audio":
         for ep, data in results:
             title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
@@ -1891,7 +1858,6 @@ def get_ytdlp_local_version():
     return "Unknown"
 
 def check_ytdlp_version_api():
-    # ponytail: HEAD request on GitHub release redirect avoids API rate limits
     cur_ver = get_ytdlp_local_version()
     latest_ver = cur_ver
     try:
@@ -1910,7 +1876,6 @@ def check_ytdlp_version_api():
     }
 
 def perform_ytdlp_update():
-    # ponytail: download upstream zipapp, recompile to .pyc bytecode for mobile startup speed
     target_paths = [
         "/data/adb/modules/hyperdl/bin/yt-dlp",
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
@@ -2039,7 +2004,6 @@ def check_module_update():
     return res
 
 def apply_module_ota(ota_url=None):
-    # ponytail: lightweight atomic OTA hot-patch (~250 KB) without rebooting
     if not ota_url:
         chk = check_module_update()
         ota_url = chk.get("ota_url")
@@ -2289,7 +2253,6 @@ def resolve_bluesky(url, fmt="video"):
 
         embed_type = embed.get("$type", "")
 
-        # 1. Video stream (HLS m3u8 playlist)
         if "video" in embed_type or "playlist" in embed:
             playlist_url = embed.get("playlist")
             if playlist_url:
@@ -2304,7 +2267,6 @@ def resolve_bluesky(url, fmt="video"):
                     "channel": author
                 }
 
-        # 2. Images: single image or carousel album
         images = embed.get("images") or []
         if images and fmt != "audio":
             if len(images) == 1:
@@ -2338,12 +2300,10 @@ def resolve_bluesky(url, fmt="video"):
     except Exception as e:
         print(f"Bluesky API note: {e}", file=sys.stderr)
 
-    # ponytail: public XRPC handles unauthenticated single/album media; yt-dlp fallback if API changes
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Bluesky_{rkey}", "platform": "Bluesky"}
 
 def resolve_threads(url, fmt="video"):
     update_status("resolving", title="Resolving Threads media...")
-    # Threads posts are served by Meta's CDN — scrape OG tags like the Instagram fast path
     m = re.search(r'threads\.net/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
     post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
     try:
@@ -2367,7 +2327,6 @@ def resolve_threads(url, fmt="video"):
             m_auth = re.search(r'threads\.net/@([^/]+)', url)
             author = m_auth.group(1) if m_auth else None
             return {"url": vurl, "title": title, "ext": "mp4", "kind": "video", "id": post_id, "channel": author, "platform": "Threads"}
-        # Images: only if not requesting audio (no video found above)
         if fmt != "audio":
             images = re.findall(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
             if not images:
@@ -2385,7 +2344,6 @@ def resolve_threads(url, fmt="video"):
         print(f"Threads OG scrape note: {e}", file=sys.stderr)
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Threads_{post_id}", "platform": "Threads"}
 
-
 def resolve_streamable(url, fmt="video"):
     update_status("resolving", title="Resolving Streamable media...")
     m = re.search(r'streamable\.com/(?:e/)?([A-Za-z0-9]+)', url)
@@ -2398,7 +2356,6 @@ def resolve_streamable(url, fmt="video"):
             d = json.loads(resp.read().decode("utf-8"))
         title = d.get("title") or f"Streamable_{vid_id}"
         files = d.get("files") or {}
-        # Prefer mp4-mobile (highest compat), fallback to any mp4 key
         for key in ("mp4", "mp4-mobile"):
             f = files.get(key) or {}
             if f.get("url"):
@@ -2410,10 +2367,8 @@ def resolve_streamable(url, fmt="video"):
         print(f"Streamable API note: {e}", file=sys.stderr)
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Streamable_{vid_id}", "platform": "Streamable"}
 
-
 def resolve_bilibili(url, fmt="video"):
     update_status("resolving", title="Resolving Bilibili media...")
-    # Expand b23.tv shortlinks inline (not in expand_shortlink_fast whitelist by default)
     clean_url = url
     if "b23.tv" in url.lower():
         try:
@@ -2453,7 +2408,6 @@ def resolve_bilibili(url, fmt="video"):
         channel = (info.get("owner") or {}).get("name") or ""
 
         if cid and (vid_bvid or vid_aid):
-            # Fetch playurl — returns direct mp4/flv stream URLs (quality 80=1080p, 64=720p, 32=480p)
             q_param = "qn=80&fnval=0&fnver=0&fourk=1"
             if vid_bvid:
                 play_params = f"bvid={vid_bvid}&cid={cid}&{q_param}"
@@ -2480,9 +2434,7 @@ def resolve_bilibili(url, fmt="video"):
     except Exception as e:
         print(f"Bilibili API note: {e}", file=sys.stderr)
 
-    # ponytail: no DASH muxing for Bilibili — requires login cookie + DASH token; yt-dlp handles it
     return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title if 'title' in dir() else "Bilibili Video", "platform": "Bilibili"}
-
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     return {

@@ -267,7 +267,6 @@ html, body, #app {
   border-color: rgba(255, 183, 77, 0.4);
 }
 
-/* Custom Text Input */
 .text-input-wrapper {
   position: relative;
   display: flex;
@@ -299,7 +298,6 @@ html, body, #app {
   color: var(--surface-variant);
 }
 
-/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -353,7 +351,6 @@ html, body, #app {
   transform: scale(0.92);
 }
 
-/* Switches (M3 Monochrome) */
 .md3-switch {
   position: relative;
   display: inline-flex;
@@ -405,7 +402,6 @@ html, body, #app {
   left: 2px;
 }
 
-/* Progress Bar */
 .progress-track {
   width: 100%;
   height: 8px;
@@ -426,7 +422,6 @@ html, body, #app {
   background: linear-gradient(90deg, #ffa726 0%, #ffb74d 100%);
 }
 
-/* Segmented Control / Chips */
 .chips-row {
   display: flex;
   gap: 8px;
@@ -458,7 +453,6 @@ html, body, #app {
   font-weight: 600;
 }
 
-/* Supported Platform Badges */
 .platform-chips-row {
   display: flex;
   align-items: center;
@@ -500,7 +494,6 @@ html, body, #app {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
-/* Toast */
 .toast-pill {
   position: fixed;
   bottom: calc(20px + var(--window-inset-bottom, 0px));

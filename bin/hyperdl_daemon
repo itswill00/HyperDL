@@ -1,5 +1,4 @@
 #!/system/bin/sh
-# HyperDL Background Clipboard Listener Daemon
 
 PID_FILE="/data/local/tmp/hyperdl_clip.pid"
 LAST_CLIP_FILE="/data/local/tmp/hyperdl_last_clip.txt"
@@ -117,7 +116,6 @@ case "$1" in
               LAST_PROCESSED_URL="$CLEAN_URL"
               echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
 
-              # If another download is actively running, wait until it finishes completely
               while [ -f /data/local/tmp/hyperdl.pid ]; do
                 DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
                 if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
