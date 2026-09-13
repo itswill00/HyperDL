@@ -478,7 +478,7 @@ static void cmd_probe(const char *url) {
     }
 }
 
-static void run_python_action(const char *subaction) {
+static void run_python_action(const char *subaction, const char *extra_arg) {
     const char *python_bin = find_python();
     if (!python_bin) {
         printf("{\"error\":\"python_not_found\"}\n");
@@ -537,13 +537,21 @@ static void run_python_action(const char *subaction) {
         close(pipefd[1]);
 
         if (bundle_path) {
-            execl(python_bin, python_bin, bundle_path, subaction, (char *)NULL);
+            if (extra_arg && extra_arg[0]) {
+                execl(python_bin, python_bin, bundle_path, subaction, extra_arg, (char *)NULL);
+            } else {
+                execl(python_bin, python_bin, bundle_path, subaction, (char *)NULL);
+            }
         } else {
             char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
             snprintf(launcher, sizeof(launcher),
                      "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
                      EMBEDDED_ENGINE_B64);
-            execl(python_bin, python_bin, "-c", launcher, subaction, (char *)NULL);
+            if (extra_arg && extra_arg[0]) {
+                execl(python_bin, python_bin, "-c", launcher, subaction, extra_arg, (char *)NULL);
+            } else {
+                execl(python_bin, python_bin, "-c", launcher, subaction, (char *)NULL);
+            }
         }
         _exit(127);
     }
@@ -1549,9 +1557,13 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(action, "preview") == 0) {
         cmd_preview(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "check_ytdlp") == 0) {
-        run_python_action("check_ytdlp");
+        run_python_action("check_ytdlp", NULL);
     } else if (strcmp(action, "update_ytdlp") == 0) {
-        run_python_action("update_ytdlp");
+        run_python_action("update_ytdlp", NULL);
+    } else if (strcmp(action, "check_update") == 0) {
+        run_python_action("check_update", NULL);
+    } else if (strcmp(action, "apply_ota") == 0) {
+        run_python_action("apply_ota", argc > 2 ? argv[2] : NULL);
     } else {
         printf("{\"error\":\"unknown_action\"}\n");
         return 1;

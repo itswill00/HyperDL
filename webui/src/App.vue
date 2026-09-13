@@ -11,10 +11,21 @@
           <Icons name="wifi-off" :size="11" />
           Offline
         </span>
-        <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.19' }}
-          <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
-        </span>
+        <div v-else style="display: flex; align-items: center; gap: 6px;">
+          <button
+            v-if="moduleUpdateInfo.has_update"
+            class="badge-pill"
+            style="background: rgba(168, 199, 250, 0.15); color: #a8c7fa; border: 1px solid rgba(168, 199, 250, 0.35); display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 3px 8px; font-weight: 600;"
+            @click="showUpdateModal = true"
+          >
+            <span class="pulse-dot"></span>
+            Update {{ moduleUpdateInfo.latest_version }}
+          </button>
+          <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
+            {{ sysInfo.version || 'v1.3.19' }}
+            <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
+          </span>
+        </div>
       </div>
     </header>
 
@@ -747,6 +758,27 @@
               <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <div style="display: flex; flex-direction: column;">
+                <span style="color: var(--on-surface-variant);">HyperDL OTA</span>
+                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">Hot-update tanpa reboot</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.19' }}</span>
+                <button
+                  class="btn"
+                  :class="moduleUpdateInfo.has_update ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  :disabled="isCheckingUpdate || isApplyingOta"
+                  @click="moduleUpdateInfo.has_update ? (showUpdateModal = true) : checkModuleUpdate(false)"
+                >
+                  <span v-if="isCheckingUpdate || isApplyingOta" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
+                    <Icons name="refresh" :size="10" />
+                  </span>
+                  <span>{{ isApplyingOta ? 'Updating...' : (isCheckingUpdate ? 'Checking...' : (moduleUpdateInfo.has_update ? 'Update OTA' : 'Check')) }}</span>
+                </button>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ ytdlpInfo.current || '2026.08.19' }}</span>
@@ -1011,6 +1043,51 @@
       </div>
     </div>
 
+    <!-- Custom In-App Material 3 OTA Update Dialog -->
+    <div v-if="showUpdateModal" class="dialog-backdrop" @click.self="!isApplyingOta && (showUpdateModal = false)">
+      <div class="dialog-card" style="max-width: 340px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 199, 250, 0.15); color: #a8c7fa; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <Icons name="download" :size="20" />
+          </div>
+          <div>
+            <div class="dialog-title" style="margin-bottom: 2px;">Pembaruan Tersedia</div>
+            <div style="font-size: 11px; color: var(--on-surface-variant);">{{ sysInfo.version || 'v1.3.19' }} → {{ moduleUpdateInfo.latest_version }}</div>
+          </div>
+        </div>
+
+        <div style="background: var(--surface-container); border-radius: 12px; padding: 10px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+            <span style="font-size: 9px; font-weight: 700; background: rgba(168, 199, 250, 0.2); color: #a8c7fa; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">OTA Hot-Patch</span>
+            <span style="font-size: 10px; color: var(--on-surface-variant);">~250 KB · Tanpa Reboot</span>
+          </div>
+          <div v-if="moduleUpdateInfo.notes" style="font-size: 11px; color: var(--on-surface); line-height: 1.4; margin-top: 6px;">
+            {{ moduleUpdateInfo.notes }}
+          </div>
+        </div>
+
+        <div v-if="isApplyingOta" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(168, 199, 250, 0.1); border-radius: 8px; margin-bottom: 12px;">
+          <span class="spin-loader" style="width: 14px; height: 14px; flex-shrink: 0;"></span>
+          <span style="font-size: 11px; color: var(--primary);">{{ otaStatusText || 'Sedang memproses pembaruan...' }}</span>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn btn-secondary dialog-btn" type="button" :disabled="isApplyingOta" @click.stop="showUpdateModal = false">
+            Nanti
+          </button>
+          <button
+            class="btn btn-primary dialog-btn"
+            type="button"
+            :disabled="isApplyingOta"
+            @click.stop="applyModuleOta"
+          >
+            <span v-if="isApplyingOta" class="spin-loader" style="width: 12px; height: 12px; margin-right: 4px;"></span>
+            <span>{{ isApplyingOta ? 'Memasang...' : 'Perbarui (OTA)' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- In-App Quick Preview / Lightbox Modal -->
     <div v-if="previewModal.show" class="preview-backdrop" @click.self="closePreview">
       <div class="preview-card">
@@ -1206,6 +1283,68 @@ async function handleYtdlpAction() {
     } finally {
       ytdlpChecking.value = false
     }
+  }
+}
+
+const moduleUpdateInfo = ref({ current_version: '', latest_version: '', has_update: false, notes: '', ota_url: '', zip_url: '' })
+const isCheckingUpdate = ref(false)
+const isApplyingOta = ref(false)
+const showUpdateModal = ref(false)
+const otaStatusText = ref('')
+
+async function checkModuleUpdate(silent = false) {
+  if (isCheckingUpdate.value || isApplyingOta.value) return
+  isCheckingUpdate.value = true
+  try {
+    const raw = await runBridge('check_update')
+    if (raw && raw.startsWith('{')) {
+      const data = JSON.parse(raw)
+      moduleUpdateInfo.value = data
+      if (data.has_update) {
+        showUpdateModal.value = true
+        if (!silent) {
+          showToast(`Pembaruan tersedia: ${data.latest_version}`, 'info')
+        }
+      } else if (!silent) {
+        showToast(`HyperDL sudah versi terbaru (${data.current_version || sysInfo.value.version})`, 'success')
+      }
+    } else if (!silent) {
+      showToast('Gagal memeriksa pembaruan', 'error')
+    }
+  } catch (e) {
+    if (!silent) showToast('Gagal memeriksa pembaruan: ' + String(e), 'error')
+  } finally {
+    isCheckingUpdate.value = false
+  }
+}
+
+async function applyModuleOta() {
+  if (isApplyingOta.value) return
+  isApplyingOta.value = true
+  otaStatusText.value = 'Mengunduh paket OTA (~250 KB)...'
+  try {
+    otaStatusText.value = 'Memasang pembaruan & menyinkronkan binary...'
+    const raw = await runBridge('apply_ota', moduleUpdateInfo.value.ota_url || '')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.success) {
+        otaStatusText.value = 'Pembaruan berhasil! Memuat ulang antarmuka...'
+        showToast(`HyperDL berhasil diperbarui ke ${res.version || 'versi terbaru'}!`, 'success')
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+        return
+      } else {
+        showToast(`Gagal update: ${res.error || 'Terjadi kesalahan'}`, 'error')
+      }
+    } else {
+      showToast('Gagal update: Respon sistem tidak valid', 'error')
+    }
+  } catch (e) {
+    showToast(`Pembaruan gagal: ${String(e)}`, 'error')
+  } finally {
+    isApplyingOta.value = false
+    otaStatusText.value = ''
   }
 }
 
@@ -1577,7 +1716,7 @@ async function runBridge(action, ...args) {
   const safeParams = args.map(shellEscape).join(' ')
   const cmd = `if [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
-  const timeoutMs = action === 'probe' ? 50000 : 15000
+  const timeoutMs = action === 'probe' ? 50000 : (action === 'apply_ota' ? 60000 : 15000)
   const res = await execCommand(cmd, timeoutMs)
   return (res || '').trim()
 }
@@ -2533,6 +2672,7 @@ onMounted(() => {
   fetchStorageStats()
   checkClipboardSniffer()
   checkVaultStatus()
+  setTimeout(() => checkModuleUpdate(true), 2500)
 })
 
 onUnmounted(() => {
@@ -2920,6 +3060,20 @@ onUnmounted(() => {
 
 .row-selected {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background: #a8c7fa;
+  border-radius: 50%;
+  animation: pulseDot 1.5s infinite;
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 0 0 rgba(168, 199, 250, 0.7); }
+  70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 5px rgba(168, 199, 250, 0); }
+  100% { transform: scale(0.9); opacity: 0.7; }
 }
 
 .dialog-backdrop {

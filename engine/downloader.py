@@ -30,6 +30,7 @@ CONF_DIR = "/data/adb/hyperdl"
 ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
 COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
+UPDATE_METADATA_URL = "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/update.json"
 
 CURRENT_URL = ""
 CURRENT_FMT = "video"
@@ -1966,6 +1967,210 @@ def perform_ytdlp_update():
 
         return {"success": True, "version": new_ver}
 
+def get_module_local_prop():
+    candidates = [
+        "/data/adb/modules/hyperdl/module.prop",
+        "/data/adb/modules_update/hyperdl/module.prop",
+        "/data/data/com.termux/files/home/HyperDL_Module/module.prop"
+    ]
+    props = {"version": "v1.3.19", "versionCode": "13190"}
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if "=" in line and not line.startswith("#"):
+                            k, v = line.split("=", 1)
+                            props[k.strip()] = v.strip()
+                break
+            except Exception:
+                pass
+    return props
+
+def check_module_update():
+    local_props = get_module_local_prop()
+    cur_ver = local_props.get("version", "v1.3.19")
+    try:
+        cur_code = int(local_props.get("versionCode", "13190"))
+    except ValueError:
+        cur_code = 13190
+
+    res = {
+        "current_version": cur_ver,
+        "current_code": cur_code,
+        "latest_version": cur_ver,
+        "latest_code": cur_code,
+        "has_update": False,
+        "ota_url": "",
+        "zip_url": "",
+        "changelog": "",
+        "notes": ""
+    }
+
+    try:
+        req = urllib.request.Request(UPDATE_METADATA_URL, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            latest_ver = data.get("version", cur_ver)
+            try:
+                latest_code = int(data.get("versionCode", cur_code))
+            except (ValueError, TypeError):
+                latest_code = cur_code
+            res["latest_version"] = latest_ver
+            res["latest_code"] = latest_code
+            res["ota_url"] = data.get("otaUrl", "")
+            res["zip_url"] = data.get("zipUrl", "")
+            res["changelog"] = data.get("changelog", "")
+            res["notes"] = data.get("notes", "")
+
+            if latest_code > cur_code or (latest_code == cur_code and latest_ver != cur_ver):
+                res["has_update"] = True
+    except Exception as e:
+        print(f"Check module update error: {e}", file=sys.stderr)
+        res["error"] = str(e)
+
+    return res
+
+def apply_module_ota(ota_url=None):
+    # ponytail: lightweight atomic OTA hot-patch (~250 KB) without rebooting
+    if not ota_url:
+        chk = check_module_update()
+        ota_url = chk.get("ota_url")
+        if not ota_url:
+            return {"success": False, "error": "No OTA URL found in update metadata"}
+
+    import tempfile, zipfile
+
+    target_mod = "/data/adb/modules/hyperdl"
+    if not os.path.exists(target_mod):
+        if os.path.exists("/data/adb/modules_update/hyperdl"):
+            target_mod = "/data/adb/modules_update/hyperdl"
+        elif os.path.exists("/data/data/com.termux/files/home/HyperDL_Module"):
+            target_mod = "/data/data/com.termux/files/home/HyperDL_Module"
+        else:
+            return {"success": False, "error": "HyperDL module target directory not found"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_zip = os.path.join(tmpdir, "hyperdl_ota.zip")
+        if os.path.isfile(ota_url):
+            shutil.copyfile(ota_url, tmp_zip)
+        else:
+            try:
+                req = urllib.request.Request(ota_url, headers={"User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=60) as resp, open(tmp_zip, "wb") as f:
+                    f.write(resp.read())
+            except Exception as e:
+                return {"success": False, "error": f"Failed to download OTA package: {e}"}
+
+        if not zipfile.is_zipfile(tmp_zip):
+            return {"success": False, "error": "Downloaded file is not a valid zip archive"}
+
+        extract_dir = os.path.join(tmpdir, "extracted")
+        os.makedirs(extract_dir, exist_ok=True)
+
+        try:
+            with zipfile.ZipFile(tmp_zip, "r") as zf:
+                for info in zf.infolist():
+                    name = info.filename
+                    if os.path.isabs(name) or ".." in name.split("/"):
+                        return {"success": False, "error": f"Security check failed: illegal zip path {name}"}
+                zf.extractall(extract_dir)
+        except Exception as e:
+            return {"success": False, "error": f"Corrupt zip archive: {e}"}
+
+        extracted_bundle = os.path.join(extract_dir, "system", "bin", "hyperdl.bundle")
+        extracted_prop = os.path.join(extract_dir, "module.prop")
+        if not os.path.exists(extracted_bundle) or not os.path.exists(extracted_prop):
+            return {"success": False, "error": "OTA archive missing required system components"}
+
+        new_version = "Unknown"
+        new_code = "0"
+        try:
+            with open(extracted_prop, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("version="):
+                        new_version = line.split("=", 1)[1].strip()
+                    elif line.startswith("versionCode="):
+                        new_code = line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+
+        was_daemon_running = False
+        for pid_path in ["/data/local/tmp/hyperdl_clip.pid", "/data/local/tmp/hyperdl.pid"]:
+            if os.path.exists(pid_path):
+                try:
+                    with open(pid_path, "r") as pf:
+                        p = int(pf.read().strip())
+                        os.kill(p, signal.SIGTERM)
+                    was_daemon_running = True
+                    os.remove(pid_path)
+                except Exception:
+                    pass
+
+        files_to_sync = [
+            ("module.prop", "module.prop", 0o644),
+            ("system/bin/hyperdl.bundle", "system/bin/hyperdl.bundle", 0o755),
+            ("system/bin/libhyperdl.so", "system/bin/libhyperdl.so", 0o755),
+            ("system/bin/hyperdl_daemon", "system/bin/hyperdl_daemon", 0o755),
+            ("system/bin/clip.jar", "system/bin/clip.jar", 0o644),
+            ("webroot/index.html", "webroot/index.html", 0o644),
+        ]
+
+        for src_rel, dst_rel, mode in files_to_sync:
+            src_file = os.path.join(extract_dir, src_rel)
+            if not os.path.exists(src_file):
+                continue
+            dst_file = os.path.join(target_mod, dst_rel)
+            dst_parent = os.path.dirname(dst_file)
+            os.makedirs(dst_parent, exist_ok=True)
+
+            tmp_target = dst_file + ".ota_tmp"
+            try:
+                shutil.copyfile(src_file, tmp_target)
+                os.chmod(tmp_target, mode)
+                os.replace(tmp_target, dst_file)
+            except Exception as e:
+                if os.path.exists(tmp_target):
+                    try:
+                        os.remove(tmp_target)
+                    except Exception:
+                        pass
+                return {"success": False, "error": f"Failed to install {dst_rel}: {e}"}
+
+        clip_src = os.path.join(extract_dir, "system", "bin", "clip.jar")
+        if os.path.exists(clip_src):
+            try:
+                os.makedirs("/data/adb/hyperdl", exist_ok=True)
+                shutil.copyfile(clip_src, "/data/adb/hyperdl/clip.jar")
+                os.chmod("/data/adb/hyperdl/clip.jar", 0o644)
+            except Exception:
+                pass
+
+        try:
+            subprocess.run(["chcon", "-R", "u:object_r:system_file:s0", target_mod], capture_output=True, timeout=3)
+        except Exception:
+            pass
+
+        restarted_daemon = False
+        autodl_file = "/data/adb/hyperdl/autodl.enabled"
+        if was_daemon_running or os.path.exists(autodl_file):
+            daemon_script = os.path.join(target_mod, "system", "bin", "hyperdl_daemon")
+            if os.path.exists(daemon_script):
+                try:
+                    subprocess.Popen(["sh", daemon_script, "start"], start_new_session=True)
+                    restarted_daemon = True
+                except Exception:
+                    pass
+
+        return {
+            "success": True,
+            "version": new_version,
+            "versionCode": new_code,
+            "restarted_daemon": restarted_daemon
+        }
+
 def get_python_binary():
     py_candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -2638,6 +2843,9 @@ def main():
 
     subparsers.add_parser("check_ytdlp")
     subparsers.add_parser("update_ytdlp")
+    subparsers.add_parser("check_update")
+    ota_parser = subparsers.add_parser("apply_ota")
+    ota_parser.add_argument("url", nargs="?", default=None, help="OTA Zip URL or file path")
 
     args, _ = parser.parse_known_args()
 
@@ -2662,6 +2870,24 @@ def main():
     if args.action == "update_ytdlp":
         try:
             res = perform_ytdlp_update()
+            print(json.dumps(res), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": humanize_error(e)}), flush=True)
+            sys.exit(1)
+        return
+
+    if args.action == "check_update":
+        try:
+            res = check_module_update()
+            print(json.dumps(res), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": humanize_error(e)}), flush=True)
+            sys.exit(1)
+        return
+
+    if args.action == "apply_ota":
+        try:
+            res = apply_module_ota(args.url)
             print(json.dumps(res), flush=True)
         except Exception as e:
             print(json.dumps({"error": humanize_error(e)}), flush=True)

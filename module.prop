@@ -4,3 +4,4 @@ version=v1.3.19
 versionCode=13190
 author=@noticesa
 description=Minimalist media downloader for TikTok, Instagram, X, and YouTube with Material WebUI.
+updateJson=https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/update.json

@@ -9,12 +9,17 @@ cd "$PROJECT_DIR"
 
 DEPLOY=false
 CLEAN=false
+RELEASE=false
 CUSTOM_OUTPUT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         -d|--deploy)
             DEPLOY=true
+            shift
+            ;;
+        -r|--release)
+            RELEASE=true
             shift
             ;;
         -o|--output)
@@ -30,6 +35,7 @@ while [ $# -gt 0 ]; do
             echo ""
             echo "Options:"
             echo "  -d, --deploy       Deploy module directly to /data/adb/modules/hyperdl"
+            echo "  -r, --release      Publish release assets to itswill00/HyperDL-Release"
             echo "  -o, --output DIR   Specify custom output directory for zip releases"
             echo "  -c, --clean        Clean build caches before build"
             echo "  -h, --help         Show this help information"
@@ -143,7 +149,7 @@ STAGING_DIR="${PROJECT_DIR}/releases"
 mkdir -p "$STAGING_DIR"
 rm -f "$STAGING_DIR/HyperDL-${VERSION}-b${VERSION_CODE}"*.zip
 
-echo "packaging module zip..."
+echo "packaging standalone module zip..."
 zip -qr9 "$STAGING_DIR/$ZIP_NAME" \
     module.prop \
     customize.sh \
@@ -157,6 +163,23 @@ zip -qr9 "$STAGING_DIR/$ZIP_NAME" \
 cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_ALIAS"
 cp -f "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$ZIP_LATEST"
 
+OTA_NAME="HyperDL-${VERSION}-b${VERSION_CODE}-OTA.zip"
+OTA_ALIAS="HyperDL-OTA-${VERSION}.zip"
+OTA_LATEST="HyperDL-OTA-latest.zip"
+
+echo "packaging lightweight ota zip..."
+zip -qr9 "$STAGING_DIR/$OTA_NAME" \
+    module.prop \
+    system/bin/hyperdl.bundle \
+    system/bin/libhyperdl.so \
+    system/bin/hyperdl_daemon \
+    system/bin/clip.jar \
+    webroot \
+    -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
+
+cp -f "$STAGING_DIR/$OTA_NAME" "$STAGING_DIR/$OTA_ALIAS"
+cp -f "$STAGING_DIR/$OTA_NAME" "$STAGING_DIR/$OTA_LATEST"
+
 if [ "$OUTPUT_DIR" != "$STAGING_DIR" ]; then
     if mkdir -p "$OUTPUT_DIR" 2>/dev/null; then
         cp -f "$STAGING_DIR"/* "$OUTPUT_DIR/" 2>/dev/null || true
@@ -167,21 +190,29 @@ fi
 
 if [ -d "/storage/emulated/0/Download" ] && [ "$OUTPUT_DIR" != "/storage/emulated/0/Download" ]; then
     cp -f "$STAGING_DIR/$ZIP_NAME" "/storage/emulated/0/Download/$ZIP_ALIAS" 2>/dev/null || su -c "cp -f '$STAGING_DIR/$ZIP_NAME' '/storage/emulated/0/Download/$ZIP_ALIAS' && chmod 666 '/storage/emulated/0/Download/$ZIP_ALIAS'" 2>/dev/null || true
+    cp -f "$STAGING_DIR/$OTA_NAME" "/storage/emulated/0/Download/$OTA_ALIAS" 2>/dev/null || su -c "cp -f '$STAGING_DIR/$OTA_NAME' '/storage/emulated/0/Download/$OTA_ALIAS' && chmod 666 '/storage/emulated/0/Download/$OTA_ALIAS'" 2>/dev/null || true
     am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///storage/emulated/0/Download/$ZIP_ALIAS" >/dev/null 2>&1 || true
+    am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///storage/emulated/0/Download/$OTA_ALIAS" >/dev/null 2>&1 || true
 fi
 
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_NAME" >/dev/null 2>&1 || true
 am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$ZIP_ALIAS" >/dev/null 2>&1 || true
+am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$OTA_NAME" >/dev/null 2>&1 || true
+am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$OUTPUT_DIR/$OTA_ALIAS" >/dev/null 2>&1 || true
 
 ZIP_SIZE=$(du -h "$STAGING_DIR/$ZIP_NAME" | cut -f1)
+OTA_SIZE=$(du -h "$STAGING_DIR/$OTA_NAME" | cut -f1)
 CHECKSUM=$(sha256sum "$STAGING_DIR/$ZIP_NAME" | cut -d' ' -f1)
+OTA_CHECKSUM=$(sha256sum "$STAGING_DIR/$OTA_NAME" | cut -d' ' -f1)
 
 echo "=========================================="
 echo "  Build successful!"
-echo "  Package:  ${OUTPUT_DIR}/${ZIP_NAME} (${ZIP_SIZE})"
-echo "  Aliases:  ${OUTPUT_DIR}/${ZIP_ALIAS}"
-echo "            ${OUTPUT_DIR}/${ZIP_LATEST}"
-echo "  SHA-256:  ${CHECKSUM}"
+echo "  Standalone:  ${OUTPUT_DIR}/${ZIP_NAME} (${ZIP_SIZE})"
+echo "  OTA Package: ${OUTPUT_DIR}/${OTA_NAME} (${OTA_SIZE})"
+echo "  Aliases:     ${OUTPUT_DIR}/${ZIP_ALIAS}"
+echo "               ${OUTPUT_DIR}/${OTA_ALIAS}"
+echo "  SHA-256 (Full): ${CHECKSUM}"
+echo "  SHA-256 (OTA):  ${OTA_CHECKSUM}"
 echo "=========================================="
 
 if [ "$DEPLOY" = "true" ]; then
@@ -237,4 +268,66 @@ if [ "$DEPLOY" = "true" ]; then
         echo "error: deploy failed"
         exit 1
     fi
+fi
+
+if [ "$RELEASE" = "true" ]; then
+    echo "=========================================="
+    echo "  Publishing release to itswill00/HyperDL-Release"
+    echo "=========================================="
+
+    if ! command -v gh >/dev/null 2>&1; then
+        echo "error: gh (GitHub CLI) is not installed"
+        exit 1
+    fi
+
+    REL_REPO="itswill00/HyperDL-Release"
+    REL_TMP="${PROJECT_DIR}/releases/.tmp_release"
+    rm -rf "$REL_TMP"
+    mkdir -p "$REL_TMP"
+
+    echo "cloning public release repository..."
+    git clone --depth 1 "https://github.com/${REL_REPO}.git" "$REL_TMP"
+
+    echo "updating release metadata..."
+    cp -f "${PROJECT_DIR}/update.json" "$REL_TMP/update.json"
+
+    cat <<EOF > "$REL_TMP/README.md"
+# HyperDL Releases & OTA Distribution
+
+Official public release channel and Over-The-Air (OTA) hot-patch distribution for **HyperDL**.
+
+## Latest Release: ${VERSION} (b${VERSION_CODE})
+
+- **Standalone Package (Full Module)**: [\`${ZIP_ALIAS}\`](https://github.com/${REL_REPO}/releases/download/${VERSION}/${ZIP_ALIAS}) (~${ZIP_SIZE})
+  - Flashable in Magisk, KernelSU, or APatch.
+  - Bundles isolated Bionic Python 3.14 runtime and hardware-accelerated FFmpeg.
+
+- **Lightweight OTA Hot-Patch**: [\`${OTA_ALIAS}\`](https://github.com/${REL_REPO}/releases/download/${VERSION}/${OTA_ALIAS}) (~${OTA_SIZE})
+  - Fast in-app update via HyperDL WebUI (~250 KB).
+  - Updates logic bundle, native bridge, clipboard daemon, and WebUI without rebooting.
+
+## OTA Metadata Endpoint
+- JSON: \`https://raw.githubusercontent.com/${REL_REPO}/main/update.json\`
+EOF
+
+    (
+        cd "$REL_TMP"
+        git config user.name "itswill00"
+        git config user.email "itswill00@users.noreply.github.com"
+        git add update.json README.md
+        git commit -m "release: update metadata and links for ${VERSION} (b${VERSION_CODE})" || true
+        git push origin main
+    )
+    rm -rf "$REL_TMP"
+
+    echo "uploading release assets to GitHub (${VERSION})..."
+    gh release delete "${VERSION}" --repo "$REL_REPO" -y 2>/dev/null || true
+    gh release create "${VERSION}" \
+        "$STAGING_DIR/$ZIP_ALIAS" \
+        "$STAGING_DIR/$OTA_ALIAS" \
+        --repo "$REL_REPO" \
+        --title "HyperDL ${VERSION}" \
+        --notes "HyperDL ${VERSION} (b${VERSION_CODE}) release with lightweight OTA hot-patch."
+
+    echo "Release published: https://github.com/${REL_REPO}/releases/tag/${VERSION}"
 fi
