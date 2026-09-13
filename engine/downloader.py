@@ -25,6 +25,7 @@ import urllib.error
 socket.setdefaulttimeout(15)
 
 STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
+PID_FILE = "/data/local/tmp/hyperdl.pid"
 CONF_DIR = "/data/adb/hyperdl"
 ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
@@ -116,6 +117,10 @@ def get_target_directory(base_outdir, info, url=""):
             platform = "Reddit"
         elif "threads.net" in low:
             platform = "Threads"
+        elif "bilibili.com" in low or "b23.tv" in low:
+            platform = "Bilibili"
+        elif "streamable.com" in low:
+            platform = "Streamable"
         else:
             ext_key = str(info.get("extractor_key") or info.get("extractor") or "").strip()
             platform = ext_key if ext_key else "Media"
@@ -160,7 +165,7 @@ def expand_shortlink_fast(url, timeout=3.5):
     low = url.lower()
     if not any(k in low for k in [
         "vt.tiktok.com", "vm.tiktok.com", "v.douyin.com",
-        "fb.watch", "/share/", "t.co", "pin.it", "pin.",
+        "fb.watch", "/share/", "t.co", "pin.it",
         "/s/", "redd.it", "bit.ly", "tinyurl.com", "is.gd"
     ]):
         return url
@@ -364,6 +369,8 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
     try:
         t = threading.Thread(target=_send, daemon=True)
         t.start()
+        if status in ("completed", "error"):
+            t.join(timeout=2.0)
     except Exception:
         pass
 
@@ -556,7 +563,7 @@ def solve_tiktok_challenge(html_text):
 
 def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
     # If completed file already exists and is non-empty, avoid redundant re-download
-    if os.path.exists(out_path) and os.path.getsize(out_path) > 1024:
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
         if emit_complete:
             update_status("completed", percent=100, title=title, file_path=out_path)
         return out_path
@@ -587,7 +594,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             resp = urllib.request.urlopen(req, timeout=40)
         except urllib.error.HTTPError as e:
             # HTTP 416: Requested Range Not Satisfiable (file is likely already fully downloaded in .part)
-            if e.code == 416 and existing_bytes > 1024:
+            if e.code == 416 and existing_bytes > 0:
                 os.replace(part_path, out_path)
                 try:
                     os.chmod(out_path, 0o666)
@@ -636,7 +643,15 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
 
             with open(part_path, open_mode, buffering=1024 * 1024) as f:
                 while True:
-                    chunk = resp.read(512 * 1024)
+                    read_size = 512 * 1024
+                    if total_bytes > 0:
+                        remaining = total_bytes - downloaded
+                        if remaining <= 0:
+                            break
+                        if remaining < read_size:
+                            read_size = remaining
+
+                    chunk = resp.read(read_size)
                     if not chunk:
                         break
                     f.write(chunk)
@@ -656,8 +671,13 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                         
                         update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title)
 
-            if os.path.exists(part_path) and os.path.getsize(part_path) < 1024:
-                raise RuntimeError("Downloaded file is incomplete or empty")
+                    if total_bytes > 0 and downloaded >= total_bytes:
+                        break
+
+            if not os.path.exists(part_path) or os.path.getsize(part_path) == 0:
+                raise RuntimeError("Downloaded file is empty")
+            if total_bytes > 0 and downloaded < total_bytes:
+                raise RuntimeError(f"Downloaded file is incomplete ({downloaded}/{total_bytes} bytes)")
 
             os.replace(part_path, out_path)
 
@@ -744,6 +764,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
             hdrs = item.get("headers") or {}
             download_file(item["url"], tmp_v, title=f"{title} [Video]", headers=hdrs, emit_error=True, emit_complete=False)
             download_file(item["audio_url"], tmp_a, title=f"{title} [Audio]", headers=hdrs, emit_error=True, emit_complete=False)
+            update_status("downloading", percent=98, title=f"{title} (Muxing audio & video...)")
             res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", out_path], env=get_ffmpeg_env(), capture_output=True)
             for tmp_f in (tmp_v, tmp_a):
                 if os.path.exists(tmp_f):
@@ -1219,22 +1240,23 @@ def resolve_instagram(url, fmt="video"):
                     "uploader": info.get("uploader")
                 }
 
-            thumbs = info.get("thumbnails") or []
-            if thumbs:
-                if any((t.get("width") or 0) > 0 for t in thumbs):
-                    best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
-                else:
-                    best = thumbs[-1]
-                if best.get("url"):
-                    return {
-                        "url": best["url"], "title": title, "ext": "jpg", "kind": "image",
-                        "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
-                    }
             if vurl:
                 return {
                     "url": vurl, "title": title, "ext": "mp4", "kind": "video",
                     "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
                 }
+
+            thumbs = info.get("thumbnails") or []
+            if thumbs and (fmt in ("photo", "image") or not formats):
+                if any((t.get("width") or 0) > 0 for t in thumbs):
+                    best = max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+                else:
+                    best = thumbs[-1]
+                if best.get("url") and fmt != "audio":
+                    return {
+                        "url": best["url"], "title": title, "ext": "jpg", "kind": "image",
+                        "platform": "Instagram", "channel": author_channel, "uploader": info.get("uploader")
+                    }
     except Exception as e:
         print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
 
@@ -1395,11 +1417,12 @@ def resolve_pinterest(url, fmt="video"):
                             if m3u8s:
                                 return {"url": m3u8s[0], "title": title, "ext": "mp4", "kind": "video", "is_m3u8": True}
 
-            # 3. Images (orig high-res fallback)
-            images = pin.get("images") or {}
-            orig = images.get("orig") or {} if isinstance(images, dict) else {}
-            if orig.get("url"):
-                return {"url": orig["url"], "title": title, "ext": "jpg", "kind": "image"}
+            # 3. Images (orig high-res fallback) - only if not requesting video/audio
+            if fmt not in ("video", "audio"):
+                images = pin.get("images") or {}
+                orig = images.get("orig") or {} if isinstance(images, dict) else {}
+                if orig.get("url"):
+                    return {"url": orig["url"], "title": title, "ext": "jpg", "kind": "image"}
         except Exception as e:
             print(f"Pinterest API note: {e}", file=sys.stderr)
 
@@ -1462,7 +1485,7 @@ def resolve_reddit(url, fmt="video"):
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(fetch_reddit_candidate, cu) for cu in candidates_urls]
-            for f in futures:
+            for f in as_completed(futures):
                 try:
                     data = f.result()
                     if isinstance(data, list) and data:
@@ -1572,20 +1595,28 @@ def resolve_twitter(url, fmt="video"):
             if media_list:
                 title = legacy.get("full_text") or f"Tweet_{status_id}"
                 fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": author, "id": status_id, "platform": "Twitter"}
+                has_video_in_media = False
                 images = []
                 for media in media_list:
                     mtype = str(media.get("type") or "").lower()
                     if mtype in ("video", "animated_gif"):
+                        has_video_in_media = True
                         variants = media.get("video_info", {}).get("variants", [])
                         mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
                         if mp4s:
                             mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
+                            if fmt == "audio":
+                                # Use lowest-bitrate mp4 as audio source; ffmpeg strips video in main()
+                                return {"url": mp4s[-1]["url"], "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                             return {"url": mp4s[0]["url"], "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                     elif mtype == "photo":
                         p_url = media.get("media_url_https")
                         if p_url:
                             images.append(p_url)
-                if images:
+                if has_video_in_media:
+                    # Video found in tweet metadata, but direct MP4 variant missing (e.g. m3u8 only) -> fallback to yt-dlp
+                    return fb_lambda()
+                if images and fmt != "audio":
                     if len(images) == 1:
                         return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
                     return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": author, "platform": "Twitter", "fallback": fb_lambda}
@@ -1593,7 +1624,7 @@ def resolve_twitter(url, fmt="video"):
             print(f"Twitter GraphQL API note: {e}", file=sys.stderr)
 
     guest_endpoints = [
-        f"https://api.fxtwitter.com/i/status/{status_id}",
+        f"https://api.fxtwitter.com/status/{status_id}",
         f"https://api.vxtwitter.com/Twitter/status/{status_id}",
         f"https://cdn.syndication.twimg.com/tweet-result?id={status_id}&token=4"
     ]
@@ -1603,32 +1634,104 @@ def resolve_twitter(url, fmt="video"):
         with urllib.request.urlopen(req, timeout=3.5) as resp:
             return ep, json.loads(resp.read().decode("utf-8"))
 
+    results = []
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(query_guest_ep, ep): ep for ep in guest_endpoints}
         for f in as_completed(futures):
             try:
                 ep, data = f.result()
-                if not data:
-                    continue
-                title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
-                g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
-                fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
-
-                v_url = data.get("video_url")
-                if not v_url and data.get("tweet", {}).get("media", {}).get("videos"):
-                    v_url = data["tweet"]["media"]["videos"][0].get("url")
-                if v_url:
-                    return {"url": v_url, "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
-
-                photos = data.get("mediaURLs")
-                if not photos and data.get("tweet", {}).get("media", {}).get("photos"):
-                    photos = [p.get("url") for p in data["tweet"]["media"]["photos"] if p.get("url")]
-                if photos:
-                    if len(photos) == 1:
-                        return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
-                    return {"images": photos, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
+                if data and isinstance(data, dict):
+                    results.append((ep, data))
             except Exception:
                 continue
+
+    has_video_indicator = False
+    # Priority 1: Search for VIDEO across all returned results
+    for ep, data in results:
+        title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
+        g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
+        fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
+
+        v_url = None
+        # Check vxTwitter media_extended & video_url
+        if "vxtwitter" in ep:
+            v_url = data.get("video_url")
+            for m in (data.get("media_extended") or []):
+                if str(m.get("type", "")).lower() in ("video", "animated_gif", "gif"):
+                    has_video_indicator = True
+                    if m.get("url") and not v_url:
+                        v_url = m.get("url")
+            if data.get("video_url"):
+                has_video_indicator = True
+        # Check fxTwitter tweet.media.videos
+        elif "fxtwitter" in ep:
+            vids = data.get("tweet", {}).get("media", {}).get("videos") or []
+            if vids:
+                has_video_indicator = True
+                if vids[0].get("url"):
+                    v_url = vids[0].get("url")
+        # Check syndication mediaDetails & video
+        elif "syndication" in ep:
+            for md in (data.get("mediaDetails") or []):
+                if str(md.get("type", "")).lower() in ("video", "animated_gif"):
+                    has_video_indicator = True
+                    variants = md.get("video_info", {}).get("variants") or []
+                    mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+                    if mp4s and not v_url:
+                        mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
+                        v_url = mp4s[0]["url"]
+            if (data.get("video") or {}).get("variants"):
+                has_video_indicator = True
+                if not v_url:
+                    variants = data["video"]["variants"]
+                    mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+                    if mp4s:
+                        mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
+                        v_url = mp4s[0]["url"]
+
+        if not v_url and data.get("video_url"):
+            has_video_indicator = True
+            v_url = data.get("video_url")
+
+        if v_url:
+            return {"url": v_url, "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
+
+    # If ANY endpoint reported that this tweet contains video, NEVER return images/thumbnails!
+    if has_video_indicator:
+        return {
+            "direct_ytdlp": True,
+            "url": clean_url,
+            "fmt": fmt,
+            "is_yt": False,
+            "title": f"Tweet_{status_id}",
+            "id": status_id,
+            "channel": author,
+            "platform": "Twitter"
+        }
+
+    # Priority 2: If NO video was found and fmt is NOT audio, check for genuine photos
+    if fmt != "audio":
+        for ep, data in results:
+            title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
+            g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
+            fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
+
+            photos = []
+            if "fxtwitter" in ep:
+                photos = [p.get("url") for p in data.get("tweet", {}).get("media", {}).get("photos", []) if p.get("url")]
+            elif "vxtwitter" in ep:
+                m_ext = data.get("media_extended") or []
+                if m_ext:
+                    photos = [m.get("url") for m in m_ext if str(m.get("type", "")).lower() == "image" and m.get("url")]
+                elif data.get("mediaURLs"):
+                    photos = [u for u in data["mediaURLs"] if u]
+            elif "syndication" in ep:
+                photos = [p.get("url") for p in (data.get("photos") or []) if p.get("url")]
+
+            if photos:
+                if len(photos) == 1:
+                    return {"url": photos[0], "title": title, "ext": "jpg", "kind": "image", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
+                return {"images": photos, "title": title, "ext": "jpg", "kind": "album", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
 
     return {
         "direct_ytdlp": True,
@@ -1778,6 +1881,149 @@ def get_ffmpeg_binary():
         except Exception:
             pass
     return None
+
+def resolve_threads(url, fmt="video"):
+    update_status("resolving", title="Resolving Threads media...")
+    # Threads posts are served by Meta's CDN — scrape OG tags like the Instagram fast path
+    m = re.search(r'threads\.net/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
+    post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
+    try:
+        hdrs = {
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
+        cookie_hdr = get_cookie_header("threads.net")
+        if cookie_hdr:
+            hdrs["Cookie"] = cookie_hdr
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+        og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', html) or \
+                 re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:video(?::secure_url)?["\']', html)
+        if og_vid:
+            vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
+            og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
+            title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
+            m_auth = re.search(r'threads\.net/@([^/]+)', url)
+            author = m_auth.group(1) if m_auth else None
+            return {"url": vurl, "title": title, "ext": "mp4", "kind": "video", "id": post_id, "channel": author, "platform": "Threads"}
+        # Images: only if not requesting video/audio
+        if fmt not in ("video", "audio"):
+            images = re.findall(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
+            if not images:
+                images = re.findall(r'content=["\']([^"\']+)["\']\s+property=["\']og:image["\']', html)
+            if images:
+                images = [pyhtml.unescape(u).replace("&amp;", "&") for u in images]
+                og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
+                title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
+                m_auth = re.search(r'threads\.net/@([^/]+)', url)
+                author = m_auth.group(1) if m_auth else None
+                if len(images) == 1:
+                    return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": post_id, "channel": author, "platform": "Threads"}
+                return {"images": images, "title": title, "ext": "jpg", "kind": "album", "id": post_id, "channel": author, "platform": "Threads"}
+    except Exception as e:
+        print(f"Threads OG scrape note: {e}", file=sys.stderr)
+    return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Threads_{post_id}", "platform": "Threads"}
+
+
+def resolve_streamable(url, fmt="video"):
+    update_status("resolving", title="Resolving Streamable media...")
+    m = re.search(r'streamable\.com/(?:e/)?([A-Za-z0-9]+)', url)
+    if not m:
+        return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": "Streamable Video"}
+    vid_id = m.group(1)
+    try:
+        req = urllib.request.Request(f"https://api.streamable.com/videos/{vid_id}", headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            d = json.loads(resp.read().decode("utf-8"))
+        title = d.get("title") or f"Streamable_{vid_id}"
+        files = d.get("files") or {}
+        # Prefer mp4-mobile (highest compat), fallback to any mp4 key
+        for key in ("mp4", "mp4-mobile"):
+            f = files.get(key) or {}
+            if f.get("url"):
+                mp4_url = f["url"]
+                if not mp4_url.startswith("http"):
+                    mp4_url = "https:" + mp4_url
+                return {"url": mp4_url, "title": title, "ext": "mp4", "kind": "video", "id": vid_id, "platform": "Streamable"}
+    except Exception as e:
+        print(f"Streamable API note: {e}", file=sys.stderr)
+    return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Streamable_{vid_id}", "platform": "Streamable"}
+
+
+def resolve_bilibili(url, fmt="video"):
+    update_status("resolving", title="Resolving Bilibili media...")
+    # Expand b23.tv shortlinks inline (not in expand_shortlink_fast whitelist by default)
+    clean_url = url
+    if "b23.tv" in url.lower():
+        try:
+            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+            opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler)
+            with opener.open(req, timeout=4) as r:
+                clean_url = r.geturl()
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") or e.headers.get("location")
+            if loc:
+                clean_url = loc if loc.startswith("http") else urllib.parse.urljoin(url, loc)
+        except Exception:
+            pass
+
+    m_bv = re.search(r'/(BV[A-Za-z0-9]+)', clean_url)
+    m_av = re.search(r'/av(\d+)', clean_url)
+    if not m_bv and not m_av:
+        return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": "Bilibili Video", "platform": "Bilibili"}
+
+    bvid = m_bv.group(1) if m_bv else None
+    aid = m_av.group(1) if m_av else None
+    hdrs = {"User-Agent": USER_AGENT, "Referer": "https://www.bilibili.com/"}
+    cookie_hdr = get_cookie_header("bilibili.com")
+    if cookie_hdr:
+        hdrs["Cookie"] = cookie_hdr
+
+    try:
+        params = f"bvid={bvid}" if bvid else f"aid={aid}"
+        req = urllib.request.Request(f"https://api.bilibili.com/x/web-interface/view?{params}", headers=hdrs)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            d = json.loads(resp.read().decode("utf-8"))
+        info = (d.get("data") or {})
+        title = info.get("title") or (f"Bilibili_{bvid or aid}")
+        cid = info.get("cid")
+        vid_bvid = info.get("bvid") or bvid
+        vid_aid = info.get("aid") or aid
+        channel = (info.get("owner") or {}).get("name") or ""
+
+        if cid and (vid_bvid or vid_aid):
+            # Fetch playurl — returns direct mp4/flv stream URLs (quality 80=1080p, 64=720p, 32=480p)
+            q_param = "qn=80&fnval=0&fnver=0&fourk=1"
+            if vid_bvid:
+                play_params = f"bvid={vid_bvid}&cid={cid}&{q_param}"
+            else:
+                play_params = f"avid={vid_aid}&cid={cid}&{q_param}"
+            req2 = urllib.request.Request(f"https://api.bilibili.com/x/player/playurl?{play_params}", headers=hdrs)
+            with urllib.request.urlopen(req2, timeout=5) as resp2:
+                pd = json.loads(resp2.read().decode("utf-8"))
+            durl = ((pd.get("data") or {}).get("durl") or [])
+            if durl:
+                best = max(durl, key=lambda x: x.get("size", 0))
+                media_url = best.get("url") or best.get("backup_url", [None])[0]
+                if media_url:
+                    return {
+                        "url": media_url,
+                        "title": title,
+                        "ext": "mp4",
+                        "kind": "video",
+                        "id": vid_bvid or str(vid_aid),
+                        "channel": channel,
+                        "platform": "Bilibili",
+                        "headers": hdrs
+                    }
+    except Exception as e:
+        print(f"Bilibili API note: {e}", file=sys.stderr)
+
+    # ponytail: no DASH muxing for Bilibili — requires login cookie + DASH token; yt-dlp handles it
+    return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title if 'title' in dir() else "Bilibili Video", "platform": "Bilibili"}
+
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     return {
@@ -1942,8 +2188,20 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + cookie_arg + [url]
 
     env = get_runtime_env()
+    t_proc_start = time.time()
     update_status("downloading", percent=0, title="Downloading...")
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    stderr_lines = []
+    def _drain_stderr():
+        try:
+            for eline in proc.stderr:
+                stderr_lines.append(eline)
+        except Exception:
+            pass
+
+    t_err = threading.Thread(target=_drain_stderr, daemon=True)
+    t_err.start()
 
     title = "Media"
     downloaded_file = None
@@ -1979,9 +2237,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         elif "[Merger] Merging formats into" in line:
             downloaded_file = line.replace("[Merger] Merging formats into", "").strip().strip('"')
             title = os.path.splitext(os.path.basename(downloaded_file))[0]
+            update_status("downloading", percent=99, speed="", title=f"{title} (Merging formats...)")
         elif "[ExtractAudio] Destination:" in line:
             downloaded_file = line.replace("[ExtractAudio] Destination:", "").strip().strip('"')
             title = os.path.splitext(os.path.basename(downloaded_file))[0]
+            update_status("downloading", percent=99, speed="", title=f"{title} (Extracting audio...)")
         elif "[download]" in line and "has already been downloaded" in line:
             m_dl = re.search(r'\[download\]\s+(.*?)\s+has already been downloaded', line)
             if m_dl:
@@ -1989,8 +2249,9 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
                 title = os.path.splitext(os.path.basename(downloaded_file))[0]
 
     proc.wait()
+    t_err.join(timeout=1.5)
     if proc.returncode != 0:
-        err = proc.stderr.read().strip()
+        err = "".join(stderr_lines).strip()
         raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
 
     if not downloaded_file or not os.path.exists(downloaded_file):
@@ -1998,7 +2259,12 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         for r, _, fnames in os.walk(outdir):
             for fn in fnames:
                 if not fn.startswith('.') and not any(fn.endswith(bad) for bad in ('.part', '.ytdl', '.temp', '.tmp', '.raw')):
-                    candidates.append(os.path.join(r, fn))
+                    full_p = os.path.join(r, fn)
+                    try:
+                        if os.path.getmtime(full_p) >= t_proc_start - 10:
+                            candidates.append(full_p)
+                    except Exception:
+                        pass
         if candidates:
             candidates.sort(key=os.path.getmtime, reverse=True)
             downloaded_file = candidates[0]
@@ -2183,6 +2449,12 @@ def main():
             info = resolve_reddit(url, fmt)
         elif "youtube.com" in low_url or "youtu.be" in low_url:
             info = resolve_youtube(url, fmt)
+        elif "threads.net" in low_url:
+            info = resolve_threads(url, fmt)
+        elif "streamable.com" in low_url:
+            info = resolve_streamable(url, fmt)
+        elif "bilibili.com" in low_url or "b23.tv" in low_url:
+            info = resolve_bilibili(url, fmt)
         else:
             info = resolve_ytdlp(url, fmt, is_yt=False)
 
@@ -2261,6 +2533,12 @@ def main():
         print(f"Download Error: {e}", file=sys.stderr)
         update_status("error", error=str(e))
         sys.exit(1)
+    finally:
+        try:
+            if os.path.exists(PID_FILE):
+                os.remove(PID_FILE)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

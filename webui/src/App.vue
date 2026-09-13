@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.14' }}
+          {{ sysInfo.version || 'v1.3.15' }}
           <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>
@@ -1827,6 +1827,11 @@ function startPolling() {
         const isNet = isNetworkError(parsed.error)
         showToast(isNet ? 'Network disconnected: Ready to resume' : (parsed.error || 'Download failed'), 'error')
         fetchLogs()
+      } else if (parsed.status === 'idle') {
+        clearInterval(pollTimer)
+        pollTimer = null
+        isProcessing.value = false
+        saveActiveTaskToStorage(null)
       } else if (parsed.status === 'resolving' && (Date.now() - pollStart > 50000)) {
         clearInterval(pollTimer)
         pollTimer = null
@@ -2040,9 +2045,9 @@ async function checkClipboardSniffer() {
 
   if (!text) return
   const foundUrl = extractUrl(text)
-  if (foundUrl && foundUrl.startsWith('http') && foundUrl !== url.value && foundUrl !== lastDismissedClipUrl.value) {
+  if (foundUrl && foundUrl.startsWith('http') && foundUrl !== url.value && foundUrl !== (task.value && task.value.url) && foundUrl !== lastDismissedClipUrl.value) {
     detectedClipUrl.value = foundUrl
-  } else if (foundUrl === url.value) {
+  } else if (foundUrl === url.value || (task.value && foundUrl === task.value.url)) {
     detectedClipUrl.value = ''
   }
 }
