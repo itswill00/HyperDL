@@ -478,6 +478,97 @@ static void cmd_probe(const char *url) {
     }
 }
 
+static void run_python_action(const char *subaction) {
+    const char *python_bin = find_python();
+    if (!python_bin) {
+        printf("{\"error\":\"python_not_found\"}\n");
+        return;
+    }
+
+    const char *bundle_path = NULL;
+    if (access("/data/adb/modules/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle";
+    } else if (access("/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle", R_OK) == 0) {
+        bundle_path = "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle";
+    }
+
+    if (strstr(python_bin, "runtime")) {
+        char moddir[512];
+        const char *p = strstr(python_bin, "/bin/python3");
+        if (p) {
+            size_t len = p - python_bin;
+            snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
+            char libdir[550], pypath[650], cacert[550], path_env[1024];
+            snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
+            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
+            snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+
+            setenv("PATH", path_env, 1);
+            setenv("PYTHONHOME", moddir, 1);
+            setenv("PYTHONPATH", pypath, 1);
+            setenv("LD_LIBRARY_PATH", libdir, 1);
+            setenv("SSL_CERT_FILE", cacert, 1);
+        }
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        printf("{\"error\":\"pipe_failed\"}\n");
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        printf("{\"error\":\"fork_failed\"}\n");
+        return;
+    }
+
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        int dev_null = open("/dev/null", O_WRONLY);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDERR_FILENO);
+            close(dev_null);
+        }
+        close(pipefd[1]);
+
+        if (bundle_path) {
+            execl(python_bin, python_bin, bundle_path, subaction, (char *)NULL);
+        } else {
+            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
+            snprintf(launcher, sizeof(launcher),
+                     "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
+                     EMBEDDED_ENGINE_B64);
+            execl(python_bin, python_bin, "-c", launcher, subaction, (char *)NULL);
+        }
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+
+    char output[65536] = "";
+    size_t total = 0;
+    ssize_t n;
+    while (total < sizeof(output) - 1 && (n = read(pipefd[0], output + total, sizeof(output) - total - 1)) > 0) {
+        total += n;
+    }
+    output[total] = '\0';
+    close(pipefd[0]);
+
+    int status;
+    waitpid(pid, &status, 0);
+
+    if (total > 0) {
+        printf("%s\n", output);
+    } else {
+        printf("{\"error\":\"no_output\"}\n");
+    }
+}
+
 
 static int is_junk_filename(const char *name) {
     if (!name || !*name) return 0;
@@ -975,7 +1066,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.17";
+    char mod_version[32] = "v1.3.18";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1457,6 +1548,10 @@ int main(int argc, char *argv[]) {
         cmd_clean_junk();
     } else if (strcmp(action, "preview") == 0) {
         cmd_preview(argc > 2 ? argv[2] : "");
+    } else if (strcmp(action, "check_ytdlp") == 0) {
+        run_python_action("check_ytdlp");
+    } else if (strcmp(action, "update_ytdlp") == 0) {
+        run_python_action("update_ytdlp");
     } else {
         printf("{\"error\":\"unknown_action\"}\n");
         return 1;

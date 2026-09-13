@@ -1808,6 +1808,97 @@ def get_or_download_ytdlp():
     os.replace(tmp_path, target_path)
     return target_path
 
+def get_ytdlp_local_version():
+    ytdlp_bin = get_or_download_ytdlp()
+    py_bin = get_python_binary()
+    try:
+        res = subprocess.run([py_bin, ytdlp_bin, "--version"], capture_output=True, text=True, timeout=5, env=get_runtime_env())
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "Unknown"
+
+def check_ytdlp_version_api():
+    # ponytail: HEAD request on GitHub release redirect avoids API rate limits
+    cur_ver = get_ytdlp_local_version()
+    latest_ver = cur_ver
+    try:
+        req = urllib.request.Request("https://github.com/yt-dlp/yt-dlp/releases/latest", method="HEAD", headers={"User-Agent": USER_AGENT})
+        opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler)
+        with opener.open(req, timeout=6) as r:
+            latest_ver = r.geturl().split("/")[-1].strip()
+    except Exception as e:
+        print(f"Check ytdlp release note: {e}", file=sys.stderr)
+
+    has_update = bool(cur_ver and latest_ver and cur_ver != "Unknown" and cur_ver != latest_ver)
+    return {
+        "current": cur_ver,
+        "latest": latest_ver,
+        "has_update": has_update
+    }
+
+def perform_ytdlp_update():
+    # ponytail: download upstream zipapp, recompile to .pyc bytecode for mobile startup speed
+    target_paths = [
+        "/data/adb/modules/hyperdl/system/bin/yt-dlp",
+        "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
+        os.path.join(CONF_DIR, "bin", "yt-dlp"),
+        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp"
+    ]
+
+    import tempfile, compileall, zipfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        raw_dl = os.path.join(tmpdir, "raw_ytdlp")
+        req = urllib.request.Request(YTDLP_DOWNLOAD_URL, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(raw_dl, "wb") as f:
+            f.write(resp.read())
+
+        ext_dir = os.path.join(tmpdir, "extracted")
+        with zipfile.ZipFile(raw_dl, "r") as z:
+            z.extractall(ext_dir)
+        compileall.compile_dir(ext_dir, force=True, quiet=1, legacy=True)
+        for root, dirs, files in os.walk(ext_dir):
+            for file in files:
+                if file.endswith(".py"):
+                    os.remove(os.path.join(root, file))
+
+        opt_path = os.path.join(tmpdir, "opt_ytdlp")
+        with open(opt_path, "wb") as of:
+            of.write(b"#!/usr/bin/env python3\n")
+            with zipfile.ZipFile(of, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+                for root, dirs, files in os.walk(ext_dir):
+                    for file in files:
+                        full = os.path.join(root, file)
+                        rel = os.path.relpath(full, ext_dir)
+                        z.write(full, rel)
+
+        py_bin = get_python_binary()
+        ver_res = subprocess.run([py_bin, opt_path, "--version"], capture_output=True, text=True, timeout=5, env=get_runtime_env())
+        if ver_res.returncode != 0 or not ver_res.stdout.strip():
+            return {"success": False, "error": "Verification failed after optimization"}
+
+        new_ver = ver_res.stdout.strip()
+
+        updated_any = False
+        for tp in target_paths:
+            if os.path.exists(os.path.dirname(tp)):
+                try:
+                    shutil.copyfile(opt_path, tp)
+                    os.chmod(tp, 0o755)
+                    updated_any = True
+                except Exception:
+                    pass
+
+        if not updated_any:
+            cb = os.path.join(CONF_DIR, "bin")
+            os.makedirs(cb, exist_ok=True)
+            tp = os.path.join(cb, "yt-dlp")
+            shutil.copyfile(opt_path, tp)
+            os.chmod(tp, 0o755)
+
+        return {"success": True, "version": new_ver}
+
 def get_python_binary():
     py_candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -2474,12 +2565,33 @@ def main():
     probe_parser = subparsers.add_parser("probe")
     probe_parser.add_argument("url", help="Media link")
 
+    subparsers.add_parser("check_ytdlp")
+    subparsers.add_parser("update_ytdlp")
+
     args, _ = parser.parse_known_args()
 
     if args.action == "probe":
         try:
             resolutions = probe_resolutions(args.url.strip())
             print(json.dumps({"resolutions": resolutions}), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": humanize_error(e)}), flush=True)
+            sys.exit(1)
+        return
+
+    if args.action == "check_ytdlp":
+        try:
+            res = check_ytdlp_version_api()
+            print(json.dumps(res), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": humanize_error(e)}), flush=True)
+            sys.exit(1)
+        return
+
+    if args.action == "update_ytdlp":
+        try:
+            res = perform_ytdlp_update()
+            print(json.dumps(res), flush=True)
         except Exception as e:
             print(json.dumps({"error": humanize_error(e)}), flush=True)
             sys.exit(1)

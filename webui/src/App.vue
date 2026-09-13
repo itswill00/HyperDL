@@ -12,7 +12,7 @@
           Offline
         </span>
         <span class="badge-pill active" v-else @click="onVersionClick" style="cursor: pointer; user-select: none;">
-          {{ sysInfo.version || 'v1.3.17' }}
+          {{ sysInfo.version || 'v1.3.18' }}
           <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
         </span>
       </div>
@@ -746,6 +746,24 @@
               <span style="color: var(--on-surface-variant);">Audio encoder</span>
               <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
             </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ ytdlpInfo.current || '2026.08.19' }}</span>
+                <button
+                  class="btn"
+                  :class="ytdlpInfo.has_update ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  :disabled="ytdlpChecking || ytdlpUpdating"
+                  @click="handleYtdlpAction"
+                >
+                  <span v-if="ytdlpChecking || ytdlpUpdating" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
+                    <Icons name="refresh" :size="10" />
+                  </span>
+                  <span>{{ ytdlpButtonLabel }}</span>
+                </button>
+              </div>
+            </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Available storage</span>
               <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.storage_free || storageFree || '—' }}</span>
@@ -1129,6 +1147,68 @@ const previewLoading = ref(false)
 const previewError = ref('')
 
 const sysInfo = ref({ python: '', storage_free: '' })
+const ytdlpInfo = ref({ current: '', latest: '', has_update: false })
+const ytdlpChecking = ref(false)
+const ytdlpUpdating = ref(false)
+
+const ytdlpButtonLabel = computed(() => {
+  if (ytdlpChecking.value) return 'Checking...'
+  if (ytdlpUpdating.value) return 'Updating...'
+  if (ytdlpInfo.value.has_update) return `Update to ${ytdlpInfo.value.latest}`
+  if (ytdlpInfo.value.latest) return 'Up to date'
+  return 'Check update'
+})
+
+async function handleYtdlpAction() {
+  if (ytdlpInfo.value.has_update) {
+    ytdlpUpdating.value = true
+    try {
+      const raw = await runBridge('update_ytdlp')
+      if (raw && raw.startsWith('{')) {
+        const res = JSON.parse(raw)
+        if (res.success) {
+          ytdlpInfo.value.current = res.version
+          ytdlpInfo.value.latest = res.version
+          ytdlpInfo.value.has_update = false
+          showToast(`yt-dlp updated to ${res.version}`)
+        } else {
+          showToast(res.error || 'Update failed', 'error')
+        }
+      } else {
+        showToast('Update failed: invalid response', 'error')
+      }
+    } catch (e) {
+      showToast('Update failed: ' + String(e), 'error')
+    } finally {
+      ytdlpUpdating.value = false
+    }
+  } else {
+    ytdlpChecking.value = true
+    try {
+      const raw = await runBridge('check_ytdlp')
+      if (raw && raw.startsWith('{')) {
+        const res = JSON.parse(raw)
+        if (res.current) {
+          ytdlpInfo.value = res
+          if (res.has_update) {
+            showToast(`yt-dlp update available: ${res.latest}`)
+          } else {
+            showToast(`yt-dlp is up to date (${res.current})`)
+          }
+        } else if (res.error) {
+          showToast(res.error, 'error')
+        }
+      } else {
+        showToast('Check failed: invalid response', 'error')
+      }
+    } catch (e) {
+      showToast('Failed to check yt-dlp update', 'error')
+    } finally {
+      ytdlpChecking.value = false
+    }
+  }
+}
+
 const logContent = ref('Loading console log...')
 
 const confirmDialog = ref({
