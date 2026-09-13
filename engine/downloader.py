@@ -2049,7 +2049,9 @@ def apply_module_ota(ota_url=None):
         except Exception as e:
             return {"success": False, "error": f"Corrupt zip archive: {e}"}
 
-        extracted_bundle = os.path.join(extract_dir, "system", "bin", "hyperdl.bundle")
+        extracted_bundle = os.path.join(extract_dir, "bin", "hyperdl.bundle")
+        if not os.path.exists(extracted_bundle):
+            extracted_bundle = os.path.join(extract_dir, "system", "bin", "hyperdl.bundle")
         extracted_prop = os.path.join(extract_dir, "module.prop")
         if not os.path.exists(extracted_bundle) or not os.path.exists(extracted_prop):
             return {"success": False, "error": "OTA archive missing required system components"}
@@ -2113,7 +2115,9 @@ def apply_module_ota(ota_url=None):
                         pass
                 return {"success": False, "error": f"Failed to install {dst_rel}: {e}"}
 
-        clip_src = os.path.join(extract_dir, "system", "bin", "clip.jar")
+        clip_src = os.path.join(extract_dir, "bin", "clip.jar")
+        if not os.path.exists(clip_src):
+            clip_src = os.path.join(extract_dir, "system", "bin", "clip.jar")
         if os.path.exists(clip_src):
             try:
                 os.makedirs("/data/adb/hyperdl", exist_ok=True)
@@ -2130,7 +2134,9 @@ def apply_module_ota(ota_url=None):
         restarted_daemon = False
         autodl_file = "/data/adb/hyperdl/autodl.enabled"
         if was_daemon_running or os.path.exists(autodl_file):
-            daemon_script = os.path.join(target_mod, "system", "bin", "hyperdl_daemon")
+            daemon_script = os.path.join(target_mod, "bin", "hyperdl_daemon")
+            if not os.path.exists(daemon_script):
+                daemon_script = os.path.join(target_mod, "system", "bin", "hyperdl_daemon")
             if os.path.exists(daemon_script):
                 try:
                     subprocess.Popen(["sh", daemon_script, "start"], start_new_session=True)
