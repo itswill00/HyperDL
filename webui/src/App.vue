@@ -969,14 +969,15 @@
           </button>
         </div>
 
-        <div v-if="isProbingResolutions" style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--on-surface-variant); padding: 7px 10px; background: var(--surface-container-low); border: 1px solid var(--outline-variant); border-radius: 8px; margin-bottom: 10px;">
-          <div class="spin-loader" style="display: flex; align-items: center;">
-            <Icons name="refresh" :size="13" />
+        <div v-if="isProbingResolutions" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; gap: 12px;">
+          <div class="spin-loader" style="width: 28px; height: 28px; color: var(--primary);">
+            <Icons name="refresh" :size="26" />
           </div>
-          <span>Detecting real streams & exact file sizes...</span>
+          <div style="font-size: 13px; font-weight: 500; color: var(--on-surface);">Detecting video resolutions...</div>
+          <div style="font-size: 11px; color: var(--on-surface-variant);">Please wait while checking stream availability</div>
         </div>
 
-        <div v-if="resolutions.length > 0" class="resolution-list">
+        <div v-else-if="resolutions.length > 0" class="resolution-list">
           <button
             v-for="r in resolutions"
             :key="r.height || r.format_id"
@@ -994,7 +995,7 @@
         </div>
 
         <div style="display: flex; gap: 8px; margin-top: 12px;">
-          <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
+          <button v-if="!isProbingResolutions" class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
             Best Available Quality
           </button>
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click.stop="closeResolutionPicker">
@@ -1804,7 +1805,7 @@ async function startDownload() {
 
   if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
     pendingUrl.value = u
-    resolutions.value = [...STANDARD_RESOLUTIONS]
+    resolutions.value = []
     showResolutionPicker.value = true
     isProbingResolutions.value = true
 
@@ -1821,13 +1822,19 @@ async function startDownload() {
         const list = Array.isArray(parsed) ? parsed : (parsed && parsed.resolutions ? parsed.resolutions : null)
         if (list && list.length > 0) {
           resolutions.value = list
+        } else {
+          resolutions.value = [...STANDARD_RESOLUTIONS]
         }
-      }).catch(() => {}).finally(() => {
+      }).catch(() => {
+        if (showResolutionPicker.value && pendingUrl.value === u) {
+          resolutions.value = [...STANDARD_RESOLUTIONS]
+        }
+      }).finally(() => {
         if (pendingUrl.value === u) {
           isProbingResolutions.value = false
         }
       })
-    }, 250)
+    }, 50)
     return
   }
 
