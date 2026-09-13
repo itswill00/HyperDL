@@ -1,8 +1,8 @@
 {
-  "version": "v1.3.21",
-  "versionCode": 13210,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.21/HyperDL-v1.3.21.zip",
-  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.21/HyperDL-OTA-v1.3.21.zip",
+  "version": "v1.3.22",
+  "versionCode": 13220,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.22/HyperDL-v1.3.22.zip",
+  "otaUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.22/HyperDL-OTA-v1.3.22.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Fix YouTube downloader resolution selection and cookie bot-detection fallback"
+  "notes": "Refined fluid animations, removed layout snapping, instant cancel, and fixed OTA daemon pipe inheritance"
 }
