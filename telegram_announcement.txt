@@ -1,18 +1,18 @@
-🔥 HyperDL v1.3.20
+🔥 HyperDL v1.3.21
 
-Hotfix update addressing bootloop / splash screen freezes on several devices (Samsung Knox DEFEX & non-OverlayFS kernels), plus internal codebase optimization.
+Quick hotfix update fixing YouTube resolution selection, bot-detection checkpoint bypass, and Shorts format matching.
 
 ✨ What's New & Fixed:
-• Critical Bootloop Fix: Completely removed /system overlay mounts. Binaries now live in module bin/ with native root PATH symlinks (HyperRing pattern).
-• Samsung & Magic Mount Immunity: No more Knox DEFEX panics or tmpfs deadlocks during early init.
-• Safe Auto-Migration: Automatically purges legacy system mounts from previous installs without touching your downloaded media.
-• Codebase Optimization: Leaner, stripped binaries and faster bridge execution.
-• In-App OTA Hot-Patch: Users on v1.3.18+ can update directly inside WebUI (~184 KB) without rebooting.
+• YouTube Resolution Picker: Fixed resolution detection failing when session cookies expire or get flagged by bot checkpoints ("page needs to be reloaded").
+• Automatic Fallback: Automatically retries without cookies if Google/YouTube blocks the request, ensuring stream detection and downloads always succeed.
+• YouTube Shorts & Portrait Support: Improved resolution selector to accurately match vertical video dimensions (720p, 1080p, etc.).
+• Cleaner Stream Probing: The resolution sheet now shows a focused loading state while scanning streams, revealing the exact format options once ready.
+• Instant In-App OTA: Update directly inside WebUI (~184 KB) without rebooting your device.
 
 📦 Download:
-• GitHub Release: https://github.com/itswill00/HyperDL-Release/releases/tag/v1.3.20
+• GitHub Release: https://github.com/itswill00/HyperDL-Release/releases/tag/v1.3.21
 
 💬 Feedback & Discussion: @noticesa
 ☕ Support development: https://sociabuzz.com/noticesa/tribe
 
-#HyperDL #KernelSU #APatch #Magisk #Module #Update
+#HyperDL #KernelSU #APatch #Magisk #Module #Update #Hotfix
