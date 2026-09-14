@@ -173,7 +173,7 @@
                 @click="selectedFormat = 'audio'"
               >
                 <Icons name="music" :size="14" />
-                <span>Audio (FLAC)</span>
+                <span>Audio ({{ audioFormat.toUpperCase() }})</span>
               </div>
               <div
                 class="chip-item"
@@ -186,7 +186,7 @@
             </div>
             <div class="format-desc-hint">
               <span v-if="selectedFormat === 'video'">Original video stream with best available audio</span>
-              <span v-else-if="selectedFormat === 'audio'">Lossless studio audio (FLAC 24-bit / 48 kHz HD)</span>
+              <span v-else-if="selectedFormat === 'audio'">{{ audioFormat === 'flac' ? 'Lossless studio audio (FLAC 24-bit / 48 kHz HD)' : 'High quality audio (MP3 320 kbps universal)' }}</span>
               <span v-else-if="selectedFormat === 'album'">Original high-res photos & carousel images</span>
             </div>
           </div>
@@ -732,7 +732,28 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Audio encoder</span>
-              <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
+              <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (Universal)' : 'Direct Stream' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Audio format</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button
+                  class="btn"
+                  :class="audioFormat === 'mp3' ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  @click="setAudioFormat('mp3')"
+                >
+                  MP3 320k
+                </button>
+                <button
+                  class="btn"
+                  :class="audioFormat === 'flac' ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  @click="setAudioFormat('flac')"
+                >
+                  FLAC HD
+                </button>
+              </div>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
@@ -1086,11 +1107,21 @@ const url = ref('')
 const urlInput = ref(null)
 const terminalCard = ref(null)
 const selectedFormat = ref('video')
+const audioFormat = ref(localStorage.getItem('hyperdl_audio_fmt') || 'mp3')
 const isProcessing = ref(false)
 const autoDl = ref(false)
 const storageFree = ref('')
 const toast = ref({ show: false, message: '', type: 'info' })
 const isOnline = ref(typeof navigator !== 'undefined' && 'onLine' in navigator ? navigator.onLine : true)
+
+async function setAudioFormat(fmt) {
+  audioFormat.value = fmt
+  try {
+    localStorage.setItem('hyperdl_audio_fmt', fmt)
+    await runBridge('set_audio_format', fmt)
+    showToast(`Audio format set to ${fmt.toUpperCase()}`, 'success')
+  } catch (e) {}
+}
 
 const resolutions = ref([])
 const showResolutionPicker = ref(false)
@@ -1237,6 +1268,7 @@ const task = ref({
   status: 'idle',
   percent: 0,
   speed: '',
+  eta: '',
   downloaded: '',
   total: '',
   title: '',
@@ -1259,6 +1291,7 @@ function saveActiveTaskToStorage(t) {
         downloaded: t.downloaded || '',
         total: t.total || '',
         speed: t.speed || '',
+        eta: t.eta || '',
         title: t.title || '',
         url: t.url || url.value,
         fmt: t.fmt || selectedFormat.value,
@@ -1462,8 +1495,18 @@ function formatProgressInfo(t) {
 function formatSpeedInfo(t) {
   if (!t) return ''
   const spd = String(t.speed || '').trim()
-  if (spd && spd !== 'N/A' && spd !== 'NA' && spd !== 'None' && spd !== 'null') {
+  const eta = String(t.eta || '').trim()
+  const hasSpeed = spd && spd !== 'N/A' && spd !== 'NA' && spd !== 'None' && spd !== 'null'
+  const hasEta = eta && eta !== 'N/A' && eta !== 'NA' && eta !== 'None' && eta !== 'null'
+
+  if (hasSpeed && hasEta) {
+    return `${spd} • ETA ${eta}`
+  }
+  if (hasSpeed) {
     return spd
+  }
+  if (hasEta) {
+    return `ETA ${eta}`
   }
   if (t.status === 'paused') {
     return `${t.percent || 0}% ready`
@@ -1519,7 +1562,43 @@ function shellEscape(arg) {
 function extractUrl(text) {
   if (!text) return ''
   const match = String(text).match(/https?:\/\/[^\s<>"]+/)
-  return match ? match[0].trim() : text.trim()
+  const raw = match ? match[0].trim() : text.trim()
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) return raw
+
+  try {
+    const parsed = new URL(raw)
+    const params = new URLSearchParams(parsed.search)
+    const host = parsed.hostname.toLowerCase()
+    const isYt = host.includes('youtube.com') || host.includes('youtu.be')
+    const isIg = host.includes('instagram.com')
+    const isTt = host.includes('tiktok.com') || host.includes('douyin.com')
+    const isX = host.includes('x.com') || host.includes('twitter.com')
+
+    const toRemove = []
+    for (const key of params.keys()) {
+      const k = key.toLowerCase()
+      if (k.startsWith('utm_') || k === 'ref' || k === 'ref_src') {
+        toRemove.push(key)
+      } else if ((k === 'si' || k === 'feature') && isYt) {
+        toRemove.push(key)
+      } else if (k === 'igsh' && isIg) {
+        toRemove.push(key)
+      } else if ((k === '_t' || k === '_r') && isTt) {
+        toRemove.push(key)
+      } else if ((k === 's' || (k === 't' && !isYt)) && isX) {
+        toRemove.push(key)
+      }
+    }
+
+    for (const key of toRemove) {
+      params.delete(key)
+    }
+
+    parsed.search = params.toString() ? `?${params.toString()}` : ''
+    return parsed.toString()
+  } catch (e) {
+    return raw
+  }
 }
 
 function onPasteInput() {
@@ -1843,6 +1922,7 @@ async function doDownload(u, fmt, extraArg, isResume = false) {
       status: 'resolving',
       percent: 5,
       speed: '',
+      eta: '',
       downloaded: '',
       total: '',
       title: u,
@@ -1858,11 +1938,12 @@ async function doDownload(u, fmt, extraArg, isResume = false) {
 
   showToast(isResume ? 'Resuming download...' : 'Starting download...', 'info')
   try {
-    if (extraArg) {
-      await runBridge('download', u, fmt, extraArg)
-    } else {
-      await runBridge('download', u, fmt)
+    const bridgeArgs = [u, fmt]
+    if (extraArg) bridgeArgs.push(extraArg)
+    if (fmt === 'audio' && audioFormat.value) {
+      bridgeArgs.push(`--audio-format=${audioFormat.value}`)
     }
+    await runBridge('download', ...bridgeArgs)
     startPolling()
   } catch (e) {
     task.value.status = 'error'
@@ -2472,6 +2553,10 @@ async function loadSystemInfo() {
       storageFree.value = info.storage_free || ''
       sysInfo.value = info
       cookiesActive.value = !!info.has_cookies
+      if (info.audio_format) {
+        audioFormat.value = info.audio_format
+        localStorage.setItem('hyperdl_audio_fmt', info.audio_format)
+      }
     }
     
     const autoRaw = await runBridge('get_autodl')

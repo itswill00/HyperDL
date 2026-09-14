@@ -79,6 +79,61 @@ def get_effective_outdir(preferred=DEFAULT_OUTDIR):
             continue
     return preferred
 
+def clean_media_url(raw_url):
+    if not raw_url:
+        return ""
+    m = re.search(r'https?://[^\s<>"]+', raw_url)
+    clean = m.group(0) if m else raw_url.strip()
+    try:
+        parsed = urllib.parse.urlparse(clean)
+        if not parsed.query:
+            return clean
+        qs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        netloc = parsed.netloc.lower()
+        is_yt = "youtube.com" in netloc or "youtu.be" in netloc
+        is_ig = "instagram.com" in netloc
+        is_tt = "tiktok.com" in netloc or "douyin.com" in netloc
+        is_x = "x.com" in netloc or "twitter.com" in netloc
+
+        new_qs = []
+        for k, v in qs:
+            kl = k.lower()
+            if kl.startswith("utm_") or kl in ("ref", "ref_src"):
+                continue
+            if kl in ("si", "feature") and is_yt:
+                continue
+            if kl == "igsh" and is_ig:
+                continue
+            if kl in ("_t", "_r") and is_tt:
+                continue
+            if is_x and (kl == "s" or (kl == "t" and not is_yt)):
+                continue
+            new_qs.append((k, v))
+
+        new_query = urllib.parse.urlencode(new_qs)
+        return urllib.parse.urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment
+        ))
+    except Exception:
+        return clean
+
+def check_storage_space(outdir, required_bytes=100 * 1024 * 1024):
+    try:
+        st = os.statvfs(outdir)
+        free_bytes = st.f_bavail * st.f_frsize
+        if free_bytes < required_bytes:
+            free_mb = free_bytes // (1024 * 1024)
+            return False, f"Low storage space: only {free_mb} MB available (< 100 MB free)"
+        return True, ""
+    except Exception:
+        return True, ""
+
+
 def get_target_directory(base_outdir, info, url=""):
     vault_flag = "/data/adb/hyperdl/vault.enabled"
     vault_conf = "/data/adb/hyperdl/vault_domains.conf"
@@ -249,11 +304,11 @@ def humanize_error(e):
 _last_notif_time = 0.0
 _last_notif_pct = -1
 
-def post_android_notification(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
+def post_android_notification(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error="", eta=""):
     """
     Post real-time download status to the Android system notification bar using /system/bin/cmd notification.
     Runs as UID 2000 (com.android.shell) so Android NotificationManager enqueues it cleanly.
-    Single-line title and single-line body ensures zero literal escape sequences ('\\n') on any Android OEM.
+    Single-line title and single-line body ensures zero literal escape sequences ('\n') on any Android OEM.
     """
     global _last_notif_time, _last_notif_pct
 
@@ -293,6 +348,8 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
                 details.append(downloaded)
         if speed and speed not in ("N/A", "NA", "None", ""):
             details.append(speed)
+        if eta and eta not in ("N/A", "NA", "None", "null", "Unknown", ""):
+            details.append(f"ETA {eta}")
 
         notif_text = " • ".join(details) if details else "Downloading media..."
         icon = "@android:drawable/stat_sys_download"
@@ -380,7 +437,7 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
     except Exception:
         pass
 
-def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error=""):
+def update_status(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error="", eta=""):
     global _last_status
     if percent > 0:
         _last_status["percent"] = percent
@@ -397,6 +454,11 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
     elif not total and status in ("error", "paused") and _last_status.get("total"):
         total = _last_status["total"]
 
+    if eta:
+        _last_status["eta"] = eta
+    elif not eta and status in ("error", "paused") and _last_status.get("eta"):
+        eta = _last_status["eta"]
+
     if title:
         _last_status["title"] = title
     elif not title and _last_status.get("title"):
@@ -408,6 +470,7 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
         "speed": speed,
         "downloaded": downloaded,
         "total": total,
+        "eta": eta if status == "downloading" else "",
         "title": title,
         "file_path": file_path,
         "error": humanize_error(error) if error else "",
@@ -454,7 +517,8 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
             total=total,
             title=title,
             file_path=file_path,
-            error=error
+            error=error,
+            eta=eta
         )
     except Exception:
         pass
@@ -669,7 +733,13 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                         dl_str = f"{downloaded / (1024*1024):.1f} MB"
                         tot_str = f"{total_bytes / (1024*1024):.1f} MB" if total_bytes > 0 else ""
                         
-                        update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title)
+                        rem = max(total_bytes - downloaded, 0) if total_bytes > 0 else 0
+                        eta_str = ""
+                        if rem > 0 and speed_bps > 0:
+                            s = int(rem / speed_bps)
+                            eta_str = f"{s // 60:02d}:{s % 60:02d}" if s < 3600 else f"{s // 3600}h {s % 3600 // 60}m"
+
+                        update_status("downloading", percent=pct, speed=speed_str, downloaded=dl_str, total=tot_str, title=title, eta=eta_str)
 
                     if total_bytes > 0 and downloaded >= total_bytes:
                         break
@@ -2366,7 +2436,12 @@ def resolve_youtube(url, fmt="video"):
         "title": "YouTube Media"
     }
 
-def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False):
+def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False, audio_format=None):
+    ok, err_msg = check_storage_space(outdir, 100 * 1024 * 1024)
+    if not ok:
+        update_status("error", error=err_msg)
+        return None
+
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
 
@@ -2383,8 +2458,25 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         node_bin = shutil.which("node")
     js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
 
+    target_audio_fmt = audio_format
+    if not target_audio_fmt:
+        audio_conf = "/data/adb/hyperdl/audio_format.conf"
+        if os.path.exists(audio_conf):
+            try:
+                with open(audio_conf, "r") as af:
+                    c = af.read().strip().lower()
+                    if c in ("mp3", "flac", "m4a", "opus"):
+                        target_audio_fmt = c
+            except Exception:
+                pass
+    if not target_audio_fmt:
+        target_audio_fmt = "mp3"
+
     if fmt == "audio":
-        format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "flac", "--audio-quality", "0"]
+        if target_audio_fmt == "flac":
+            format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "flac", "--audio-quality", "0"]
+        else:
+            format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0"]
     elif fmt in ("album", "photo", "image"):
         format_arg = []
     elif format_id and not height:
@@ -2469,7 +2561,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             "--extractor-retries", "3",
             "--socket-timeout", "15",
             "--newline",
-            "--progress-template", "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(info.title)s",
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(info.title)s|%(progress._eta_str)s",
             "-o", out_tpl,
         ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
 
@@ -2508,6 +2600,9 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
                 spd_str = parts[4].strip() if len(parts) > 4 else ""
                 if len(parts) > 5 and parts[5].strip() and title == "Media":
                     title = parts[5].strip()
+                eta_str = parts[6].strip() if len(parts) > 6 else ""
+                if eta_str in ("N/A", "NA", "none", "None", "null", "Unknown"):
+                    eta_str = ""
 
                 if tot_str in ("N/A", "NA", "none", "None", "null", ""):
                     if est_str and est_str not in ("N/A", "NA", "none", "None", "null"):
@@ -2520,7 +2615,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
                 if spd_str in ("N/A", "NA", "none", "None", "null"):
                     spd_str = ""
 
-                update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title)
+                update_status("downloading", percent=pct, downloaded=dl_str, total=tot_str, speed=spd_str, title=title, eta=eta_str)
             elif "[download] Destination:" in line:
                 downloaded_file = line.replace("[download] Destination:", "").strip()
                 title = os.path.splitext(os.path.basename(downloaded_file))[0]
@@ -2605,9 +2700,7 @@ def probe_resolutions(url):
     except Exception:
         pass
 
-    m_url = re.search(r'https?://[^\s<>"]+', url)
-    if m_url:
-        url = m_url.group(0)
+    url = clean_media_url(url)
 
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
@@ -2730,6 +2823,7 @@ def main():
     dl_parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     dl_parser.add_argument("--height", default=None, help="Max height for video")
     dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
+    dl_parser.add_argument("--audio-format", default=None, choices=["mp3", "flac", "m4a", "opus"], help="Target audio format")
 
     probe_parser = subparsers.add_parser("probe")
     probe_parser.add_argument("url", help="Media link to probe")
@@ -2786,10 +2880,7 @@ def main():
         sys.exit(1)
 
     global CURRENT_URL, CURRENT_FMT, CURRENT_FORMAT_ID, CURRENT_HEIGHT
-    url = args.url.strip()
-    m_url = re.search(r'https?://[^\s<>"]+', url)
-    if m_url:
-        url = m_url.group(0)
+    url = clean_media_url(args.url.strip())
     fmt = args.format
     outdir = get_effective_outdir(args.outdir)
     height = args.height if hasattr(args, 'height') else None
@@ -2800,12 +2891,31 @@ def main():
     CURRENT_FORMAT_ID = format_id or ""
     CURRENT_HEIGHT = height or ""
 
+    target_audio_fmt = getattr(args, 'audio_format', None)
+    if not target_audio_fmt:
+        audio_conf = "/data/adb/hyperdl/audio_format.conf"
+        if os.path.exists(audio_conf):
+            try:
+                with open(audio_conf, "r") as af:
+                    c = af.read().strip().lower()
+                    if c in ("mp3", "flac", "m4a", "opus"):
+                        target_audio_fmt = c
+            except Exception:
+                pass
+    if not target_audio_fmt:
+        target_audio_fmt = "mp3"
+
     try:
+        ok, err_msg = check_storage_space(outdir, 100 * 1024 * 1024)
+        if not ok:
+            update_status("error", error=err_msg)
+            return
+
         update_status("resolving", title="Connecting to platform...")
         low_url = url.lower()
 
         if format_id or height:
-            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height)
+            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height, audio_format=target_audio_fmt)
             return
 
         if "tiktok.com" in low_url or "douyin.com" in low_url:
@@ -2887,9 +2997,14 @@ def main():
                 if ffmpeg_bin:
                     tmp_raw = os.path.join(target_dir, f".tmp_{base_title}_{media_id}.raw")
                     download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
-                    out_path = os.path.join(target_dir, f"{base_title}_{media_id}.flac")
-                    update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
-                    res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], env=get_ffmpeg_env(), capture_output=True)
+                    if target_audio_fmt == "flac":
+                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.flac")
+                        update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
+                        res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], env=get_ffmpeg_env(), capture_output=True)
+                    else:
+                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.mp3")
+                        update_status("downloading", percent=95, title="Encoding audio to MP3 (320 kbps)...")
+                        res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "libmp3lame", "-b:a", "320k", out_path], env=get_ffmpeg_env(), capture_output=True)
                     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
                         fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
                         out_path = os.path.join(target_dir, f"{base_title}_{media_id}.{fallback_ext}")

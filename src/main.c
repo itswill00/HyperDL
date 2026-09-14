@@ -374,7 +374,7 @@ static void cmd_probe_result(void) {
     printf("{\"status\":\"idle\",\"resolutions\":[]}\n");
 }
 
-static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height) {
+static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height, const char *audio_format) {
     ensure_directories();
     kill_probe_if_running();
     unlink(PROBE_FILE);
@@ -430,18 +430,16 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
     }
 
     if (pid == 0) {
+        nice(10);
         setsid();
-        signal(SIGHUP, SIG_IGN);
 
-        int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY);
-        if (oom_fd >= 0) {
-            write(oom_fd, "-900\n", 5);
-            close(oom_fd);
+        int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDIN_FILENO);
+            close(dev_null);
         }
-
         int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (log_fd >= 0) {
-            fchmod(log_fd, 0666);
             dup2(log_fd, STDOUT_FILENO);
             dup2(log_fd, STDERR_FILENO);
             close(log_fd);
@@ -479,36 +477,45 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
 
         char fid_arg[256] = "";
         char ht_arg[64] = "";
+        char af_arg[64] = "";
         if (format_id && *format_id) {
             snprintf(fid_arg, sizeof(fid_arg), "--format-id=%s", format_id);
         }
         if (height && *height) {
             snprintf(ht_arg, sizeof(ht_arg), "--height=%s", height);
         }
+        if (audio_format && *audio_format) {
+            snprintf(af_arg, sizeof(af_arg), "--audio-format=%s", audio_format);
+        }
+
+        char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
+        char *exec_args[32];
+        int ai = 0;
+        exec_args[ai++] = (char *)python_bin;
 
         if (bundle_path) {
-            if (fid_arg[0] && ht_arg[0])
-                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, ht_arg, (char *)NULL);
-            else if (fid_arg[0])
-                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
-            else if (ht_arg[0])
-                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
-            else
-                execl(python_bin, python_bin, bundle_path, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+            exec_args[ai++] = (char *)bundle_path;
         } else {
-            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
             snprintf(launcher, sizeof(launcher),
                      "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
                      EMBEDDED_ENGINE_B64);
-            if (fid_arg[0] && ht_arg[0])
-                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, ht_arg, (char *)NULL);
-            else if (fid_arg[0])
-                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, fid_arg, (char *)NULL);
-            else if (ht_arg[0])
-                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, ht_arg, (char *)NULL);
-            else
-                execl(python_bin, python_bin, "-c", launcher, "download", url, "--format", fmt ? fmt : "video", "--outdir", OUTDIR, (char *)NULL);
+            exec_args[ai++] = "-c";
+            exec_args[ai++] = launcher;
         }
+
+        exec_args[ai++] = "download";
+        exec_args[ai++] = (char *)url;
+        exec_args[ai++] = "--format";
+        exec_args[ai++] = fmt && *fmt ? (char *)fmt : "video";
+        exec_args[ai++] = "--outdir";
+        exec_args[ai++] = OUTDIR;
+        if (fid_arg[0]) exec_args[ai++] = fid_arg;
+        if (ht_arg[0]) exec_args[ai++] = ht_arg;
+        if (af_arg[0]) exec_args[ai++] = af_arg;
+        exec_args[ai] = NULL;
+
+        execv(python_bin, exec_args);
+
         fprintf(stderr, "HyperDL child exec failed: %s (%s)\n", strerror(errno), python_bin);
         fflush(stderr);
         _exit(127);
@@ -1137,9 +1144,13 @@ static void cmd_open(const char *path) {
 static void cmd_info(void) {
     char storage_free[32] = "Unknown";
     struct statvfs vfs;
-    if (statvfs("/data", &vfs) == 0) {
+    if (statvfs("/storage/emulated/0", &vfs) == 0 || statvfs("/sdcard", &vfs) == 0 || statvfs("/data", &vfs) == 0) {
         double free_gb = (double)(vfs.f_bavail * vfs.f_frsize) / (1024.0 * 1024.0 * 1024.0);
-        snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
+        if (free_gb >= 1.0) {
+            snprintf(storage_free, sizeof(storage_free), "%.1f GB", free_gb);
+        } else {
+            snprintf(storage_free, sizeof(storage_free), "%.0f MB", free_gb * 1024.0);
+        }
     }
 
     char mod_version[32] = "v1.3.23";
@@ -1160,6 +1171,16 @@ static void cmd_info(void) {
         fclose(mp);
     }
 
+    char audio_fmt[16] = "mp3";
+    FILE *afp = fopen("/data/adb/hyperdl/audio_format.conf", "r");
+    if (afp) {
+        if (fscanf(afp, "%15s", audio_fmt) == 1) {
+            char *nl = strchr(audio_fmt, '\n');
+            if (nl) *nl = '\0';
+        }
+        fclose(afp);
+    }
+
     const char *python_bin = find_python();
     int has_cookies = (access(COOKIES_FILE, F_OK) == 0);
     int has_ffmpeg = (access("/data/adb/modules/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
@@ -1167,8 +1188,25 @@ static void cmd_info(void) {
                      (access("/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg", X_OK) == 0) ||
                      (access("/system/bin/ffmpeg", X_OK) == 0);
 
-    printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s}\n",
-           mod_version, storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false");
+    printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s,\"audio_format\":\"%s\"}\n",
+           mod_version, storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false", audio_fmt);
+}
+
+static void cmd_set_audio_format(const char *fmt) {
+    if (!fmt || !*fmt) {
+        printf("{\"error\":\"missing_format\"}\n");
+        return;
+    }
+    ensure_directories();
+    FILE *afp = fopen("/data/adb/hyperdl/audio_format.conf", "w");
+    if (afp) {
+        fprintf(afp, "%s\n", fmt);
+        fclose(afp);
+        chmod("/data/adb/hyperdl/audio_format.conf", 0666);
+        printf("{\"success\":true,\"audio_format\":\"%s\"}\n", fmt);
+    } else {
+        printf("{\"success\":false,\"error\":\"file_write_failed\"}\n");
+    }
 }
 
 static void cmd_get_cookies(void) {
@@ -1581,11 +1619,25 @@ int main(int argc, char *argv[]) {
         const char *fmt = argc > 3 ? argv[3] : "video";
         const char *format_id = NULL;
         const char *height = NULL;
+        const char *audio_format = NULL;
+        char conf_af[16] = "mp3";
         for (int i = 4; i < argc; i++) {
             if (strncmp(argv[i], "--format-id=", 12) == 0) format_id = argv[i] + 12;
             else if (strncmp(argv[i], "--height=", 9) == 0) height = argv[i] + 9;
+            else if (strncmp(argv[i], "--audio-format=", 15) == 0) audio_format = argv[i] + 15;
         }
-        cmd_download(url, fmt, format_id, height);
+        if (!audio_format) {
+            FILE *afp = fopen("/data/adb/hyperdl/audio_format.conf", "r");
+            if (afp) {
+                if (fscanf(afp, "%15s", conf_af) == 1) {
+                    audio_format = conf_af;
+                }
+                fclose(afp);
+            }
+        }
+        cmd_download(url, fmt, format_id, height, audio_format);
+    } else if (strcmp(action, "set_audio_format") == 0) {
+        cmd_set_audio_format(argc > 2 ? argv[2] : "mp3");
     } else if (strcmp(action, "pause") == 0) {
         cmd_pause();
     } else if (strcmp(action, "cancel") == 0) {
