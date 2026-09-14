@@ -1578,8 +1578,6 @@ int main(int argc, char *argv[]) {
         run_python_action("update_ytdlp", NULL);
     } else if (strcmp(action, "check_update") == 0) {
         run_python_action("check_update", NULL);
-    } else if (strcmp(action, "apply_ota") == 0) {
-        run_python_action("apply_ota", argc > 2 ? argv[2] : NULL);
     } else {
         printf("{\"error\":\"unknown_action\"}\n");
         return 1;

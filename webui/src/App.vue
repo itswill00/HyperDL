@@ -745,8 +745,8 @@
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <div style="display: flex; flex-direction: column;">
-                <span style="color: var(--on-surface-variant);">HyperDL OTA</span>
-                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">Hot-update without reboot</span>
+                <span style="color: var(--on-surface-variant);">Module Version</span>
+                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">HyperDL root module</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.22' }}</span>
@@ -754,13 +754,13 @@
                   class="btn"
                   :class="moduleUpdateInfo.has_update ? 'btn-primary' : 'btn-secondary'"
                   style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
-                  :disabled="isCheckingUpdate || isApplyingOta"
+                  :disabled="isCheckingUpdate"
                   @click="moduleUpdateInfo.has_update ? (showUpdateModal = true) : checkModuleUpdate(false)"
                 >
-                  <span v-if="isCheckingUpdate || isApplyingOta" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
+                  <span v-if="isCheckingUpdate" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
                     <Icons name="refresh" :size="10" />
                   </span>
-                  <span>{{ isApplyingOta ? 'Updating...' : (isCheckingUpdate ? 'Checking...' : (moduleUpdateInfo.has_update ? 'Update OTA' : 'Check')) }}</span>
+                  <span>{{ isCheckingUpdate ? 'Checking...' : (moduleUpdateInfo.has_update ? 'New Version' : 'Check') }}</span>
                 </button>
               </div>
             </div>
@@ -1025,7 +1025,7 @@
       </div>
     </div>
 
-    <div v-if="showUpdateModal" class="dialog-backdrop" @click.self="!isApplyingOta && (showUpdateModal = false)">
+    <div v-if="showUpdateModal" class="dialog-backdrop" @click.self="showUpdateModal = false">
       <div class="dialog-card" style="max-width: 340px;">
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
           <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 199, 250, 0.15); color: #a8c7fa; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -1038,32 +1038,24 @@
         </div>
 
         <div style="background: var(--surface-container); border-radius: 12px; padding: 10px; margin-bottom: 12px;">
-          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-            <span style="font-size: 9px; font-weight: 700; background: rgba(168, 199, 250, 0.2); color: #a8c7fa; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">OTA Hot-Patch</span>
-            <span style="font-size: 10px; color: var(--on-surface-variant);">~250 KB · No Reboot Required</span>
-          </div>
-          <div v-if="moduleUpdateInfo.notes" style="font-size: 11px; color: var(--on-surface); line-height: 1.4; margin-top: 6px;">
+          <div v-if="moduleUpdateInfo.notes" style="font-size: 11px; color: var(--on-surface); line-height: 1.4;">
             {{ moduleUpdateInfo.notes }}
           </div>
-        </div>
-
-        <div v-if="isApplyingOta" style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(168, 199, 250, 0.1); border-radius: 8px; margin-bottom: 12px;">
-          <span class="spin-loader" style="width: 14px; height: 14px; flex-shrink: 0;"></span>
-          <span style="font-size: 11px; color: var(--primary);">{{ otaStatusText || 'Processing update...' }}</span>
+          <div v-else style="font-size: 11px; color: var(--on-surface-variant);">
+            A new version is available for download or update via your root manager.
+          </div>
         </div>
 
         <div class="dialog-actions">
-          <button class="btn btn-secondary dialog-btn" type="button" :disabled="isApplyingOta" @click.stop="showUpdateModal = false">
-            Later
+          <button class="btn btn-secondary dialog-btn" type="button" @click.stop="showUpdateModal = false">
+            Close
           </button>
           <button
             class="btn btn-primary dialog-btn"
             type="button"
-            :disabled="isApplyingOta"
-            @click.stop="applyModuleOta"
+            @click.stop="openReleaseUrl"
           >
-            <span v-if="isApplyingOta" class="spin-loader" style="width: 12px; height: 12px; margin-right: 4px;"></span>
-            <span>{{ isApplyingOta ? 'Installing...' : 'Update (OTA)' }}</span>
+            Download Zip
           </button>
         </div>
       </div>
@@ -1263,14 +1255,12 @@ async function handleYtdlpAction() {
   }
 }
 
-const moduleUpdateInfo = ref({ current_version: '', latest_version: '', has_update: false, notes: '', ota_url: '', zip_url: '' })
+const moduleUpdateInfo = ref({ current_version: '', latest_version: '', has_update: false, notes: '', zip_url: '' })
 const isCheckingUpdate = ref(false)
-const isApplyingOta = ref(false)
 const showUpdateModal = ref(false)
-const otaStatusText = ref('')
 
 async function checkModuleUpdate(silent = false) {
-  if (isCheckingUpdate.value || isApplyingOta.value) return
+  if (isCheckingUpdate.value) return
   isCheckingUpdate.value = true
   try {
     const raw = await runBridge('check_update')
@@ -1295,36 +1285,9 @@ async function checkModuleUpdate(silent = false) {
   }
 }
 
-async function applyModuleOta() {
-  if (isApplyingOta.value) return
-  isApplyingOta.value = true
-  otaStatusText.value = 'Downloading OTA package (~250 KB)...'
-  try {
-    otaStatusText.value = 'Installing update & syncing binaries...'
-    const raw = await runBridge('apply_ota', moduleUpdateInfo.value.ota_url || '')
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      if (res.success) {
-        showUpdateModal.value = false
-        moduleUpdateInfo.value.has_update = false
-        if (res.version) sysInfo.value.version = res.version
-        showToast(`HyperDL successfully updated to ${res.version || 'latest'}!`, 'success')
-        setTimeout(() => {
-          window.location.reload()
-        }, 1200)
-        return
-      } else {
-        showToast(`Update failed: ${res.error || 'Unknown error'}`, 'error')
-      }
-    } else {
-      showToast('Update failed: Invalid system response', 'error')
-    }
-  } catch (e) {
-    showToast(`Update failed: ${String(e)}`, 'error')
-  } finally {
-    isApplyingOta.value = false
-    otaStatusText.value = ''
-  }
+function openReleaseUrl() {
+  const url = moduleUpdateInfo.value.zip_url || 'https://github.com/itswill00/HyperDL-Release/releases'
+  window.open(url, '_blank')
 }
 
 const logContent = ref('Loading console log...')
@@ -1693,7 +1656,7 @@ async function runBridge(action, ...args) {
   const safeParams = args.map(shellEscape).join(' ')
   const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
-  const timeoutMs = action === 'probe' ? 50000 : (action === 'apply_ota' ? 60000 : 15000)
+  const timeoutMs = action === 'probe' ? 50000 : 15000
   const res = await execCommand(cmd, timeoutMs)
   return (res || '').trim()
 }
