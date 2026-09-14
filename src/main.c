@@ -377,96 +377,6 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
     printf("{\"status\":\"started\",\"pid\":%d}\n", pid);
 }
 
-static void cmd_probe(const char *url) {
-    if (!url || !*url) {
-        printf("{\"error\":\"missing_url\"}\n");
-        return;
-    }
-
-    const char *python_bin = find_python();
-    if (!python_bin) {
-        printf("{\"error\":\"python_not_found\"}\n");
-        return;
-    }
-
-    const char *bundle_path = get_bundle_path();
-
-    if (strstr(python_bin, "runtime")) {
-        char moddir[512];
-        const char *p = strstr(python_bin, "/bin/python3");
-        if (p) {
-            size_t len = p - python_bin;
-            snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
-            char libdir[550], pypath[650], cacert[550], path_env[1024];
-            snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
-            snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
-
-            setenv("PATH", path_env, 1);
-            setenv("PYTHONHOME", moddir, 1);
-            setenv("PYTHONPATH", pypath, 1);
-            setenv("LD_LIBRARY_PATH", libdir, 1);
-            setenv("SSL_CERT_FILE", cacert, 1);
-        }
-    }
-
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-        printf("{\"error\":\"pipe_failed\"}\n");
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        printf("{\"error\":\"fork_failed\"}\n");
-        return;
-    }
-
-    if (pid == 0) {
-        nice(19);
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        int dev_null = open("/dev/null", O_WRONLY);
-        if (dev_null >= 0) {
-            dup2(dev_null, STDERR_FILENO);
-            close(dev_null);
-        }
-        close(pipefd[1]);
-
-        if (bundle_path) {
-            execl(python_bin, python_bin, bundle_path, "probe", url, (char *)NULL);
-        } else {
-            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
-            snprintf(launcher, sizeof(launcher),
-                     "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
-                     EMBEDDED_ENGINE_B64);
-            execl(python_bin, python_bin, "-c", launcher, "probe", url, (char *)NULL);
-        }
-        _exit(127);
-    }
-
-    close(pipefd[1]);
-
-    char output[65536] = "";
-    size_t total = 0;
-    ssize_t n;
-    while (total < sizeof(output) - 1 && (n = read(pipefd[0], output + total, sizeof(output) - total - 1)) > 0) {
-        total += n;
-    }
-    output[total] = '\0';
-    close(pipefd[0]);
-
-    int status;
-    waitpid(pid, &status, 0);
-
-    if (total > 0) {
-        printf("%s\n", output);
-    } else {
-        printf("{\"resolutions\":[]}\n");
-    }
-}
-
 static void run_python_action(const char *subaction, const char *extra_arg) {
     const char *python_bin = find_python();
     if (!python_bin) {
@@ -1530,8 +1440,6 @@ int main(int argc, char *argv[]) {
         cmd_pause();
     } else if (strcmp(action, "cancel") == 0) {
         cmd_cancel();
-    } else if (strcmp(action, "probe") == 0) {
-        cmd_probe(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {
         cmd_list(argc > 2 ? argv[2] : NULL);
     } else if (strcmp(action, "delete") == 0) {

@@ -2440,7 +2440,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         )
 
     extra_dl_args = []
-    if not (".m3u8" in url or "manifest" in url or "/hls/" in url):
+    low_u = (url or "").lower()
+    if "youtube.com" in low_u or "youtu.be" in low_u:
+        extra_dl_args = ["--continue", "--no-part"]
+    elif not (".m3u8" in url or "manifest" in url or "/hls/" in url):
         extra_dl_args = ["--continue", "--concurrent-fragments", "4", "--http-chunk-size", "10M"]
     else:
         extra_dl_args = ["--no-part"]
@@ -2460,13 +2463,14 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             "--extractor-retries", "3",
             "--socket-timeout", "15",
             "--newline",
-            "--progress-template", "%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s",
+            "--progress-template", "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(info.title)s",
             "-o", out_tpl,
         ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
 
         env = get_runtime_env()
         t_proc_start = time.time()
-        update_status("downloading", percent=0, title="Downloading...")
+        init_title = "Connecting to YouTube..." if ("youtube.com" in low_u or "youtu.be" in low_u) else "Connecting to media stream..."
+        update_status("resolving", percent=0, title=init_title, url=url, fmt=fmt)
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         stderr_lines = []
@@ -2485,7 +2489,8 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         for line in proc.stdout:
             line = line.strip()
             if "|" in line:
-                parts = line.split("|")
+                clean_l = line[9:] if line.startswith("download:") else line
+                parts = clean_l.split("|")
                 pct_str = parts[0].replace("%", "").strip()
                 try:
                     pct = int(float(pct_str))
@@ -2495,6 +2500,8 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
                 tot_str = parts[2].strip() if len(parts) > 2 else ""
                 est_str = parts[3].strip() if len(parts) > 3 else ""
                 spd_str = parts[4].strip() if len(parts) > 4 else ""
+                if len(parts) > 5 and parts[5].strip() and title == "Media":
+                    title = parts[5].strip()
 
                 if tot_str in ("N/A", "NA", "none", "None", "null", ""):
                     if est_str and est_str not in ("N/A", "NA", "none", "None", "null"):
@@ -2559,122 +2566,6 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     raise RuntimeError("Media file not found after download completed")
 
-def probe_resolutions(url):
-    import subprocess
-    try:
-        os.nice(19)
-    except Exception:
-        pass
-
-    m_url = re.search(r'https?://[^\s<>"]+', url)
-    if m_url:
-        url = m_url.group(0)
-    ytdlp_bin = get_or_download_ytdlp()
-    py_bin = get_python_binary()
-    cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
-
-    node_bin = None
-    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
-        if os.path.isfile(nc) and os.access(nc, os.X_OK):
-            node_bin = nc
-            break
-    if not node_bin:
-        node_bin = shutil.which("node")
-    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
-
-    cmd = [
-        py_bin, ytdlp_bin,
-        "-J", "--no-warnings", "--no-check-certificates",
-        "--no-playlist", "--no-check-formats", "--socket-timeout", "8",
-        "--extractor-retries", "1",
-    ] + js_arg + cookie_arg + [url]
-
-    env = get_runtime_env()
-    res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=25)
-    if (res.returncode != 0 or not res.stdout.strip()) and cookie_arg:
-        cmd_no_cookie = [c for c in cmd if c != COOKIES_PATH and c != "--cookies"]
-        res = subprocess.run(cmd_no_cookie, env=env, capture_output=True, text=True, timeout=25)
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
-
-    try:
-        data = json.loads(res.stdout)
-    except Exception:
-        return []
-
-    duration = data.get("duration") or 0
-    formats = data.get("formats") or []
-
-    best_audio_size = 0
-    for f in formats:
-        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
-            asize = f.get("filesize") or f.get("filesize_approx") or 0
-            if asize == 0 and duration > 0:
-                abr = f.get("abr") or f.get("tbr") or 128
-                asize = int((abr * 1024 / 8) * duration)
-            if asize > best_audio_size:
-                best_audio_size = asize
-
-    by_height = {}
-    for f in formats:
-        h = f.get("height")
-        w = f.get("width")
-        eff_h = min(h, w) if (h and w and w < h) else h
-        if not eff_h or eff_h < 144:
-            continue
-        vcodec = f.get("vcodec", "none")
-        if vcodec == "none":
-            continue
-        note = str(f.get("format_note", "")).lower()
-        if "premium" in note:
-            continue
-
-        vsize = f.get("filesize") or f.get("filesize_approx") or 0
-        tbr = f.get("tbr") or 0
-        vbr = f.get("vbr") or 0
-        fps = f.get("fps") or 30
-        if vsize == 0 and duration > 0:
-            br = vbr or tbr
-            if br:
-                vsize = int((br * 1024 / 8) * duration)
-
-        if eff_h not in by_height or vsize > by_height[eff_h]["vsize"]:
-            by_height[eff_h] = {"height": eff_h, "vsize": vsize, "fps": fps}
-
-    if not by_height:
-        return []
-
-    labels = {
-        4320: "8K Ultra HD",
-        2160: "4K Ultra HD",
-        1440: "2K QHD",
-        1080: "1080p Full HD",
-        720: "720p HD",
-        480: "480p SD",
-        360: "360p",
-        240: "240p",
-        144: "144p"
-    }
-
-    results = []
-    for h in sorted(by_height.keys(), reverse=True):
-        entry = by_height[h]
-        tot = entry["vsize"] + best_audio_size
-        lbl = labels.get(h, f"{h}p")
-        badge = "4K" if h >= 2160 else ("2K" if h >= 1440 else ("FHD" if h >= 1080 else ("HD" if h >= 720 else "SD")))
-        results.append({
-            "height": h,
-            "format_id": str(h),
-            "label": lbl,
-            "badge": badge,
-            "ext": "mp4",
-            "filesize": tot,
-            "fps": entry["fps"],
-            "isRealStream": True
-        })
-
-    return results
-
 def main():
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
     subparsers = parser.add_subparsers(dest="action")
@@ -2686,23 +2577,11 @@ def main():
     dl_parser.add_argument("--height", default=None, help="Max height for video")
     dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
 
-    probe_parser = subparsers.add_parser("probe")
-    probe_parser.add_argument("url", help="Media link")
-
     subparsers.add_parser("check_ytdlp")
     subparsers.add_parser("update_ytdlp")
     subparsers.add_parser("check_update")
 
     args, _ = parser.parse_known_args()
-
-    if args.action == "probe":
-        try:
-            resolutions = probe_resolutions(args.url.strip())
-            print(json.dumps({"resolutions": resolutions}), flush=True)
-        except Exception as e:
-            print(json.dumps({"error": humanize_error(e)}), flush=True)
-            sys.exit(1)
-        return
 
     if args.action == "check_ytdlp":
         try:

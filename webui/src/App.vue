@@ -943,15 +943,7 @@
           </button>
         </div>
 
-        <div v-if="isProbingResolutions" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; gap: 12px;">
-          <div class="spin-loader" style="width: 28px; height: 28px; color: var(--primary);">
-            <Icons name="refresh" :size="26" />
-          </div>
-          <div style="font-size: 13px; font-weight: 500; color: var(--on-surface);">Detecting video resolutions...</div>
-          <div style="font-size: 11px; color: var(--on-surface-variant);">Please wait while checking stream availability</div>
-        </div>
-
-        <div v-else-if="resolutions.length > 0" class="resolution-list">
+        <div class="resolution-list">
           <button
             v-for="r in resolutions"
             :key="r.height || r.format_id"
@@ -964,13 +956,13 @@
               <span>{{ r.label || (r.height + 'p') }}</span>
               <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
             </span>
-            <span class="res-size">{{ formatFileSize(r.filesize) || r.desc || 'Preset' }}</span>
+            <span class="res-size">{{ r.desc || 'Preset' }}</span>
           </button>
         </div>
 
         <div style="display: flex; gap: 8px; margin-top: 12px;">
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
-            {{ isProbingResolutions ? 'Download Best (Skip probe)' : 'Best Available Quality' }}
+            Best Available Quality
           </button>
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click.stop="closeResolutionPicker">
             Cancel
@@ -1094,7 +1086,6 @@ const isOnline = ref(typeof navigator !== 'undefined' && 'onLine' in navigator ?
 
 const resolutions = ref([])
 const showResolutionPicker = ref(false)
-const isProbingResolutions = ref(false)
 const pendingUrl = ref('')
 const cookiesText = ref('')
 const cookiesActive = ref(false)
@@ -1651,15 +1642,8 @@ function formatFileSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB'
 }
 
-let probeTimer = null
-
 function closeResolutionPicker() {
   showResolutionPicker.value = false
-  isProbingResolutions.value = false
-  if (probeTimer) {
-    clearTimeout(probeTimer)
-    probeTimer = null
-  }
 }
 
 async function startDownload() {
@@ -1675,36 +1659,8 @@ async function startDownload() {
 
   if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
     pendingUrl.value = u
-    resolutions.value = []
+    resolutions.value = [...STANDARD_RESOLUTIONS]
     showResolutionPicker.value = true
-    isProbingResolutions.value = true
-
-    if (probeTimer) clearTimeout(probeTimer)
-    probeTimer = setTimeout(() => {
-      runBridge('probe', u).then((raw) => {
-        if (!showResolutionPicker.value || pendingUrl.value !== u) return
-        let parsed = null
-        try {
-          const jsonMatch = (raw || '').match(/\[[\s\S]*\]|\{[\s\S]*\}/)
-          parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw)
-        } catch (e) {}
-
-        const list = Array.isArray(parsed) ? parsed : (parsed && parsed.resolutions ? parsed.resolutions : null)
-        if (list && list.length > 0) {
-          resolutions.value = list
-        } else {
-          resolutions.value = [...STANDARD_RESOLUTIONS]
-        }
-      }).catch(() => {
-        if (showResolutionPicker.value && pendingUrl.value === u) {
-          resolutions.value = [...STANDARD_RESOLUTIONS]
-        }
-      }).finally(() => {
-        if (pendingUrl.value === u) {
-          isProbingResolutions.value = false
-        }
-      })
-    }, 50)
     return
   }
 
@@ -1713,11 +1669,6 @@ async function startDownload() {
 
 async function downloadWithResolution(r) {
   showResolutionPicker.value = false
-  isProbingResolutions.value = false
-  if (probeTimer) {
-    clearTimeout(probeTimer)
-    probeTimer = null
-  }
   let extraArg = null
   if (r && r.height) {
     extraArg = `--height=${r.height}`
