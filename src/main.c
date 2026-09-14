@@ -18,6 +18,8 @@
 
 #define STATUS_FILE        "/data/local/tmp/hyperdl_status.json"
 #define PID_FILE           "/data/local/tmp/hyperdl.pid"
+#define PROBE_PID_FILE     "/data/local/tmp/hyperdl_probe.pid"
+#define PROBE_FILE         "/data/local/tmp/hyperdl_probe.json"
 #define LOG_FILE           "/data/local/tmp/hyperdl_engine.log"
 #define CONF_DIR           "/data/adb/hyperdl"
 #define ACTIVE_TASK_FILE   "/data/adb/hyperdl/active_task.json"
@@ -229,8 +231,153 @@ static const char *get_bundle_path(void) {
     return NULL;
 }
 
+static void kill_probe_if_running(void) {
+    FILE *pf = fopen(PROBE_PID_FILE, "r");
+    if (pf) {
+        pid_t ppid = 0;
+        if (fscanf(pf, "%d", &ppid) == 1 && ppid > 1) {
+            kill(ppid, SIGKILL);
+        }
+        fclose(pf);
+        unlink(PROBE_PID_FILE);
+    }
+}
+
+static void cmd_cancel_probe(void) {
+    kill_probe_if_running();
+    unlink(PROBE_FILE);
+    printf("{\"status\":\"cancelled\"}\n");
+}
+
+static void cmd_probe_start(const char *url) {
+    if (!url || !*url) {
+        printf("{\"error\":\"missing_url\"}\n");
+        return;
+    }
+
+    ensure_directories();
+    kill_probe_if_running();
+    unlink(PROBE_FILE);
+
+    FILE *pf_init = fopen(PROBE_FILE, "w");
+    if (pf_init) {
+        fputs("{\"status\":\"probing\",\"resolutions\":[]}\n", pf_init);
+        fclose(pf_init);
+        chmod(PROBE_FILE, 0666);
+    }
+
+    const char *python_bin = find_python();
+    if (!python_bin) {
+        FILE *pf_err = fopen(PROBE_FILE, "w");
+        if (pf_err) {
+            fputs("{\"status\":\"error\",\"error\":\"Python 3 runtime not found\",\"resolutions\":[]}\n", pf_err);
+            fclose(pf_err);
+            chmod(PROBE_FILE, 0666);
+        }
+        printf("{\"status\":\"error\",\"error\":\"Python not found\"}\n");
+        return;
+    }
+
+    const char *bundle_path = get_bundle_path();
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        printf("{\"error\":\"fork_failed\"}\n");
+        return;
+    }
+
+    if (pid == 0) {
+        nice(19);
+        setsid();
+
+        int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDIN_FILENO);
+            dup2(dev_null, STDOUT_FILENO);
+            dup2(dev_null, STDERR_FILENO);
+            close(dev_null);
+        }
+
+        if (strstr(python_bin, "runtime")) {
+            char moddir[512];
+            const char *p = strstr(python_bin, "/bin/python3");
+            if (p) {
+                size_t len = p - python_bin;
+                snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
+                char libdir[550], pypath[650], cacert[550], path_env[1024];
+                snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
+                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
+                snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+
+                setenv("PATH", path_env, 1);
+                setenv("PYTHONHOME", moddir, 1);
+                setenv("PYTHONPATH", pypath, 1);
+                setenv("LD_LIBRARY_PATH", libdir, 1);
+                setenv("SSL_CERT_FILE", cacert, 1);
+            }
+        } else if (strstr(python_bin, "com.termux")) {
+            setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
+            setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
+            setenv("HOME", "/data/data/com.termux/files/home", 1);
+            setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
+        }
+
+        if (bundle_path) {
+            execl(python_bin, python_bin, bundle_path, "probe", url, (char *)NULL);
+        } else {
+            char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
+            snprintf(launcher, sizeof(launcher),
+                     "import zlib,base64;exec(zlib.decompress(base64.b64decode('%s')))",
+                     EMBEDDED_ENGINE_B64);
+            execl(python_bin, python_bin, "-c", launcher, "probe", url, (char *)NULL);
+        }
+        _exit(127);
+    }
+
+    FILE *ppf = fopen(PROBE_PID_FILE, "w");
+    if (ppf) {
+        fprintf(ppf, "%d\n", pid);
+        fclose(ppf);
+        chmod(PROBE_PID_FILE, 0666);
+    }
+
+    printf("{\"status\":\"probing\",\"pid\":%d}\n", pid);
+}
+
+static void cmd_probe_result(void) {
+    FILE *f = fopen(PROBE_FILE, "r");
+    if (f) {
+        char buf[65536];
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        if (n > 0) {
+            buf[n] = '\0';
+            printf("%s\n", buf);
+            return;
+        }
+    }
+
+    FILE *pf = fopen(PROBE_PID_FILE, "r");
+    if (pf) {
+        pid_t ppid = 0;
+        if (fscanf(pf, "%d", &ppid) == 1 && ppid > 1) {
+            if (kill(ppid, 0) == 0 || errno == EPERM) {
+                fclose(pf);
+                printf("{\"status\":\"probing\",\"resolutions\":[]}\n");
+                return;
+            }
+        }
+        fclose(pf);
+    }
+
+    printf("{\"status\":\"idle\",\"resolutions\":[]}\n");
+}
+
 static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height) {
     ensure_directories();
+    kill_probe_if_running();
+    unlink(PROBE_FILE);
 
     FILE *pf = fopen(PID_FILE, "r");
     if (pf) {
@@ -995,7 +1142,7 @@ static void cmd_info(void) {
         snprintf(storage_free, sizeof(storage_free), "%.0f GB", free_gb);
     }
 
-    char mod_version[32] = "v1.3.22";
+    char mod_version[32] = "v1.3.23";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1372,6 +1519,9 @@ static void cmd_pause(void) {
 }
 
 static void cmd_cancel(void) {
+    kill_probe_if_running();
+    unlink(PROBE_FILE);
+
     FILE *pf = fopen(PID_FILE, "r");
     pid_t old_pid = 0;
     if (pf) {
@@ -1440,6 +1590,14 @@ int main(int argc, char *argv[]) {
         cmd_pause();
     } else if (strcmp(action, "cancel") == 0) {
         cmd_cancel();
+    } else if (strcmp(action, "probe_start") == 0) {
+        cmd_probe_start(argc > 2 ? argv[2] : "");
+    } else if (strcmp(action, "probe_result") == 0) {
+        cmd_probe_result();
+    } else if (strcmp(action, "cancel_probe") == 0) {
+        cmd_cancel_probe();
+    } else if (strcmp(action, "probe") == 0) {
+        cmd_probe_start(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {
         cmd_list(argc > 2 ? argv[2] : NULL);
     } else if (strcmp(action, "delete") == 0) {

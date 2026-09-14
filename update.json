@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.22",
-  "versionCode": 13220,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.22/HyperDL-v1.3.22.zip",
+  "version": "v1.3.23",
+  "versionCode": 13230,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.23/HyperDL-v1.3.23.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Refined fluid animations, removed layout snapping, instant cancel, and fixed OTA daemon pipe inheritance"
+  "notes": "Dynamic YouTube stream resolution probing, non-blocking asynchronous modal actions, instant cancel, and startup lag fix"
 }

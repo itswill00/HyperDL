@@ -1,7 +1,7 @@
 id=hyperdl
 name=HyperDL
-version=v1.3.22
-versionCode=13220
+version=v1.3.23
+versionCode=13230
 author=@noticesa
 description=Minimalist media downloader for TikTok, Instagram, X, and YouTube with Material WebUI.
 updateJson=https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/update.json

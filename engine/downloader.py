@@ -25,6 +25,8 @@ socket.setdefaulttimeout(15)
 
 STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
 PID_FILE = "/data/local/tmp/hyperdl.pid"
+PROBE_FILE = "/data/local/tmp/hyperdl_probe.json"
+PROBE_PID = "/data/local/tmp/hyperdl_probe.pid"
 CONF_DIR = "/data/adb/hyperdl"
 ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
@@ -2450,7 +2452,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     playlist_arg = ["--yes-playlist"] if is_playlist else ["--no-playlist"]
 
-    cookie_attempts = [cookie_arg, []] if cookie_arg else [[]]
+    is_yt = ("youtube.com" in low_u or "youtu.be" in low_u)
+    if is_yt:
+        cookie_attempts = [[], cookie_arg] if cookie_arg else [[]]
+    else:
+        cookie_attempts = [cookie_arg, []] if cookie_arg else [[]]
     for attempt_idx, active_cookies in enumerate(cookie_attempts):
         cmd = [
             py_bin,
@@ -2469,8 +2475,8 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
         env = get_runtime_env()
         t_proc_start = time.time()
-        init_title = "Connecting to YouTube..." if ("youtube.com" in low_u or "youtu.be" in low_u) else "Connecting to media stream..."
-        update_status("resolving", percent=0, title=init_title, url=url, fmt=fmt)
+        init_title = "Connecting to YouTube..." if is_yt else "Connecting to media stream..."
+        update_status("resolving", percent=0, title=init_title)
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
         stderr_lines = []
@@ -2566,6 +2572,154 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     raise RuntimeError("Media file not found after download completed")
 
+def _write_probe_result(data):
+    try:
+        os.makedirs(os.path.dirname(PROBE_FILE), exist_ok=True)
+        tmp_file = f"{PROBE_FILE}.tmp.{os.getpid()}"
+        with open(tmp_file, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp_file, PROBE_FILE)
+        try:
+            os.chmod(PROBE_FILE, 0o666)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    finally:
+        try:
+            if os.path.exists(PROBE_PID):
+                os.unlink(PROBE_PID)
+        except Exception:
+            pass
+
+def probe_resolutions(url):
+    try:
+        os.nice(19)
+    except Exception:
+        pass
+
+    try:
+        with open(PROBE_PID, "w") as f:
+            f.write(str(os.getpid()))
+        os.chmod(PROBE_PID, 0o666)
+    except Exception:
+        pass
+
+    m_url = re.search(r'https?://[^\s<>"]+', url)
+    if m_url:
+        url = m_url.group(0)
+
+    ytdlp_bin = get_or_download_ytdlp()
+    py_bin = get_python_binary()
+
+    node_bin = None
+    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+        if os.path.isfile(nc) and os.access(nc, os.X_OK):
+            node_bin = nc
+            break
+    if not node_bin:
+        node_bin = shutil.which("node")
+    js_arg = ["--js-runtimes", f"node:{node_bin}"] if node_bin else []
+
+    cmd_base = [
+        py_bin, ytdlp_bin,
+        "-J", "--no-warnings", "--no-check-certificates",
+        "--no-playlist", "--skip-download", "--socket-timeout", "10",
+        "--extractor-retries", "1",
+    ] + js_arg
+
+    env = get_runtime_env()
+
+    # Fast probe without cookies first to avoid expired Google session blocks
+    res = subprocess.run(cmd_base + [url], env=env, capture_output=True, text=True, timeout=20)
+    if (res.returncode != 0 or not res.stdout.strip()) and os.path.exists(COOKIES_PATH):
+        res = subprocess.run(cmd_base + ["--cookies", COOKIES_PATH, url], env=env, capture_output=True, text=True, timeout=20)
+
+    if res.returncode != 0 or not res.stdout.strip():
+        _write_probe_result({"status": "ready", "url": url, "resolutions": []})
+        return []
+
+    try:
+        data = json.loads(res.stdout)
+    except Exception:
+        _write_probe_result({"status": "ready", "url": url, "resolutions": []})
+        return []
+
+    duration = data.get("duration") or 0
+    formats = data.get("formats") or []
+
+    best_audio_size = 0
+    for f in formats:
+        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
+            asize = f.get("filesize") or f.get("filesize_approx") or 0
+            if asize == 0 and duration > 0:
+                abr = f.get("abr") or f.get("tbr") or 128
+                asize = int((abr * 1024 / 8) * duration)
+            if asize > best_audio_size:
+                best_audio_size = asize
+
+    by_height = {}
+    for f in formats:
+        h = f.get("height")
+        w = f.get("width")
+        eff_h = min(h, w) if (h and w and w < h) else h
+        if not eff_h or eff_h < 144:
+            continue
+        vcodec = f.get("vcodec", "none")
+        if vcodec == "none":
+            continue
+        note = str(f.get("format_note", "")).lower()
+        if "premium" in note:
+            continue
+
+        vsize = f.get("filesize") or f.get("filesize_approx") or 0
+        tbr = f.get("tbr") or 0
+        vbr = f.get("vbr") or 0
+        fps = f.get("fps") or 30
+        if vsize == 0 and duration > 0:
+            br = vbr or tbr
+            if br:
+                vsize = int((br * 1024 / 8) * duration)
+
+        if eff_h not in by_height or vsize > by_height[eff_h]["vsize"]:
+            by_height[eff_h] = {"height": eff_h, "vsize": vsize, "fps": fps}
+
+    if not by_height:
+        _write_probe_result({"status": "ready", "url": url, "resolutions": []})
+        return []
+
+    labels = {
+        4320: "8K Ultra HD",
+        2160: "4K Ultra HD",
+        1440: "2K QHD",
+        1080: "1080p Full HD",
+        720: "720p HD",
+        480: "480p SD",
+        360: "360p",
+        240: "240p",
+        144: "144p"
+    }
+
+    results = []
+    for h in sorted(by_height.keys(), reverse=True):
+        entry = by_height[h]
+        tot = entry["vsize"] + best_audio_size if entry["vsize"] > 0 else 0
+        lbl = labels.get(h, f"{h}p")
+        badge = "4K" if h >= 2160 else ("2K" if h >= 1440 else ("FHD" if h >= 1080 else ("HD" if h >= 720 else "SD")))
+        results.append({
+            "height": h,
+            "format_id": str(h),
+            "label": lbl,
+            "badge": badge,
+            "ext": "mp4",
+            "filesize": tot,
+            "fps": entry["fps"],
+            "isRealStream": True
+        })
+
+    _write_probe_result({"status": "ready", "url": url, "resolutions": results})
+    return results
+
 def main():
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
     subparsers = parser.add_subparsers(dest="action")
@@ -2577,11 +2731,24 @@ def main():
     dl_parser.add_argument("--height", default=None, help="Max height for video")
     dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
 
+    probe_parser = subparsers.add_parser("probe")
+    probe_parser.add_argument("url", help="Media link to probe")
+
     subparsers.add_parser("check_ytdlp")
     subparsers.add_parser("update_ytdlp")
     subparsers.add_parser("check_update")
 
     args, _ = parser.parse_known_args()
+
+    if args.action == "probe":
+        try:
+            res = probe_resolutions(args.url)
+            print(json.dumps({"status": "ready", "url": args.url, "resolutions": res}), flush=True)
+        except Exception as e:
+            _write_probe_result({"status": "error", "error": humanize_error(e), "resolutions": []})
+            print(json.dumps({"status": "error", "error": humanize_error(e), "resolutions": []}), flush=True)
+            sys.exit(1)
+        return
 
     if args.action == "check_ytdlp":
         try:

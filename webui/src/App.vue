@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.22' }}
+            {{ sysInfo.version || 'v1.3.23' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -736,7 +736,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.22' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.23' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -943,7 +943,15 @@
           </button>
         </div>
 
-        <div class="resolution-list">
+        <div v-if="isProbingResolutions" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 16px; gap: 10px;">
+          <div class="spin-loader" style="width: 26px; height: 26px; color: var(--primary);">
+            <Icons name="refresh" :size="24" />
+          </div>
+          <div style="font-size: 13px; font-weight: 500; color: var(--on-surface);">Detecting video resolutions...</div>
+          <div style="font-size: 11px; color: var(--on-surface-variant);">Checking available streams & sizes</div>
+        </div>
+
+        <div v-else class="resolution-list">
           <button
             v-for="r in resolutions"
             :key="r.height || r.format_id"
@@ -956,13 +964,13 @@
               <span>{{ r.label || (r.height + 'p') }}</span>
               <span v-if="r.fps && r.fps > 30" class="fps-tag">{{ Math.round(r.fps) }}fps</span>
             </span>
-            <span class="res-size">{{ r.desc || 'Preset' }}</span>
+            <span class="res-size">{{ formatFileSize(r.filesize) || r.desc || 'Preset' }}</span>
           </button>
         </div>
 
         <div style="display: flex; gap: 8px; margin-top: 12px;">
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px;" @click.stop="downloadWithResolution(null)">
-            Best Available Quality
+            {{ isProbingResolutions ? 'Download Best Quality' : 'Best Available Quality' }}
           </button>
           <button class="btn btn-secondary" type="button" style="flex: 1; height: 38px; font-size: 12px; color: var(--error); border-color: rgba(255, 107, 107, 0.3);" @click.stop="closeResolutionPicker">
             Cancel
@@ -1086,6 +1094,7 @@ const isOnline = ref(typeof navigator !== 'undefined' && 'onLine' in navigator ?
 
 const resolutions = ref([])
 const showResolutionPicker = ref(false)
+const isProbingResolutions = ref(false)
 const pendingUrl = ref('')
 const cookiesText = ref('')
 const cookiesActive = ref(false)
@@ -1642,8 +1651,65 @@ function formatFileSize(bytes) {
   return (bytes / 1024).toFixed(0) + ' KB'
 }
 
+let probePollTimer = null
+
+function stopProbing() {
+  if (probePollTimer) {
+    clearInterval(probePollTimer)
+    probePollTimer = null
+  }
+}
+
 function closeResolutionPicker() {
   showResolutionPicker.value = false
+  isProbingResolutions.value = false
+  stopProbing()
+  runBridge('cancel_probe').catch(() => {})
+}
+
+async function startProbing(u) {
+  stopProbing()
+  isProbingResolutions.value = true
+  resolutions.value = []
+
+  try {
+    await runBridge('probe_start', u)
+  } catch (e) {}
+
+  const probeStart = Date.now()
+  probePollTimer = setInterval(async () => {
+    if (!showResolutionPicker.value || pendingUrl.value !== u) {
+      stopProbing()
+      return
+    }
+    try {
+      const raw = await runBridge('probe_result')
+      if (!raw) return
+      let parsed = null
+      try {
+        parsed = JSON.parse(raw)
+      } catch (e) {}
+      if (!parsed) return
+
+      if (parsed.status === 'ready') {
+        stopProbing()
+        isProbingResolutions.value = false
+        if (parsed.resolutions && parsed.resolutions.length > 0) {
+          resolutions.value = parsed.resolutions
+        } else {
+          resolutions.value = [...STANDARD_RESOLUTIONS]
+        }
+      } else if (parsed.status === 'error') {
+        stopProbing()
+        isProbingResolutions.value = false
+        resolutions.value = [...STANDARD_RESOLUTIONS]
+      } else if (Date.now() - probeStart > 25000) {
+        stopProbing()
+        isProbingResolutions.value = false
+        resolutions.value = [...STANDARD_RESOLUTIONS]
+      }
+    } catch (e) {}
+  }, 400)
 }
 
 async function startDownload() {
@@ -1659,8 +1725,8 @@ async function startDownload() {
 
   if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
     pendingUrl.value = u
-    resolutions.value = [...STANDARD_RESOLUTIONS]
     showResolutionPicker.value = true
+    startProbing(u)
     return
   }
 
@@ -1668,14 +1734,19 @@ async function startDownload() {
 }
 
 async function downloadWithResolution(r) {
+  const targetUrl = pendingUrl.value
   showResolutionPicker.value = false
+  isProbingResolutions.value = false
+  stopProbing()
+  runBridge('cancel_probe').catch(() => {})
+
   let extraArg = null
   if (r && r.height) {
     extraArg = `--height=${r.height}`
   } else if (r && r.format_id) {
     extraArg = `--format-id=${r.format_id}`
   }
-  await doDownload(pendingUrl.value, selectedFormat.value, extraArg)
+  await doDownload(targetUrl, selectedFormat.value, extraArg)
 }
 
 async function pauseDownload(reason = '') {
