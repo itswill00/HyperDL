@@ -60,20 +60,32 @@ VERSION=$(grep '^version=' module.prop | cut -d= -f2)
 VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
 
 print_post() {
-    local headline body post_text
-    headline=$(git log -1 --pretty=format:"%s")
-    body=$(git log -1 --pretty=format:"%b" | sed '/^$/d; s/^/* /')
+    local post_text notes
+    notes=""
+    if [ -f "update.json" ]; then
+        notes=$(grep -o '"notes": *"[^"]*"' update.json | sed 's/"notes": *"//; s/"$//')
+    fi
 
     post_text=$(cat <<EOF
-HyperDL Build
-#b${VERSION_CODE}
+**HyperDL ${VERSION}** (\`${VERSION_CODE}\`)
 
-${headline}
-${body:+
-$body}
+**Changelog:**
+\`\`\`
+• Dynamic Probe: Non-blocking YouTube resolution modal, instant Best Quality & Cancel actions without waiting.
+• Real-time ETA: Remaining download time displayed live in WebUI and Android notification drawer.
+• Audio Format Selector: Toggle between MP3 320 kbps (Universal) and FLAC HD (Lossless) in Settings.
+• URL Sanitizer: Auto-strip tracking parameters (utm, si, igsh, _t, _r, s, ref) for cleaner queries.
+• Storage Guard: Pre-flight check aborts downloads if free storage < 100 MB to prevent corrupted files.
+• Storage Metric: Accurate storage stats querying /storage/emulated/0 directly.
+\`\`\`
 
-Commit: https://github.com/itswill00/HyperDL/commit/$(git rev-parse --short HEAD)
-Release: https://github.com/itswill00/HyperDL-Release/releases/tag/${VERSION}
+**Notes:**
+• Requires Android 10+ (\`arm64\`).
+• Flash directly via KernelSU, APatch, or Magisk.
+
+**Links:**
+• **Channel:** @blueforbanister
+• **Support:** [SociaBuzz](https://sociabuzz.com/noticesa/tribe)
 EOF
 )
     echo ""
@@ -81,6 +93,18 @@ EOF
     echo "$post_text"
     echo "==============================================="
     echo ""
+
+    local pub_dir="/storage/emulated/0/Download/HyperDL_Releases"
+    su -c "mkdir -p '$pub_dir' && cat << 'EOF_POST' > '$pub_dir/post.txt'
+$post_text
+EOF_POST
+chmod 666 '$pub_dir/post.txt'
+am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://$pub_dir/post.txt' >/dev/null 2>&1 || true
+" 2>/dev/null || true
+
+    if command -v termux-clipboard-set >/dev/null 2>&1; then
+        (echo "$post_text" | timeout 1 termux-clipboard-set >/dev/null 2>&1) 2>/dev/null || true
+    fi
 }
 
 if [ "$POST_ONLY" = "true" ]; then
