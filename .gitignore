@@ -19,4 +19,5 @@ runtime/
 bin/yt-dlp
 system/bin/yt-dlp
 
+releases/
 *.txt
