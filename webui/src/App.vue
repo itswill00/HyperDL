@@ -12,15 +12,6 @@
           Offline
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
-          <button
-            v-if="moduleUpdateInfo.has_update"
-            class="badge-pill"
-            style="background: rgba(168, 199, 250, 0.15); color: #a8c7fa; border: 1px solid rgba(168, 199, 250, 0.35); display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 3px 8px; font-weight: 600;"
-            @click="showUpdateModal = true"
-          >
-            <span class="pulse-dot"></span>
-            Update {{ moduleUpdateInfo.latest_version }}
-          </button>
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
             {{ sysInfo.version || 'v1.3.22' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
@@ -743,26 +734,9 @@
               <span style="color: var(--on-surface-variant);">Audio encoder</span>
               <span style="font-family: inherit; color: var(--on-surface);">{{ sysInfo.has_ffmpeg ? 'FFmpeg (FLAC Lossless HD)' : 'Direct Stream' }}</span>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
-              <div style="display: flex; flex-direction: column;">
-                <span style="color: var(--on-surface-variant);">Module Version</span>
-                <span style="font-size: 10px; color: var(--on-surface-variant); opacity: 0.7;">HyperDL root module</span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.22' }}</span>
-                <button
-                  class="btn"
-                  :class="moduleUpdateInfo.has_update ? 'btn-primary' : 'btn-secondary'"
-                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
-                  :disabled="isCheckingUpdate"
-                  @click="moduleUpdateInfo.has_update ? (showUpdateModal = true) : checkModuleUpdate(false)"
-                >
-                  <span v-if="isCheckingUpdate" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
-                    <Icons name="refresh" :size="10" />
-                  </span>
-                  <span>{{ isCheckingUpdate ? 'Checking...' : (moduleUpdateInfo.has_update ? 'New Version' : 'Check') }}</span>
-                </button>
-              </div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">Module version</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.22' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -1025,41 +999,7 @@
       </div>
     </div>
 
-    <div v-if="showUpdateModal" class="dialog-backdrop" @click.self="showUpdateModal = false">
-      <div class="dialog-card" style="max-width: 340px;">
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 199, 250, 0.15); color: #a8c7fa; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-            <Icons name="download" :size="20" />
-          </div>
-          <div>
-            <div class="dialog-title" style="margin-bottom: 2px;">Update Available</div>
-            <div style="font-size: 11px; color: var(--on-surface-variant);">{{ sysInfo.version || 'v1.3.22' }} → {{ moduleUpdateInfo.latest_version }}</div>
-          </div>
-        </div>
 
-        <div style="background: var(--surface-container); border-radius: 12px; padding: 10px; margin-bottom: 12px;">
-          <div v-if="moduleUpdateInfo.notes" style="font-size: 11px; color: var(--on-surface); line-height: 1.4;">
-            {{ moduleUpdateInfo.notes }}
-          </div>
-          <div v-else style="font-size: 11px; color: var(--on-surface-variant);">
-            A new version is available for download or update via your root manager.
-          </div>
-        </div>
-
-        <div class="dialog-actions">
-          <button class="btn btn-secondary dialog-btn" type="button" @click.stop="showUpdateModal = false">
-            Close
-          </button>
-          <button
-            class="btn btn-primary dialog-btn"
-            type="button"
-            @click.stop="openReleaseUrl"
-          >
-            Download Zip
-          </button>
-        </div>
-      </div>
-    </div>
 
     <div v-if="previewModal.show" class="preview-backdrop" @click.self="closePreview">
       <div class="preview-card">
@@ -1255,40 +1195,6 @@ async function handleYtdlpAction() {
   }
 }
 
-const moduleUpdateInfo = ref({ current_version: '', latest_version: '', has_update: false, notes: '', zip_url: '' })
-const isCheckingUpdate = ref(false)
-const showUpdateModal = ref(false)
-
-async function checkModuleUpdate(silent = false) {
-  if (isCheckingUpdate.value) return
-  isCheckingUpdate.value = true
-  try {
-    const raw = await runBridge('check_update')
-    if (raw && raw.startsWith('{')) {
-      const data = JSON.parse(raw)
-      moduleUpdateInfo.value = data
-      if (data.has_update) {
-        showUpdateModal.value = true
-        if (!silent) {
-          showToast(`Update available: ${data.latest_version}`, 'info')
-        }
-      } else if (!silent) {
-        showToast(`HyperDL is up to date (${data.current_version || sysInfo.value.version})`, 'success')
-      }
-    } else if (!silent) {
-      showToast('Failed to check for updates', 'error')
-    }
-  } catch (e) {
-    if (!silent) showToast('Failed to check for updates: ' + String(e), 'error')
-  } finally {
-    isCheckingUpdate.value = false
-  }
-}
-
-function openReleaseUrl() {
-  const url = moduleUpdateInfo.value.zip_url || 'https://github.com/itswill00/HyperDL-Release/releases'
-  window.open(url, '_blank')
-}
 
 const logContent = ref('Loading console log...')
 
@@ -2614,7 +2520,6 @@ onMounted(() => {
   fetchStorageStats()
   checkClipboardSniffer()
   checkVaultStatus()
-  setTimeout(() => checkModuleUpdate(true), 2500)
 })
 
 onUnmounted(() => {
