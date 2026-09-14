@@ -67,25 +67,30 @@ print_post() {
     fi
 
     post_text=$(cat <<EOF
-**HyperDL ${VERSION}** (\`${VERSION_CODE}\`)
+HyperDL ${VERSION} | Update Release
 
-**Changelog:**
-\`\`\`
-• Dynamic Probe: Non-blocking YouTube resolution modal, instant Best Quality & Cancel actions without waiting.
-• Real-time ETA: Remaining download time displayed live in WebUI and Android notification drawer.
-• Audio Format Selector: Toggle between MP3 320 kbps (Universal) and FLAC HD (Lossless) in Settings.
-• URL Sanitizer: Auto-strip tracking parameters (utm, si, igsh, _t, _r, s, ref) for cleaner queries.
-• Storage Guard: Pre-flight check aborts downloads if free storage < 100 MB to prevent corrupted files.
-• Storage Metric: Accurate storage stats querying /storage/emulated/0 directly.
-\`\`\`
+*Lightweight Local Media Downloader*
+*Root Module • Magisk • KernelSU • APatch*
 
-**Notes:**
-• Requires Android 10+ (\`arm64\`).
-• Flash directly via KernelSU, APatch, or Magisk.
+⚙️ Changelog: ❞
+• Dynamic Probe: Non-blocking YouTube resolution modal, instant Best Quality & Cancel actions without waiting
+• Real-time ETA: Remaining download time displayed live in WebUI and Android notification drawer
+• Audio Format Selector: Toggle between MP3 320 kbps (Universal) and FLAC HD (Lossless) in Settings
+• URL Sanitizer: Auto-strip tracking parameters (utm, si, igsh, _t, _r, s, ref) for cleaner queries
+• Storage Guard: Pre-flight check aborts downloads if free storage < 100 MB to prevent corrupted files
+• Storage Metric: Accurate storage stats querying /storage/emulated/0 directly
 
-**Links:**
-• **Channel:** @blueforbanister
-• **Support:** [SociaBuzz](https://sociabuzz.com/noticesa/tribe)
+🔗 Resources
+• [Chat Group](https://t.me/altblue)
+• [Features & etc](https://t.me/blueforbanister)
+• Download (aarch64/universal)
+• [Support Project](https://sociabuzz.com/noticesa/tribe)
+
+🪲 Bug Reports
+Found a bug? Feel free to report it in the [support group](https://t.me/altblue).
+
+📜 Credits
+• Maintained by @noticesa
 EOF
 )
     echo ""
