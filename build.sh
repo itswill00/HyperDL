@@ -8,9 +8,23 @@ DEPLOY=false
 CLEAN=false
 RELEASE=false
 POST_ONLY=false
+BUMP=false
+BUMP_ARG=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        -b|--bump)
+            BUMP=true
+            shift
+            if [ $# -gt 0 ]; then
+                case "$1" in
+                    patch|minor|major|v*|[0-9]*)
+                        BUMP_ARG="$1"
+                        shift
+                        ;;
+                esac
+            fi
+            ;;
         -d|--deploy)  DEPLOY=true; shift ;;
         -r|--release) RELEASE=true; shift ;;
         -c|--clean)   CLEAN=true; shift ;;
@@ -19,10 +33,11 @@ while [ $# -gt 0 ]; do
             echo "Usage: ./build.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -d, --deploy   Fast deploy to /data/adb/modules/hyperdl (~0.5s, no zip)"
-            echo "  -p, --post     Print and copy Telegram post to clipboard"
-            echo "  -c, --clean    Clean build artifacts"
-            echo "  -r, --release  Publish release to GitHub"
+            echo "  -b, --bump [type]  Precise version bump (patch|minor|major, default: patch) across all 6 files"
+            echo "  -d, --deploy       Fast deploy to /data/adb/modules/hyperdl (~0.5s, no zip)"
+            echo "  -p, --post         Print and copy Telegram post to clipboard"
+            echo "  -c, --clean        Clean build artifacts"
+            echo "  -r, --release      Publish release to GitHub"
             exit 0
             ;;
         *)
@@ -31,6 +46,10 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+if [ "$BUMP" = "true" ]; then
+    python3 scripts/bump_version.py $BUMP_ARG
+fi
 
 if [ ! -f "module.prop" ]; then
     echo "error: module.prop not found in $PROJECT_DIR"
