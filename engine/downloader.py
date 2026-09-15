@@ -1858,6 +1858,24 @@ def resolve_twitter(url, fmt="video"):
 
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
+def _repack_pyc(src_zip, dst_zip):
+    import tempfile, compileall, zipfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(src_zip, "r") as z:
+            z.extractall(tmpdir)
+        compileall.compile_dir(tmpdir, force=True, quiet=1, legacy=True)
+        for root, dirs, files in os.walk(tmpdir):
+            for f in files:
+                if f.endswith(".py"):
+                    os.remove(os.path.join(root, f))
+        with open(dst_zip, "wb") as of:
+            of.write(b"#!/usr/bin/env python3\n")
+            with zipfile.ZipFile(of, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+                for root, dirs, files in os.walk(tmpdir):
+                    for f in files:
+                        full = os.path.join(root, f)
+                        z.write(full, os.path.relpath(full, tmpdir))
+
 def get_or_download_ytdlp():
     candidates = [
         "/data/adb/modules/hyperdl/bin/yt-dlp",
@@ -1892,25 +1910,9 @@ def get_or_download_ytdlp():
         f.write(resp.read())
 
     try:
-        import tempfile, compileall, zipfile
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with zipfile.ZipFile(tmp_path, "r") as z:
-                z.extractall(tmpdir)
-            compileall.compile_dir(tmpdir, force=True, quiet=1, legacy=True)
-            for root, dirs, files in os.walk(tmpdir):
-                for file in files:
-                    if file.endswith(".py"):
-                        os.remove(os.path.join(root, file))
-            opt_path = tmp_path + ".opt"
-            with open(opt_path, "wb") as of:
-                of.write(b"#!/usr/bin/env python3\n")
-                with zipfile.ZipFile(of, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-                    for root, dirs, files in os.walk(tmpdir):
-                        for file in files:
-                            full = os.path.join(root, file)
-                            rel = os.path.relpath(full, tmpdir)
-                            z.write(full, rel)
-            os.replace(opt_path, tmp_path)
+        opt_path = tmp_path + ".opt"
+        _repack_pyc(tmp_path, opt_path)
+        os.replace(opt_path, tmp_path)
     except Exception as opt_err:
         print(f"Bytecode optimizer note: {opt_err}", file=sys.stderr)
 
@@ -1958,31 +1960,15 @@ def perform_ytdlp_update():
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp"
     ]
 
-    import tempfile, compileall, zipfile
+    import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_dl = os.path.join(tmpdir, "raw_ytdlp")
         req = urllib.request.Request(YTDLP_DOWNLOAD_URL, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=60) as resp, open(raw_dl, "wb") as f:
             f.write(resp.read())
 
-        ext_dir = os.path.join(tmpdir, "extracted")
-        with zipfile.ZipFile(raw_dl, "r") as z:
-            z.extractall(ext_dir)
-        compileall.compile_dir(ext_dir, force=True, quiet=1, legacy=True)
-        for root, dirs, files in os.walk(ext_dir):
-            for file in files:
-                if file.endswith(".py"):
-                    os.remove(os.path.join(root, file))
-
         opt_path = os.path.join(tmpdir, "opt_ytdlp")
-        with open(opt_path, "wb") as of:
-            of.write(b"#!/usr/bin/env python3\n")
-            with zipfile.ZipFile(of, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-                for root, dirs, files in os.walk(ext_dir):
-                    for file in files:
-                        full = os.path.join(root, file)
-                        rel = os.path.relpath(full, ext_dir)
-                        z.write(full, rel)
+        _repack_pyc(raw_dl, opt_path)
 
         py_bin = get_python_binary()
         ver_res = subprocess.run([py_bin, opt_path, "--version"], capture_output=True, text=True, timeout=5, env=get_runtime_env())
@@ -2090,38 +2076,30 @@ def get_python_binary():
             return p
     return "python3"
 
+def _resolve_runtime_dir():
+    for d in ("/data/adb/modules/hyperdl/runtime", "/data/adb/modules_update/hyperdl/runtime", "/data/data/com.termux/files/home/HyperDL_Module/runtime"):
+        if os.path.isdir(d):
+            return d
+    return None
+
 def get_runtime_env():
     env = dict(os.environ)
-    runtime_dir = "/data/adb/modules/hyperdl/runtime"
-    if not os.path.isdir(runtime_dir):
-        update_dir = "/data/adb/modules_update/hyperdl/runtime"
-        if os.path.isdir(update_dir):
-            runtime_dir = update_dir
-        else:
-            candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
-            if os.path.isdir(candidate_dev):
-                runtime_dir = candidate_dev
-    if os.path.isdir(runtime_dir):
-        env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
-        env["LD_LIBRARY_PATH"] = f"{runtime_dir}/lib"
-        env["PYTHONHOME"] = runtime_dir
-        env["PYTHONPATH"] = f"{runtime_dir}/lib/python314.zip:{runtime_dir}/lib/python3.14/lib-dynload:{runtime_dir}/lib/python3.14"
-        env["SSL_CERT_FILE"] = f"{runtime_dir}/lib/cacert.pem"
+    rd = _resolve_runtime_dir()
+    if rd:
+        env["PATH"] = f"{rd}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:" + env.get("PATH", "/system/bin")
+        env["LD_LIBRARY_PATH"] = f"{rd}/lib"
+        env["PYTHONHOME"] = rd
+        env["PYTHONPATH"] = f"{rd}/lib/python314.zip:{rd}/lib/python3.14/lib-dynload:{rd}/lib/python3.14"
+        env["SSL_CERT_FILE"] = f"{rd}/lib/cacert.pem"
     return env
 
 def get_ffmpeg_env():
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = "/system/lib64:/system/lib"
-    runtime_dir = "/data/adb/modules/hyperdl/runtime"
-    if not os.path.isdir(runtime_dir):
-        update_dir = "/data/adb/modules_update/hyperdl/runtime"
-        if os.path.isdir(update_dir):
-            runtime_dir = update_dir
-        else:
-            candidate_dev = "/data/data/com.termux/files/home/HyperDL_Module/runtime"
-            if os.path.isdir(candidate_dev):
-                runtime_dir = candidate_dev
-    env["PATH"] = f"{runtime_dir}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
+    rd = _resolve_runtime_dir()
+    if not rd:
+        rd = "/data/adb/modules/hyperdl/runtime"
+    env["PATH"] = f"{rd}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
     return env
 
 def get_ffmpeg_binary():

@@ -1057,16 +1057,7 @@ static void cmd_open(const char *path) {
 
     if (media_id <= 0) {
         char sql_path[1024];
-        size_t si = 0;
-        for (size_t i = 0; path[i] && si < sizeof(sql_path) - 2; i++) {
-            if (path[i] == '\'') {
-                sql_path[si++] = '\'';
-                sql_path[si++] = '\'';
-            } else {
-                sql_path[si++] = path[i];
-            }
-        }
-        sql_path[si] = '\0';
+        safe_sql_escape(path, sql_path, sizeof(sql_path));
 
         char query_cmd[1200];
         snprintf(query_cmd, sizeof(query_cmd),
