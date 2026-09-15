@@ -10,7 +10,7 @@ import pathlib
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(PROJECT_DIR, "engine")
-SRC_PY = os.path.join(SRC_DIR, "core.py")
+SRC_PY = os.path.join(SRC_DIR, "_impl.py")
 OUT_BUNDLE = os.path.join(PROJECT_DIR, "bin", "hyperdl.bundle")
 OUT_HEADER = os.path.join(PROJECT_DIR, "src", "embedded_engine.h")
 
@@ -51,7 +51,7 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         with open(os.path.join(tmpdir, "__main__.py"), "w") as f:
-            f.write("from engine.core import main\nif __name__ == '__main__':\n    main()\n")
+            f.write("from engine._impl import main\nif __name__ == '__main__':\n    main()\n")
         # Copy whole engine package
         shutil.copytree(SRC_DIR, os.path.join(tmpdir, "engine"))
         # Remove backups and caches from bundle

@@ -1,2 +1,2 @@
-from engine.core import main
+from engine._impl import main
 __all__ = ["main"]
