@@ -379,11 +379,14 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
 
     _last_notif_time = now
 
+    intent = "activity -a android.intent.action.VIEW -d file:///storage/emulated/0/Download/HyperDL -t resource/folder -f 0x10000000"
+
     def _send():
         cmd = [
             "/system/bin/cmd", "notification", "post",
             "-i", icon,
             "-t", notif_title,
+            "-c", intent,
             "hyperdl_task",
             notif_text
         ]
@@ -407,6 +410,7 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
             try:
                 fallback_cmd = [
                     "/system/bin/cmd", "notification", "post",
+                    "-c", intent,
                     "-t", notif_title,
                     "hyperdl_task",
                     notif_text

@@ -2234,6 +2234,7 @@ async function checkClipboardSniffer() {
 function onVisibilityChange() {
   if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
     checkClipboardSniffer()
+    checkActiveTask()
   }
 }
 
@@ -2614,7 +2615,7 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    window.addEventListener('focus', checkClipboardSniffer)
+    window.addEventListener('focus', () => { checkClipboardSniffer(); checkActiveTask() })
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibilityChange)

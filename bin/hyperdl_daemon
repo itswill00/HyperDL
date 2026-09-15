@@ -150,6 +150,12 @@ case "$1" in
 
               BRIDGE="$(find_bridge)"
               if [ -n "$BRIDGE" ]; then
+                # prime WebUI so polling sees the task immediately
+                _now="$(date +%s 2>/dev/null || echo 0)"
+                _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$CLEAN_URL\",\"fmt\":\"video\"}"
+                for _f in /data/local/tmp/hyperdl_status.json /data/adb/hyperdl/active_task.json; do
+                  printf '%s' "$_js" > "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
+                done
                 "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
               fi
             fi
