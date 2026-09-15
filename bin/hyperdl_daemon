@@ -72,11 +72,6 @@ case "$1" in
       if [ -f "$LAST_CLIP_FILE" ]; then
         LAST_PROCESSED_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
       fi
-      INIT_CLIP="$(get_clipboard)"
-      if [ -n "$INIT_CLIP" ]; then
-        INIT_CLEAN="$(echo "$INIT_CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
-        [ -n "$INIT_CLEAN" ] && LAST_PROCESSED_URL="$INIT_CLEAN"
-      fi
 
       IDLE_TICKS=0
       while true; do
