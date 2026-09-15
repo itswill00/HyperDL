@@ -324,12 +324,10 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
 
     notif_title = "HyperDL"
     notif_text = ""
-    icon = "@android:drawable/stat_sys_download"
 
     if status == "resolving":
         notif_title = "HyperDL"
         notif_text = f"Connecting to source • {clean_title}" if clean_title != "Media" else "Connecting to media source..."
-        icon = "@android:drawable/stat_sys_download"
     elif status == "downloading":
         if (now - _last_notif_time < 2.0) and (abs(percent - _last_notif_pct) < 10):
             return
@@ -352,7 +350,6 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
             details.append(f"ETA {eta}")
 
         notif_text = " • ".join(details) if details else "Downloading media..."
-        icon = "@android:drawable/stat_sys_download"
         _last_notif_pct = percent
     elif status == "completed":
         fname = os.path.basename(file_path) if file_path else clean_title
@@ -362,31 +359,24 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
             fname = fname[:62] + "..."
         notif_title = fname
         notif_text = "Download complete • Saved to /Download/HyperDL"
-        icon = "@android:drawable/stat_sys_download_done"
     elif status == "error":
         notif_title = "HyperDL • Download failed"
         err_msg = humanize_error(error) if error else "An unexpected error occurred"
         err_msg = err_msg.replace("\r", " ").replace("\n", " ").strip()
         err_msg = re.sub(r'\s+', ' ', err_msg)
         notif_text = err_msg
-        icon = "@android:drawable/stat_notify_error"
     elif status == "paused":
         notif_title = "HyperDL • Download paused"
         notif_text = f"{clean_title} ({percent}% ready)" if clean_title != "Media" else f"Download paused ({percent}% ready)"
-        icon = "@android:drawable/stat_sys_download"
     else:
         return
 
     _last_notif_time = now
 
-    intent = "activity -a android.intent.action.VIEW -d file:///storage/emulated/0/Download/HyperDL -t resource/folder -f 0x10000000"
-
     def _send():
         cmd = [
             "/system/bin/cmd", "notification", "post",
-            "-i", icon,
             "-t", notif_title,
-            "-c", intent,
             "hyperdl_task",
             notif_text
         ]
@@ -410,7 +400,6 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
             try:
                 fallback_cmd = [
                     "/system/bin/cmd", "notification", "post",
-                    "-c", intent,
                     "-t", notif_title,
                     "hyperdl_task",
                     notif_text
