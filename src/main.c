@@ -94,13 +94,45 @@ static unsigned char *base64_decode(const char *data, size_t input_len, size_t *
     return decoded;
 }
 
-static const char *find_python(void) {
-    for (int i = 0; PYTHON_PATHS[i] != NULL; i++) {
-        if (access(PYTHON_PATHS[i], X_OK) == 0) {
-            return PYTHON_PATHS[i];
-        }
+static const char *find_first(const char * const *paths, int mode) {
+    for (int i = 0; paths[i] != NULL; i++) {
+        if (access(paths[i], mode) == 0) return paths[i];
     }
     return NULL;
+}
+
+static const char *find_python(void) {
+    return find_first(PYTHON_PATHS, X_OK);
+}
+
+static void setup_python_env(const char *python_bin) {
+    if (strstr(python_bin, "runtime")) {
+        char moddir[512];
+        const char *p = strstr(python_bin, "/bin/python3");
+        if (!p) return;
+        size_t len = p - python_bin;
+        snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
+        char libdir[550], pypath[650], cacert[550], path_env[1024];
+        snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
+        snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
+        snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
+        snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
+        setenv("PATH", path_env, 1);
+        setenv("PYTHONHOME", moddir, 1);
+        setenv("PYTHONPATH", pypath, 1);
+        setenv("LD_LIBRARY_PATH", libdir, 1);
+        setenv("SSL_CERT_FILE", cacert, 1);
+    } else if (strstr(python_bin, "com.termux")) {
+        setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
+        setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
+        setenv("HOME", "/data/data/com.termux/files/home", 1);
+        setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
+    } else if (strstr(python_bin, "py2droid")) {
+        setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
+        setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
+        setenv("LD_LIBRARY_PATH", "/data/adb/py2droid/usr/lib", 1);
+        setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
+    }
 }
 
 static void ensure_directories(void) {
@@ -298,30 +330,7 @@ static void cmd_probe_start(const char *url) {
             close(dev_null);
         }
 
-        if (strstr(python_bin, "runtime")) {
-            char moddir[512];
-            const char *p = strstr(python_bin, "/bin/python3");
-            if (p) {
-                size_t len = p - python_bin;
-                snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
-                char libdir[550], pypath[650], cacert[550], path_env[1024];
-                snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
-                snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
-
-                setenv("PATH", path_env, 1);
-                setenv("PYTHONHOME", moddir, 1);
-                setenv("PYTHONPATH", pypath, 1);
-                setenv("LD_LIBRARY_PATH", libdir, 1);
-                setenv("SSL_CERT_FILE", cacert, 1);
-            }
-        } else if (strstr(python_bin, "com.termux")) {
-            setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
-            setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
-            setenv("HOME", "/data/data/com.termux/files/home", 1);
-            setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
-        }
+        setup_python_env(python_bin);
 
         if (bundle_path) {
             execl(python_bin, python_bin, bundle_path, "probe", url, (char *)NULL);
@@ -445,35 +454,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
             close(log_fd);
         }
 
-        if (strstr(python_bin, "runtime")) {
-            char moddir[512];
-            const char *p = strstr(python_bin, "/bin/python3");
-            if (p) {
-                size_t len = p - python_bin;
-                snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
-                char libdir[550], pypath[650], cacert[550], path_env[1024];
-                snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-                snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
-                snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-                snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
-
-                setenv("PATH", path_env, 1);
-                setenv("PYTHONHOME", moddir, 1);
-                setenv("PYTHONPATH", pypath, 1);
-                setenv("LD_LIBRARY_PATH", libdir, 1);
-                setenv("SSL_CERT_FILE", cacert, 1);
-            }
-        } else if (strstr(python_bin, "com.termux")) {
-            setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
-            setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
-            setenv("HOME", "/data/data/com.termux/files/home", 1);
-            setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
-        } else if (strstr(python_bin, "py2droid")) {
-            setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
-            setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
-            setenv("LD_LIBRARY_PATH", "/data/adb/py2droid/usr/lib", 1);
-            setenv("SSL_CERT_FILE", "/data/adb/py2droid/usr/etc/ssl/cacert.pem", 1);
-        }
+        setup_python_env(python_bin);
 
         char fid_arg[256] = "";
         char ht_arg[64] = "";
@@ -540,25 +521,7 @@ static void run_python_action(const char *subaction, const char *extra_arg) {
 
     const char *bundle_path = get_bundle_path();
 
-    if (strstr(python_bin, "runtime")) {
-        char moddir[512];
-        const char *p = strstr(python_bin, "/bin/python3");
-        if (p) {
-            size_t len = p - python_bin;
-            snprintf(moddir, sizeof(moddir), "%.*s", (int)len, python_bin);
-            char libdir[550], pypath[650], cacert[550], path_env[1024];
-            snprintf(libdir, sizeof(libdir), "%s/lib", moddir);
-            snprintf(pypath, sizeof(pypath), "%s/lib/python314.zip:%s/lib/python3.14/lib-dynload:%s/lib/python3.14", moddir, moddir, moddir);
-            snprintf(cacert, sizeof(cacert), "%s/lib/cacert.pem", moddir);
-            snprintf(path_env, sizeof(path_env), "%s/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin", moddir);
-
-            setenv("PATH", path_env, 1);
-            setenv("PYTHONHOME", moddir, 1);
-            setenv("PYTHONPATH", pypath, 1);
-            setenv("LD_LIBRARY_PATH", libdir, 1);
-            setenv("SSL_CERT_FILE", cacert, 1);
-        }
-    }
+    setup_python_env(python_bin);
 
     int pipefd[2];
     if (pipe(pipefd) < 0) {

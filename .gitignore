@@ -17,7 +17,11 @@ webui/.vite/
 .idea/
 runtime/
 bin/yt-dlp
+bin/hyperdl.bundle
+bin/libhyperdl.so
 system/bin/yt-dlp
+src/embedded_engine.h
+webroot/index.html
 
 releases/
 *.txt

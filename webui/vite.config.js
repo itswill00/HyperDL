@@ -20,17 +20,6 @@ export default defineConfig({
   build: {
     target: 'es2020',
     cssCodeSplit: false,
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-        passes: 2,
-        pure_funcs: ['console.log', 'console.info', 'console.debug']
-      },
-      format: {
-        comments: false
-      }
-    }
+    minify: 'esbuild'
   }
 })
