@@ -3037,21 +3037,13 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   padding: 24px;
   touch-action: none;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes backdrop-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .dialog-card {
