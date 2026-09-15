@@ -95,7 +95,7 @@ case "$1" in
           sleep 4
         fi
 
-          CLIP="$(get_clipboard)"
+        CLIP="$(get_clipboard)"
 
         if [ -z "$CLIP" ]; then
           IDLE_TICKS=$((IDLE_TICKS + 1))
@@ -150,8 +150,6 @@ case "$1" in
 
               BRIDGE="$(find_bridge)"
               if [ -n "$BRIDGE" ]; then
-                # prime WebUI so polling sees the task immediately
-                _now="$(date +%s 2>/dev/null || echo 0)"
                 _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$CLEAN_URL\",\"fmt\":\"video\"}"
                 for _f in /data/local/tmp/hyperdl_status.json /data/adb/hyperdl/active_task.json; do
                   printf '%s' "$_js" > "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
