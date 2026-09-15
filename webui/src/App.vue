@@ -2704,13 +2704,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), background 0.18s cubic-bezier(0.2, 0, 0, 1), color 0.18s ease, box-shadow 0.18s ease;
   user-select: none;
-  will-change: transform;
-}
-
-.tab-btn:active {
-  transform: scale(0.95);
 }
 
 .tab-btn.active {
@@ -2796,8 +2790,7 @@ onUnmounted(() => {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1), transform 0.22s cubic-bezier(0.2, 0, 0, 1);
-  will-change: opacity, transform;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .toast-fade-enter-from {
@@ -2820,13 +2813,10 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .sheet-panel {
@@ -2841,18 +2831,6 @@ onUnmounted(() => {
   max-height: 75vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
-  animation: sheet-up 0.28s cubic-bezier(0.2, 0, 0, 1);
-  will-change: transform;
-}
-
-@keyframes sheet-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
 }
 
 .icon-btn {
@@ -2866,12 +2844,6 @@ onUnmounted(() => {
   background: var(--surface-container-high);
   color: var(--on-surface-variant);
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.icon-btn:active {
-  transform: scale(0.92);
-  background: var(--surface-container-highest);
 }
 
 .spin-loader {
