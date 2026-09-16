@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.24' }}
+            {{ sysInfo.version || 'v1.3.25' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -757,7 +757,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.24' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.25' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -2234,6 +2234,7 @@ async function checkClipboardSniffer() {
 function onVisibilityChange() {
   if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
     checkClipboardSniffer()
+    checkActiveTask()
   }
 }
 
@@ -2614,7 +2615,7 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    window.addEventListener('focus', checkClipboardSniffer)
+    window.addEventListener('focus', () => { checkClipboardSniffer(); checkActiveTask() })
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibilityChange)
@@ -2704,13 +2705,7 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), background 0.18s cubic-bezier(0.2, 0, 0, 1), color 0.18s ease, box-shadow 0.18s ease;
   user-select: none;
-  will-change: transform;
-}
-
-.tab-btn:active {
-  transform: scale(0.95);
 }
 
 .tab-btn.active {
@@ -2796,8 +2791,7 @@ onUnmounted(() => {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: opacity 0.2s cubic-bezier(0.2, 0, 0, 1), transform 0.22s cubic-bezier(0.2, 0, 0, 1);
-  will-change: opacity, transform;
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .toast-fade-enter-from {
@@ -2820,13 +2814,10 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .sheet-panel {
@@ -2841,18 +2832,6 @@ onUnmounted(() => {
   max-height: 75vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.6);
-  animation: sheet-up 0.28s cubic-bezier(0.2, 0, 0, 1);
-  will-change: transform;
-}
-
-@keyframes sheet-up {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
 }
 
 .icon-btn {
@@ -2866,12 +2845,6 @@ onUnmounted(() => {
   background: var(--surface-container-high);
   color: var(--on-surface-variant);
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.icon-btn:active {
-  transform: scale(0.92);
-  background: var(--surface-container-highest);
 }
 
 .spin-loader {
@@ -3064,21 +3037,13 @@ onUnmounted(() => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   padding: 24px;
   touch-action: none;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  animation: backdrop-fade 0.2s cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes backdrop-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .dialog-card {

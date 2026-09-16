@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.24",
-  "versionCode": 13240,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.24/HyperDL-v1.3.24.zip",
+  "version": "v1.3.25",
+  "versionCode": 13250,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.25/HyperDL-v1.3.25.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
   "notes": "Dynamic YouTube stream resolution probing, non-blocking asynchronous modal actions, instant cancel, and startup lag fix"
 }

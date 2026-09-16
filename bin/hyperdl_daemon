@@ -50,6 +50,14 @@ get_clipboard() {
     fi
 }
 
+is_screen_on() {
+  local b=""
+  for f in /sys/class/backlight/*/brightness /sys/class/leds/lcd-backlight/brightness /sys/class/leds/wled/brightness; do
+    if [ -r "$f" ]; then b="$(cat "$f" 2>/dev/null)"; [ -n "$b" ] && [ "$b" -gt 0 ] 2>/dev/null && return 0; return 1; fi
+  done
+  return 0
+}
+
 case "$1" in
   start)
     if [ -f "$PID_FILE" ]; then
@@ -60,26 +68,35 @@ case "$1" in
     fi
 
     (
-      trap '' HUP INT TERM
-      echo -900 > /proc/self/oom_score_adj 2>/dev/null || true
-
       LAST_PROCESSED_URL=""
       if [ -f "$LAST_CLIP_FILE" ]; then
         LAST_PROCESSED_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
       fi
-      INIT_CLIP="$(get_clipboard)"
-      if [ -n "$INIT_CLIP" ]; then
-        INIT_CLEAN="$(echo "$INIT_CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
-        [ -n "$INIT_CLEAN" ] && LAST_PROCESSED_URL="$INIT_CLEAN"
-      fi
 
+      IDLE_TICKS=0
       while true; do
         if [ ! -f /data/adb/hyperdl/autodl.enabled ]; then
           break
         fi
+        if ! is_screen_on; then
+          sleep 45
+          continue
+        fi
+        if [ "$IDLE_TICKS" -ge 30 ]; then
+          sleep 8
+        elif [ "$IDLE_TICKS" -ge 10 ]; then
+          sleep 6
+        else
+          sleep 4
+        fi
 
         CLIP="$(get_clipboard)"
 
+        if [ -z "$CLIP" ]; then
+          IDLE_TICKS=$((IDLE_TICKS + 1))
+        else
+          IDLE_TICKS=0
+        fi
         if [ -n "$CLIP" ]; then
           LOW_CLIP="$(echo "$CLIP" | tr '[:upper:]' '[:lower:]')"
           MATCHED=false
@@ -128,6 +145,10 @@ case "$1" in
 
               BRIDGE="$(find_bridge)"
               if [ -n "$BRIDGE" ]; then
+                _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$CLEAN_URL\",\"fmt\":\"video\"}"
+                for _f in /data/local/tmp/hyperdl_status.json /data/adb/hyperdl/active_task.json; do
+                  printf '%s' "$_js" > "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
+                done
                 "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
               fi
             fi
@@ -137,7 +158,6 @@ case "$1" in
             fi
           fi
         fi
-        sleep 2
       done
       rm -f "$PID_FILE"
     ) </dev/null >/dev/null 2>&1 &

@@ -6,24 +6,16 @@ import base64
 import shutil
 import tempfile
 import subprocess
+import pathlib
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_PY = os.path.join(PROJECT_DIR, "engine", "downloader.py")
+SRC_DIR = os.path.join(PROJECT_DIR, "engine")
+SRC_PY = os.path.join(SRC_DIR, "_impl.py")
 OUT_BUNDLE = os.path.join(PROJECT_DIR, "bin", "hyperdl.bundle")
 OUT_HEADER = os.path.join(PROJECT_DIR, "src", "embedded_engine.h")
 
-def main():
-    if not os.path.exists(SRC_PY):
-        print(f"error: {SRC_PY} not found", file=sys.stderr)
-        sys.exit(1)
-
-    os.makedirs(os.path.dirname(OUT_BUNDLE), exist_ok=True)
-    os.makedirs(os.path.dirname(OUT_HEADER), exist_ok=True)
-
-    with open(SRC_PY, "rb") as f:
-        code = f.read()
-
-    compressed = base64.b64encode(zlib.compress(code, 9)).decode("ascii")
+def _write_header(code_bytes):
+    compressed = base64.b64encode(zlib.compress(code_bytes, 9)).decode("ascii")
     byte_vals = [f"0x{b:02x}" for b in compressed.encode("ascii")] + ["0x00"]
     chunk_size = 16
     lines = [
@@ -31,7 +23,6 @@ def main():
         for i in range(0, len(byte_vals), chunk_size)
     ]
     array_content = "\n".join(lines)
-
     header_content = f"""#ifndef EMBEDDED_ENGINE_H
 #define EMBEDDED_ENGINE_H
 
@@ -44,13 +35,37 @@ static const char EMBEDDED_ENGINE_B64[] = {{
     with open(OUT_HEADER, "w") as f:
         f.write(header_content)
 
+def main():
+    # Compat: prefer engine/core.py (modular), fallback to engine/downloader.py
+    src_py = SRC_PY if os.path.exists(SRC_PY) else os.path.join(SRC_DIR, "downloader.py")
+    if not os.path.exists(src_py):
+        print(f"error: {src_py} not found", file=sys.stderr)
+        sys.exit(1)
+
+    os.makedirs(os.path.dirname(OUT_BUNDLE), exist_ok=True)
+    os.makedirs(os.path.dirname(OUT_HEADER), exist_ok=True)
+
+    with open(src_py, "rb") as f:
+        code = f.read()
+    _write_header(code)
+
     with tempfile.TemporaryDirectory() as tmpdir:
         with open(os.path.join(tmpdir, "__main__.py"), "w") as f:
-            f.write("from downloader import main\nif __name__ == '__main__':\n    main()\n")
-        
-        shutil.copy(SRC_PY, os.path.join(tmpdir, "downloader.py"))
+            f.write("from engine._impl import main\nif __name__ == '__main__':\n    main()\n")
+        # Copy whole engine package
+        shutil.copytree(SRC_DIR, os.path.join(tmpdir, "engine"))
+        # Remove backups and caches from bundle
+        for p in list((pathlib.Path(tmpdir) / "engine").rglob("*.bak")) + list((pathlib.Path(tmpdir) / "engine").rglob("__pycache__")):
+            if p.is_file():
+                p.unlink()
+            elif p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
         subprocess.run([sys.executable, "-m", "compileall", "-b", "-q", tmpdir], check=True)
-        os.remove(os.path.join(tmpdir, "downloader.py"))
+        # Remove .py sources, keep .pyc only (like before)
+        for py in pathlib.Path(tmpdir).rglob("*.py"):
+            # keep __main__.py source for zipapp entry
+            if py.name != "__main__.py":
+                py.unlink()
 
         if os.path.exists(OUT_BUNDLE):
             os.remove(OUT_BUNDLE)

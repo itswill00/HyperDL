@@ -63,23 +63,29 @@ export function base64DecodeUtf8(str) {
   }
 }
 
+const BRIDGES = [
+  '/data/adb/modules/hyperdl/bin/libhyperdl.so',
+  '/data/adb/modules/hyperdl/system/bin/libhyperdl.so',
+  '/data/adb/modules_update/hyperdl/bin/libhyperdl.so',
+  '/data/adb/modules_update/hyperdl/system/bin/libhyperdl.so',
+  '/system/bin/libhyperdl.so',
+  '/data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so',
+  '/data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so'
+]
+function bridgeCmd(action, arg = '') {
+  const parts = BRIDGES.map(b => `[ -x ${b} ] && exec ${b} ${action}${arg ? ' ' + arg : ''}`).join(' || ')
+  return `(${parts})`
+}
+
 export async function openMediaFile(filePath) {
   if (!filePath) return
   const safePath = "'" + String(filePath).replace(/'/g, "'\\''") + "'"
-  const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so open ${safePath}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open ${safePath}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open ${safePath}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so open ${safePath}; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open ${safePath}; fi`
-  try {
-    return await execCommand(cmd, 10000)
-  } catch (e) {
-    console.error('Failed to open media:', e)
-  }
+  try { return await execCommand(bridgeCmd('open', safePath), 10000) }
+  catch (e) { console.error('Failed to open media:', e) }
 }
 
 export async function openFolder() {
-  const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so open_folder; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so open_folder; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so open_folder; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so open_folder; elif [ -x /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so ]; then /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so open_folder; fi`
-  try {
-    return await execCommand(cmd, 10000)
-  } catch (e) {
-    console.error('Failed to open folder:', e)
-  }
+  try { return await execCommand(bridgeCmd('open_folder'), 10000) }
+  catch (e) { console.error('Failed to open folder:', e) }
 }
 

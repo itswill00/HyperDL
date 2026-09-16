@@ -3,7 +3,12 @@ import os
 import sys
 import zipfile
 import tempfile
-import compileall
+import sys as _sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine"))
+try:
+    from downloader import _repack_pyc
+except Exception:
+    _repack_pyc = None
 
 def optimize_ytdlp(ytdlp_path):
     if not os.path.isfile(ytdlp_path):
@@ -18,29 +23,28 @@ def optimize_ytdlp(ytdlp_path):
         return False
 
     print(f"optimizing {ytdlp_path} to bytecode (.pyc)...")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        with zipfile.ZipFile(ytdlp_path, "r") as z:
-            z.extractall(tmpdir)
-
-        compileall.compile_dir(tmpdir, force=True, quiet=1, legacy=True)
-
-        for root, dirs, files in os.walk(tmpdir):
-            for f in files:
-                if f.endswith(".py"):
-                    os.remove(os.path.join(root, f))
-
-        tmp_out = ytdlp_path + ".optimized"
-        with open(tmp_out, "wb") as f:
-            f.write(b"#!/usr/bin/env python3\n")
-            with zipfile.ZipFile(f, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-                for root, dirs, files in os.walk(tmpdir):
-                    for f in files:
-                        full = os.path.join(root, f)
-                        rel = os.path.relpath(full, tmpdir)
-                        z.write(full, rel)
-
-        os.chmod(tmp_out, 0o755)
-        os.replace(tmp_out, ytdlp_path)
+    tmp_out = ytdlp_path + ".optimized"
+    if _repack_pyc:
+        _repack_pyc(ytdlp_path, tmp_out)
+    else:
+        import compileall
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with zipfile.ZipFile(ytdlp_path, "r") as z:
+                z.extractall(tmpdir)
+            compileall.compile_dir(tmpdir, force=True, quiet=1, legacy=True)
+            for root, dirs, files in os.walk(tmpdir):
+                for f in files:
+                    if f.endswith(".py"):
+                        os.remove(os.path.join(root, f))
+            with open(tmp_out, "wb") as f:
+                f.write(b"#!/usr/bin/env python3\n")
+                with zipfile.ZipFile(f, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+                    for root, dirs, files in os.walk(tmpdir):
+                        for fi in files:
+                            full = os.path.join(root, fi)
+                            z.write(full, os.path.relpath(full, tmpdir))
+    os.chmod(tmp_out, 0o755)
+    os.replace(tmp_out, ytdlp_path)
 
     print(f"optimized {ytdlp_path} ({os.path.getsize(ytdlp_path)} bytes)")
     return True

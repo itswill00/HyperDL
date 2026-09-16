@@ -7,7 +7,6 @@ cd "$PROJECT_DIR"
 DEPLOY=false
 CLEAN=false
 RELEASE=false
-POST_ONLY=false
 BUMP=false
 BUMP_ARG=""
 
@@ -28,16 +27,14 @@ while [ $# -gt 0 ]; do
         -d|--deploy)  DEPLOY=true; shift ;;
         -r|--release) RELEASE=true; shift ;;
         -c|--clean)   CLEAN=true; shift ;;
-        -p|--post)    POST_ONLY=true; shift ;;
         -h|--help)
             echo "Usage: ./build.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -b, --bump [type]  Precise version bump (patch|minor|major, default: patch) across all 6 files"
-            echo "  -d, --deploy       Fast deploy to /data/adb/modules/hyperdl (~0.5s, no zip)"
-            echo "  -p, --post         Print and copy Telegram post to clipboard"
+            echo "  -b, --bump [type]  Bump version (patch|minor|major, default: patch)"
+            echo "  -d, --deploy       Deploy to /data/adb/modules/hyperdl"
             echo "  -c, --clean        Clean build artifacts"
-            echo "  -r, --release      Publish release to GitHub"
+            echo "  -r, --release      Publish to HyperDL-Release"
             exit 0
             ;;
         *)
@@ -58,64 +55,6 @@ fi
 
 VERSION=$(grep '^version=' module.prop | cut -d= -f2)
 VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
-
-print_post() {
-    local post_text notes
-    notes=""
-    if [ -f "update.json" ]; then
-        notes=$(grep -o '"notes": *"[^"]*"' update.json | sed 's/"notes": *"//; s/"$//')
-    fi
-
-    post_text=$(cat <<EOF
-HyperDL ${VERSION} | Update Release
-
-*Lightweight Local Media Downloader*
-*Root Module • Magisk • KernelSU • APatch*
-
-⚙️ Changelog: ❞
-• Dynamic Probe: Non-blocking YouTube resolution modal, instant Best Quality & Cancel actions without waiting
-• Real-time ETA: Remaining download time displayed live in WebUI and Android notification drawer
-• Audio Format Selector: Toggle between MP3 320 kbps (Universal) and FLAC HD (Lossless) in Settings
-• URL Sanitizer: Auto-strip tracking parameters (utm, si, igsh, _t, _r, s, ref) for cleaner queries
-• Storage Guard: Pre-flight check aborts downloads if free storage < 100 MB to prevent corrupted files
-• Storage Metric: Accurate storage stats querying /storage/emulated/0 directly
-
-🔗 Resources
-• [Chat Group](https://t.me/altblue)
-• [Features & etc](https://t.me/blueforbanister)
-• Download (aarch64/universal)
-• [Support Project](https://sociabuzz.com/noticesa/tribe)
-
-🪲 Bug Reports
-Found a bug? Feel free to report it in the [support group](https://t.me/altblue).
-
-📜 Credits
-• Maintained by @noticesa
-EOF
-)
-    echo ""
-    echo "================ Telegram Post ================"
-    echo "$post_text"
-    echo "==============================================="
-    echo ""
-
-    local pub_dir="/storage/emulated/0/Download/HyperDL_Releases"
-    su -c "mkdir -p '$pub_dir' && cat << 'EOF_POST' > '$pub_dir/post.txt'
-$post_text
-EOF_POST
-chmod 666 '$pub_dir/post.txt'
-am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://$pub_dir/post.txt' >/dev/null 2>&1 || true
-" 2>/dev/null || true
-
-    if command -v termux-clipboard-set >/dev/null 2>&1; then
-        (echo "$post_text" | timeout 1 termux-clipboard-set >/dev/null 2>&1) 2>/dev/null || true
-    fi
-}
-
-if [ "$POST_ONLY" = "true" ]; then
-    print_post
-    exit 0
-fi
 
 if [ "$CLEAN" = "true" ]; then
     echo "cleaning build artifacts..."
@@ -201,81 +140,31 @@ if [ "$DEPLOY" = "true" ]; then
     exit 0
 fi
 
-# 3. Packaging Mode (One Universal Standalone Zip)
+# 3. Packaging Mode
 OUT_DIR="${PROJECT_DIR}/releases"
 mkdir -p "$OUT_DIR"
-
 ZIP_NAME="HyperDL-${VERSION}.zip"
 rm -f "$OUT_DIR"/HyperDL-*.zip 2>/dev/null || true
-
 echo "-> packaging module (${ZIP_NAME})..."
-zip -qr9 "$OUT_DIR/$ZIP_NAME" \
-    module.prop \
-    customize.sh \
-    service.sh \
-    uninstall.sh \
-    bin \
-    runtime \
-    webroot \
-    -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
-
-# Mirror directly to Download folder for easy Telegram file selection
-PUB_DIR="/storage/emulated/0/Download/HyperDL_Releases"
-su -c "mkdir -p '$PUB_DIR' && rm -f '$PUB_DIR'/HyperDL-*.zip && cp -f '$OUT_DIR'/*.zip '$PUB_DIR/' && chmod 666 '$PUB_DIR'/*" 2>/dev/null || true
-am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$PUB_DIR/$ZIP_NAME" >/dev/null 2>&1 || true
-
-echo "build finished: package ready in $PUB_DIR/$ZIP_NAME"
-print_post
+zip -qr9 "$OUT_DIR/$ZIP_NAME" module.prop customize.sh service.sh uninstall.sh bin runtime webroot -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
+echo "build finished: $OUT_DIR/$ZIP_NAME"
 
 # 4. Release to GitHub
 if [ "$RELEASE" = "true" ]; then
-    echo "=========================================="
-    echo "  publishing to itswill00/HyperDL-Release"
-    echo "=========================================="
-
-    if ! command -v gh >/dev/null 2>&1; then
-        echo "error: gh (GitHub CLI) is not installed"
-        exit 1
-    fi
-
+    if ! command -v gh >/dev/null 2>&1; then echo "error: gh not installed"; exit 1; fi
     REL_REPO="itswill00/HyperDL-Release"
     REL_TMP="${PROJECT_DIR}/releases/.tmp_release"
-    rm -rf "$REL_TMP"
-    mkdir -p "$REL_TMP"
-
-    echo "cloning public release repository..."
+    rm -rf "$REL_TMP" && mkdir -p "$REL_TMP"
     git clone --depth 1 "https://github.com/${REL_REPO}.git" "$REL_TMP"
-
-    echo "updating release metadata..."
     cp -f "${PROJECT_DIR}/update.json" "$REL_TMP/update.json"
-
     cat <<EOF > "$REL_TMP/README.md"
-# HyperDL Releases & Distribution
-
-Official public release channel for **HyperDL**.
-
-## Latest Release: ${VERSION} (b${VERSION_CODE})
-
-- **Download Module**: [\`${ZIP_NAME}\`](https://github.com/${REL_REPO}/releases/download/${VERSION}/${ZIP_NAME})
+# HyperDL Releases
+## Latest: ${VERSION} (b${VERSION_CODE})
+- **Download**: [\`${ZIP_NAME}\`](https://github.com/${REL_REPO}/releases/download/${VERSION}/${ZIP_NAME})
 EOF
-
-    (
-        cd "$REL_TMP"
-        git config user.name "itswill00"
-        git config user.email "itswill00@users.noreply.github.com"
-        git add update.json README.md
-        git commit -m "release: ${VERSION} (b${VERSION_CODE})" || true
-        git push origin main
-    )
+    (cd "$REL_TMP" && git config user.name "itswill00" && git config user.email "itswill00@users.noreply.github.com" && git add update.json README.md && git commit -m "release: ${VERSION} (b${VERSION_CODE})" || true && git push origin main)
     rm -rf "$REL_TMP"
-
-    echo "uploading release asset to GitHub (${VERSION})..."
     gh release delete "${VERSION}" --repo "$REL_REPO" -y 2>/dev/null || true
-    gh release create "${VERSION}" \
-        "$OUT_DIR/$ZIP_NAME" \
-        --repo "$REL_REPO" \
-        --title "HyperDL ${VERSION}" \
-        --notes "HyperDL ${VERSION} (b${VERSION_CODE}) release"
-
+    gh release create "${VERSION}" "$OUT_DIR/$ZIP_NAME" --repo "$REL_REPO" --title "HyperDL ${VERSION}" --notes "HyperDL ${VERSION} (b${VERSION_CODE})"
     echo "Release published: https://github.com/${REL_REPO}/releases/tag/${VERSION}"
 fi
