@@ -46,17 +46,16 @@ static char *base64_encode(const unsigned char *data, size_t input_len) {
     char *encoded = malloc(output_len + 1);
     if (!encoded) return NULL;
 
-    size_t i, j;
-    for (i = 0, j = 0; i < input_len;) {
-        uint32_t octet_a = i < input_len ? data[i++] : 0;
-        uint32_t octet_b = i < input_len ? data[i++] : 0;
-        uint32_t octet_c = i < input_len ? data[i++] : 0;
+    size_t j = 0;
+    for (size_t i = 0; i < input_len; i += 3) {
+        uint32_t octet_a = data[i];
+        uint32_t octet_b = (i + 1 < input_len) ? data[i + 1] : 0;
+        uint32_t octet_c = (i + 2 < input_len) ? data[i + 2] : 0;
         uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
-
         encoded[j++] = b64_table[(triple >> 18) & 0x3F];
         encoded[j++] = b64_table[(triple >> 12) & 0x3F];
-        encoded[j++] = (i > input_len + 1) ? '=' : b64_table[(triple >> 6) & 0x3F];
-        encoded[j++] = (i > input_len) ? '=' : b64_table[triple & 0x3F];
+        encoded[j++] = (i + 1 < input_len) ? b64_table[(triple >> 6) & 0x3F] : '=';
+        encoded[j++] = (i + 2 < input_len) ? b64_table[triple & 0x3F] : '=';
     }
     encoded[output_len] = '\0';
     return encoded;
@@ -653,16 +652,35 @@ static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int
             scan_dir_recursive(full_path, next_rel, first, depth + 1);
         } else if (S_ISREG(st.st_mode)) {
             if (is_junk_filename(entry->d_name)) continue;
+            size_t nlen = strlen(entry->d_name);
+            if (nlen > 8 && strcmp(entry->d_name + nlen - 8, ".url.txt") == 0) continue;
 
             format_file_size(st.st_size, size_str, sizeof(size_str));
             const char *dot = strrchr(entry->d_name, '.');
             const char *ext = dot ? dot + 1 : "";
 
+            char url_b64[8192] = "";
+            char side_path[1124];
+            snprintf(side_path, sizeof(side_path), "%s.url.txt", full_path);
+            FILE *sf = fopen(side_path, "r");
+            if (sf) {
+                char ubuf[4096] = {0};
+                size_t rn = fread(ubuf, 1, sizeof(ubuf)-1, sf);
+                fclose(sf);
+                while (rn > 0 && (ubuf[rn-1]=='\n' || ubuf[rn-1]=='\r' || ubuf[rn-1]==' ')) ubuf[--rn]='\0';
+                char *sp = ubuf;
+                while (*sp==' ' || *sp=='\n' || *sp=='\r' || *sp=='\t') sp++;
+                if (*sp) {
+                    char *enc = base64_encode((const unsigned char *)sp, strlen(sp));
+                    if (enc) { snprintf(url_b64, sizeof(url_b64), "%s", enc); free(enc); }
+                }
+            }
+
             if (!*first) printf(",\n");
             *first = 0;
 
-            printf("  {\"name\":\"%s\",\"folder\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld}",
-                   entry->d_name, rel_prefix ? rel_prefix : "", size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size);
+            printf("  {\"name\":\"%s\",\"folder\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld,\"source_url_b64\":\"%s\"}",
+                   entry->d_name, rel_prefix ? rel_prefix : "", size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size, url_b64);
         }
     }
     closedir(d);
@@ -910,6 +928,9 @@ static void cmd_delete(int count, char **paths) {
     for (int i = 0; i < count; i++) {
         const char *path = paths[i];
         if (!path || !*path) continue;
+        char side_del[1124];
+        snprintf(side_del, sizeof(side_del), "%s.url.txt", path);
+        unlink(side_del);
         if (unlink(path) == 0) {
             deleted++;
             char safe_data[1024];
@@ -1107,7 +1128,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.25";
+    char mod_version[32] = "v1.3.26";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

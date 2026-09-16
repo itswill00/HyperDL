@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.25' }}
+            {{ sysInfo.version || 'v1.3.26' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -559,11 +559,15 @@
                 </div>
                 <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px;">
                   <span v-if="item.folder" style="color: var(--primary); font-weight: 500;">{{ item.folder }} · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
+                  <span v-if="decodeSourceUrl(item)" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;display:inline-block;vertical-align:bottom;margin-left:6px;opacity:.7;">· {{ decodeSourceUrl(item) }}</span>
                 </div>
               </div>
             </div>
 
             <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
+              <button v-if="decodeSourceUrl(item)" class="btn btn-icon" @click.stop="copySourceLink(item)" title="Copy source link">
+                <Icons name="copy" :size="14" />
+              </button>
               <template v-if="isImageExt(item.ext)">
                 <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview image">
                   <Icons name="eye" :size="14" />
@@ -757,7 +761,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.25' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.26' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -2094,11 +2098,42 @@ async function deleteSelected() {
   }
 }
 
+function decodeSourceUrl(item) {
+  if (item.source_url) return item.source_url
+  if (item.source_url_b64) {
+    try { return atob(item.source_url_b64) } catch (e) { return '' }
+  }
+  return ''
+}
+
+async function copySourceLink(item) {
+  const u = decodeSourceUrl(item)
+  if (!u) return
+  try {
+    await navigator.clipboard.writeText(u)
+    showToast('Link copied', 'success')
+  } catch (e) {
+    try { await runBridge('get_clipboard') } catch (_e) {}
+    const ta = document.createElement('textarea')
+    ta.value = u
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    showToast('Link copied', 'success')
+  }
+}
+
 async function fetchHistory() {
   try {
     const raw = await runBridge('list')
     if (raw && raw.startsWith('[')) {
       const list = JSON.parse(raw)
+      for (const it of list) {
+        if (!it.source_url && it.source_url_b64) {
+          try { it.source_url = atob(it.source_url_b64) } catch (e) { it.source_url = '' }
+        }
+      }
       list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
       historyList.value = list
       const currentPaths = new Set(historyList.value.map(i => i.path))
@@ -2139,7 +2174,7 @@ const filteredHistoryList = computed(() => {
 
   const q = (searchQuery.value || '').trim().toLowerCase()
   if (q) {
-    list = list.filter(i => (i.name || '').toLowerCase().includes(q) || (i.folder || '').toLowerCase().includes(q))
+    list = list.filter(i => (i.name || '').toLowerCase().includes(q) || (i.folder || '').toLowerCase().includes(q) || (decodeSourceUrl(i) || '').toLowerCase().includes(q))
   }
   return list
 })
