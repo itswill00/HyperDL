@@ -524,6 +524,25 @@ def sanitize_filename(name):
     clean = re.sub(r'\s+', ' ', clean).strip(' ._-')
     return clean[:60] if clean else "Media"
 
+def save_source_sidecar(file_path, url=""):
+    if not file_path or not url:
+        return
+    url = (url or "").strip()
+    if not url:
+        return
+    try:
+        side = file_path + ".url.txt"
+        if os.path.exists(side):
+            return
+        with open(side, "w") as f:
+            f.write(url + "\n")
+        try:
+            os.chmod(side, 0o666)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 def scan_media_file(file_path):
     if not file_path or not os.path.exists(file_path):
         return
@@ -623,6 +642,7 @@ def solve_tiktok_challenge(html_text):
 
 def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
     if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        save_source_sidecar(out_path, CURRENT_URL or url)
         if emit_complete:
             update_status("completed", percent=100, title=title, file_path=out_path)
         return out_path
@@ -750,6 +770,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
                 pass
 
             scan_media_file(out_path)
+            save_source_sidecar(out_path, CURRENT_URL)
 
             if emit_complete:
                 update_status("completed", percent=100, title=title, file_path=out_path)
@@ -802,6 +823,7 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
             except Exception:
                 pass
             scan_media_file(out_path)
+            save_source_sidecar(out_path, CURRENT_URL if m3u8_url == CURRENT_URL else m3u8_url)
             if emit_complete:
                 update_status("completed", percent=100, title=title, file_path=out_path)
             return out_path
@@ -839,6 +861,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
                 except Exception:
                     pass
                 scan_media_file(out_path)
+                save_source_sidecar(out_path, CURRENT_URL)
                 if emit_complete:
                     update_status("completed", percent=100, title=title, file_path=out_path)
                 return out_path
@@ -2633,6 +2656,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     if downloaded_file and os.path.exists(downloaded_file):
         scan_media_file(downloaded_file)
+        save_source_sidecar(downloaded_file, url)
         update_status("completed", percent=100, title=title, file_path=downloaded_file)
         return downloaded_file
 
@@ -2959,6 +2983,7 @@ def main():
                     download_file(item_url, item_path, title=f"{base_title}_{media_id}_{idx+1}", headers=hdrs, emit_error=True, emit_complete=False)
 
                 scan_media_file(item_path)
+                save_source_sidecar(item_path, url)
             update_status("completed", percent=100, title=title, file_path=target_dir)
         else:
             if fmt == "audio":
@@ -2992,6 +3017,7 @@ def main():
                     except Exception:
                         pass
                     scan_media_file(out_path)
+                    save_source_sidecar(out_path, url)
                     update_status("completed", percent=100, title=title, file_path=out_path)
                     return
             if info.get("kind") == "image" and ext == "mp4":
