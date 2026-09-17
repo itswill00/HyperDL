@@ -25,7 +25,7 @@
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'download' }"
-          @click="activeTab = 'download'"
+          @click="switchTab('download')"
         >
           <Icons name="download" :size="14" />
           <span>Downloader</span>
@@ -33,7 +33,7 @@
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'cookies' }"
-          @click="activeTab = 'cookies'"
+          @click="switchTab('cookies')"
         >
           <Icons name="settings" :size="14" />
           <span>Cookies</span>
@@ -41,7 +41,7 @@
         <button
           class="tab-btn"
           :class="{ active: activeTab === 'console' }"
-          @click="activeTab = 'console'"
+          @click="switchTab('console')"
         >
           <Icons name="info" :size="14" />
           <span>Console</span>
@@ -50,7 +50,7 @@
           v-if="isVaultActive"
           class="tab-btn"
           :class="{ active: activeTab === 'vault' }"
-          @click="activeTab = 'vault'; fetchVaultHistory()"
+          @click="switchTab('vault')"
         >
           <Icons name="lock" :size="14" />
           <span>Vault</span>
@@ -58,7 +58,11 @@
       </div>
     </div>
 
-        <main class="content-area">
+    <main
+      class="content-area"
+      @touchstart.passive="handleTouchStart"
+      @touchend.passive="handleTouchEnd"
+    >
 
             <div v-show="activeTab === 'download'" class="tab-pane">
         
@@ -1323,6 +1327,45 @@ const historyList = ref([])
 const isVaultActive = ref(false)
 const isVaultBlurred = ref(true)
 const vaultList = ref([])
+
+const availableTabs = computed(() => {
+  return isVaultActive.value
+    ? ['download', 'cookies', 'console', 'vault']
+    : ['download', 'cookies', 'console']
+})
+
+function switchTab(tab) {
+  activeTab.value = tab
+  if (tab === 'vault') {
+    fetchVaultHistory()
+  }
+}
+
+let touchStartX = 0
+let touchStartY = 0
+
+function handleTouchStart(e) {
+  if (!e.changedTouches || e.changedTouches.length === 0) return
+  touchStartX = e.changedTouches[0].screenX
+  touchStartY = e.changedTouches[0].screenY
+}
+
+function handleTouchEnd(e) {
+  if (!e.changedTouches || e.changedTouches.length === 0) return
+  if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, .cookies-textarea, .filter-chips-row')) return
+  const dx = e.changedTouches[0].screenX - touchStartX
+  const dy = e.changedTouches[0].screenY - touchStartY
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    const tabs = availableTabs.value
+    const idx = tabs.indexOf(activeTab.value)
+    if (idx === -1) return
+    if (dx < 0 && idx < tabs.length - 1) {
+      switchTab(tabs[idx + 1])
+    } else if (dx > 0 && idx > 0) {
+      switchTab(tabs[idx - 1])
+    }
+  }
+}
 
 let versionClickCount = 0
 let versionClickTimer = null
