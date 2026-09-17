@@ -120,9 +120,13 @@
               <div class="clip-sniffer-url">{{ formatTruncatedUrl(detectedClipUrl) }}</div>
             </div>
             <div class="clip-sniffer-actions">
-              <button class="btn btn-primary clip-action-btn" @click="applyClipUrl(true)">
+              <button class="btn btn-primary clip-action-btn" @click="applyClipUrl(true)" title="Download">
                 <Icons name="download" :size="11" />
                 <span>Go</span>
+              </button>
+              <button class="btn btn-secondary clip-action-btn" @click="applyClipUrl(true, 'audio')" title="Download audio">
+                <Icons name="music" :size="11" />
+                <span>Audio</span>
               </button>
               <button class="btn btn-secondary clip-action-btn" @click="applyClipUrl(false)">
                 <span>Paste</span>
@@ -463,9 +467,18 @@
 
           <template v-else>
             <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
-            <div style="display: flex; gap: 6px; align-items: center;" v-if="historyList.length > 0">
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="toggleSelectAll">
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" v-if="historyList.length > 0" @click="toggleSelectAll">
                 Select
+              </button>
+              <button
+                class="btn btn-secondary"
+                style="padding: 4px 8px; font-size: 11px; gap: 4px;"
+                :disabled="openingFolder"
+                @click="openMediaFolder"
+                title="Open download folder"
+              >
+                <Icons name="folder" :size="12" />
               </button>
               <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px; gap: 4px;" @click="fetchHistory" title="Refresh list">
                 <Icons name="refresh" :size="12" />
@@ -2273,9 +2286,12 @@ function onVisibilityChange() {
   }
 }
 
-function applyClipUrl(autoStart = false) {
+function applyClipUrl(autoStart = false, format = null) {
   if (detectedClipUrl.value) {
     url.value = detectedClipUrl.value
+    if (format) {
+      selectedFormat.value = format
+    }
     detectedClipUrl.value = ''
     if (autoStart) {
       nextTick(() => {
