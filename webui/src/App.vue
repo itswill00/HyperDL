@@ -2825,6 +2825,12 @@ onUnmounted(() => {
   font-weight: 500;
   cursor: pointer;
   user-select: none;
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease, color 0.15s ease;
+  will-change: transform;
+}
+
+.tab-btn:active {
+  transform: scale(0.96);
 }
 
 .tab-btn.active {
@@ -2964,6 +2970,12 @@ onUnmounted(() => {
   background: var(--surface-container-high);
   color: var(--on-surface-variant);
   cursor: pointer;
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease;
+  will-change: transform;
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
 }
 
 .spin-loader {
@@ -3434,7 +3446,12 @@ onUnmounted(() => {
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), background-color 0.15s ease, border-color 0.15s ease;
+  will-change: transform;
+}
+
+.filter-chip:active {
+  transform: scale(0.95);
 }
 
 .filter-chip.active {
