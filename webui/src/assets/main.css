@@ -111,11 +111,13 @@ html, body, #app {
 
 .content-area {
   flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px calc(24px + var(--window-inset-bottom, 0px)) 16px;
-  scrollbar-width: none;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
 }
 
 .content-area::-webkit-scrollbar {
