@@ -59,12 +59,12 @@
     </div>
 
     <main
+      ref="contentArea"
       class="content-area"
-      @touchstart.passive="handleTouchStart"
-      @touchend.passive="handleTouchEnd"
+      @scroll.passive="onContentScroll"
     >
 
-            <div v-show="activeTab === 'download'" class="tab-pane">
+      <div class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -146,7 +146,7 @@
             <div style="flex: 1;">
               <span style="font-weight: 600; color: var(--on-surface);">Meta Anti-Bot:</span>
               Instagram frequently blocks anonymous access. If download fails, add your session cookies in the
-              <a href="javascript:void(0)" @click="activeTab = 'cookies'" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Cookies tab</a>.
+              <a href="javascript:void(0)" @click="switchTab('cookies')" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Cookies tab</a>.
             </div>
           </div>
 
@@ -329,7 +329,7 @@
                 v-else-if="(task.error || '').toLowerCase().includes('cookie') || (task.error || '').toLowerCase().includes('instagram')"
                 class="btn btn-secondary"
                 style="flex: 1; font-size: 11px; padding: 6px 10px; border-color: rgba(255,255,255,0.15);"
-                @click="activeTab = 'cookies'"
+                @click="switchTab('cookies')"
               >
                 Configure Cookies
               </button>
@@ -605,7 +605,7 @@
         </div>
       </div>
 
-      <div v-show="activeTab === 'cookies'" class="tab-pane">
+      <div class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -725,7 +725,7 @@
 
       </div>
 
-            <div v-show="activeTab === 'console'" class="tab-pane">
+      <div class="tab-pane">
         
                 <section class="md3-card" style="margin-top: 4px;">
           <div style="font-size: 13px; font-weight: 600; color: var(--on-surface); margin-bottom: 12px;">
@@ -852,7 +852,7 @@
 
       </div>
 
-      <div v-show="activeTab === 'vault' && isVaultActive" class="tab-pane">
+      <div v-if="isVaultActive" class="tab-pane">
         <section class="md3-card" style="margin-top: 4px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -1110,6 +1110,7 @@ import { execCommand, openMediaFile, openFolder, base64EncodeUtf8, base64DecodeU
 import Icons from '@/components/Icons.vue'
 
 const activeTab = ref('download')
+const contentArea = ref(null)
 const url = ref('')
 const urlInput = ref(null)
 const terminalCard = ref(null)
@@ -1334,36 +1335,54 @@ const availableTabs = computed(() => {
     : ['download', 'cookies', 'console']
 })
 
-function switchTab(tab) {
+let isProgrammaticScroll = false
+let scrollDebounceTimer = null
+
+function switchTab(tab, smooth = true) {
   activeTab.value = tab
   if (tab === 'vault') {
     fetchVaultHistory()
   }
+  const tabs = availableTabs.value
+  const idx = tabs.indexOf(tab)
+  if (idx !== -1 && contentArea.value) {
+    isProgrammaticScroll = true
+    contentArea.value.scrollTo({
+      left: idx * contentArea.value.clientWidth,
+      behavior: smooth ? 'smooth' : 'auto'
+    })
+    if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer)
+    scrollDebounceTimer = setTimeout(() => {
+      isProgrammaticScroll = false
+    }, 400)
+  }
 }
 
-let touchStartX = 0
-let touchStartY = 0
-
-function handleTouchStart(e) {
-  if (!e.changedTouches || e.changedTouches.length === 0) return
-  touchStartX = e.changedTouches[0].screenX
-  touchStartY = e.changedTouches[0].screenY
-}
-
-function handleTouchEnd(e) {
-  if (!e.changedTouches || e.changedTouches.length === 0) return
-  if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, .cookies-textarea, .filter-chips-row')) return
-  const dx = e.changedTouches[0].screenX - touchStartX
-  const dy = e.changedTouches[0].screenY - touchStartY
-  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-    const tabs = availableTabs.value
-    const idx = tabs.indexOf(activeTab.value)
-    if (idx === -1) return
-    if (dx < 0 && idx < tabs.length - 1) {
-      switchTab(tabs[idx + 1])
-    } else if (dx > 0 && idx > 0) {
-      switchTab(tabs[idx - 1])
+function onContentScroll() {
+  if (isProgrammaticScroll) return
+  if (!contentArea.value) return
+  const scrollLeft = contentArea.value.scrollLeft
+  const width = contentArea.value.clientWidth
+  if (width === 0) return
+  const idx = Math.round(scrollLeft / width)
+  const tabs = availableTabs.value
+  if (tabs[idx] && tabs[idx] !== activeTab.value) {
+    activeTab.value = tabs[idx]
+    if (tabs[idx] === 'vault') {
+      fetchVaultHistory()
     }
+  }
+}
+
+function handleViewportResize() {
+  if (!contentArea.value) return
+  const tabs = availableTabs.value
+  const idx = tabs.indexOf(activeTab.value)
+  if (idx !== -1) {
+    contentArea.value.scrollTo({
+      left: idx * contentArea.value.clientWidth,
+      behavior: 'auto'
+    })
   }
 }
 
@@ -2695,6 +2714,7 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    window.addEventListener('resize', handleViewportResize)
     window.addEventListener('focus', () => { checkClipboardSniffer(); checkActiveTask() })
   }
   if (typeof document !== 'undefined') {
@@ -2708,12 +2728,16 @@ onMounted(() => {
   fetchStorageStats()
   checkClipboardSniffer()
   checkVaultStatus()
+  nextTick(() => {
+    switchTab(activeTab.value, false)
+  })
 })
 
 onUnmounted(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', handleOnline)
     window.removeEventListener('offline', handleOffline)
+    window.removeEventListener('resize', handleViewportResize)
     window.removeEventListener('focus', checkClipboardSniffer)
   }
   if (typeof document !== 'undefined') {
@@ -2721,6 +2745,7 @@ onUnmounted(() => {
   }
   if (pollTimer) clearInterval(pollTimer)
   if (toastTimer) clearTimeout(toastTimer)
+  if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer)
 })
 </script>
 
@@ -3150,19 +3175,23 @@ onUnmounted(() => {
 }
 
 .tab-pane {
-  animation: tabFadeIn 0.2s cubic-bezier(0.2, 0, 0, 1);
-  will-change: opacity, transform;
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  box-sizing: border-box;
+  padding: 14px 16px calc(24px + var(--window-inset-bottom, 0px)) 16px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
 }
 
-@keyframes tabFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.tab-pane::-webkit-scrollbar {
+  display: none;
 }
 
 .dialog-title {
