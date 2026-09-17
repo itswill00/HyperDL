@@ -620,14 +620,27 @@
                 </div>
               </div>
             </div>
-            <span class="badge-pill" :class="{ active: cookiesActive }">
-              {{ cookiesActive ? 'Active' : 'Not set' }}
-            </span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="badge-pill" :class="{ active: cookiesActive }">
+                {{ cookiesActive ? 'Active' : 'Not set' }}
+              </span>
+              <button
+                v-if="cookiesText.trim()"
+                class="btn btn-secondary"
+                style="padding: 3px 8px; font-size: 11px; gap: 4px; height: 24px;"
+                @click="isCookiesBlurred = !isCookiesBlurred"
+                :title="isCookiesBlurred ? 'Show cookies' : 'Hide cookies'"
+              >
+                <Icons :name="isCookiesBlurred ? 'eye' : 'eye-off'" :size="12" />
+                <span>{{ isCookiesBlurred ? 'Show' : 'Hide' }}</span>
+              </button>
+            </div>
           </div>
 
-                    <div style="margin-top: 10px;">
+          <div style="margin-top: 10px;">
             <textarea
               class="cookies-textarea"
+              :style="isCookiesBlurred && cookiesText.trim() ? 'filter: blur(5px); user-select: none;' : ''"
               v-model="cookiesText"
               placeholder="# Paste Netscape cookies.txt or standard header string here&#10;.tiktok.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sessionid&#9;...&#10;.instagram.com&#9;TRUE&#9;/&#9;TRUE&#9;0&#9;sessionid&#9;..."
             ></textarea>
@@ -1138,6 +1151,7 @@ const pendingUrl = ref('')
 const cookiesText = ref('')
 const cookiesActive = ref(false)
 const cookiesLines = ref(0)
+const isCookiesBlurred = ref(true)
 
 const detectedClipUrl = ref('')
 const lastDismissedClipUrl = ref('')
