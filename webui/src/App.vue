@@ -137,18 +137,6 @@
             </div>
           </div>
 
-                    <div class="platform-chips-row">
-            <div
-              v-for="p in supportedPlatforms"
-              :key="p.id"
-              class="platform-chip"
-              :class="{ active: detectedPlatform.id === p.id }"
-            >
-              <Icons :name="p.id" :size="12" />
-              <span>{{ p.name }}</span>
-            </div>
-          </div>
-
           <div v-if="detectedPlatform.id === 'instagram'" class="platform-notice-box">
             <Icons name="info" :size="14" style="color: var(--secondary); margin-top: 1px;" />
             <div style="flex: 1;">
@@ -188,11 +176,7 @@
                 <span>Photos</span>
               </div>
             </div>
-            <div class="format-desc-hint">
-              <span v-if="selectedFormat === 'video'">Original video stream with best available audio</span>
-              <span v-else-if="selectedFormat === 'audio'">{{ audioFormat === 'flac' ? 'Lossless studio audio (FLAC 24-bit / 48 kHz HD)' : 'High quality audio (MP3 320 kbps universal)' }}</span>
-              <span v-else-if="selectedFormat === 'album'">Original high-res photos & carousel images</span>
-            </div>
+
           </div>
 
                     <div style="margin-top: 16px;">
@@ -368,81 +352,7 @@
           </div>
         </section>
 
-                <div class="section-title">Automation</div>
-        <div class="md3-list-group">
-          <div class="md3-list-row">
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
-              <div class="icon-badge secondary">
-                <Icons name="clipboard" :size="18" />
-              </div>
-              <div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard monitor</div>
-                <div style="font-size: 11px; color: var(--on-surface-variant);">Download supported links automatically when copied</div>
-              </div>
-            </div>
-            <label class="md3-switch">
-              <input type="checkbox" :checked="autoDl" @change="toggleAutoDl" />
-              <span class="md3-switch-track">
-                <span class="md3-switch-thumb"></span>
-              </span>
-            </label>
-          </div>
-
-          <div class="md3-list-row clickable" @click="openMediaFolder">
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
-              <div class="icon-badge secondary">
-                <Icons name="folder" :size="18" />
-              </div>
-              <div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination folder</div>
-                <div style="font-size: 11px; color: var(--on-surface-variant); font-family: inherit;">/Download/HyperDL</div>
-              </div>
-            </div>
-            <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
-          </div>
-        </div>
-
-        <div class="storage-card" v-if="storageStats.free_size || storageStats.media_count > 0">
-          <div class="storage-header">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="icon-badge secondary" style="width: 28px; height: 28px;">
-                <Icons name="hard-drive" :size="15" />
-              </div>
-              <div>
-                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface);">Storage & Cache</div>
-                <div style="font-size: 11px; color: var(--on-surface-variant);">
-                  {{ storageStats.media_count }} file{{ storageStats.media_count === 1 ? '' : 's' }} ({{ storageStats.media_size }}) · {{ storageStats.free_size }} free
-                </div>
-              </div>
-            </div>
-            <div>
-              <button
-                v-if="storageStats.junk_count > 0"
-                class="btn btn-secondary junk-clean-btn active"
-                :disabled="isCleaningJunk"
-                @click="cleanJunk"
-                title="Clean leftover temporary files"
-              >
-                <Icons name="broom" :size="12" />
-                <span>Clean {{ storageStats.junk_size }}</span>
-              </button>
-              <button
-                v-else
-                class="btn btn-secondary junk-clean-btn"
-                :disabled="isCleaningJunk"
-                @click="fetchStorageStats"
-                title="Refresh storage"
-              >
-                <Icons name="refresh" :size="12" />
-                <span>Optimal</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="storage-bar-track" v-if="storageBarPercent > 0">
-            <div class="storage-bar-fill media" :style="{ width: storageBarPercent + '%' }"></div>
-          </div>
-        </div>
+        
 
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px; min-height: 32px;">
           <template v-if="selectedFiles.size > 0">
@@ -612,6 +522,82 @@
 
         <div v-else class="md3-card" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
           <Icons name="folder" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
+        </div>
+
+        <div class="section-title" style="margin-top: 24px;">Automation & Settings</div>
+        <div class="md3-list-group">
+          <div class="md3-list-row">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="clipboard" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Clipboard monitor</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">Download supported links automatically when copied</div>
+              </div>
+            </div>
+            <label class="md3-switch">
+              <input type="checkbox" :checked="autoDl" @change="toggleAutoDl" />
+              <span class="md3-switch-track">
+                <span class="md3-switch-thumb"></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="md3-list-row clickable" @click="openMediaFolder">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="folder" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Destination folder</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant); font-family: inherit;">/Download/HyperDL</div>
+              </div>
+            </div>
+            <Icons name="chevron-right" :size="16" style="color: var(--on-surface-variant);" />
+          </div>
+        </div>
+
+        <div class="storage-card" v-if="storageStats.free_size || storageStats.media_count > 0">
+          <div class="storage-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="icon-badge secondary" style="width: 28px; height: 28px;">
+                <Icons name="hard-drive" :size="15" />
+              </div>
+              <div>
+                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface);">Storage & Cache</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">
+                  {{ storageStats.media_count }} file{{ storageStats.media_count === 1 ? '' : 's' }} ({{ storageStats.media_size }}) · {{ storageStats.free_size }} free
+                </div>
+              </div>
+            </div>
+            <div>
+              <button
+                v-if="storageStats.junk_count > 0"
+                class="btn btn-secondary junk-clean-btn active"
+                :disabled="isCleaningJunk"
+                @click="cleanJunk"
+                title="Clean leftover temporary files"
+              >
+                <Icons name="broom" :size="12" />
+                <span>Clean {{ storageStats.junk_size }}</span>
+              </button>
+              <button
+                v-else
+                class="btn btn-secondary junk-clean-btn"
+                :disabled="isCleaningJunk"
+                @click="fetchStorageStats"
+                title="Refresh storage"
+              >
+                <Icons name="refresh" :size="12" />
+                <span>Optimal</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="storage-bar-track" v-if="storageBarPercent > 0">
+            <div class="storage-bar-fill media" :style="{ width: storageBarPercent + '%' }"></div>
+          </div>
         </div>
       </div>
 
