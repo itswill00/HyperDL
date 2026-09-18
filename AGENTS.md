@@ -43,3 +43,9 @@
    - DILARANG KERAS membuat git tag rilis lokal ataupun mem-push git tag rilis ke remote `itswill00/HyperDL`.
    - DILARANG membuat GitHub Releases di `itswill00/HyperDL`.
    - Seluruh tag rilis, GitHub Releases (`gh release create`), biner flashable, dan metadata `update.json` HANYA didistribusikan melalui repo publik `itswill00/HyperDL-Release`.
+
+8. **Vault (18+) Privacy Invariant**:
+   - Routing terisolasi: `get_target_directory()` + `download_with_ytdlp_direct()` arahkan URL yang match `vault_domains.conf` ke `$OUTDIR/.vault/Stream` dengan `.nomedia` (hidden dari Gallery).
+   - Source of truth tunggal: `src/main.c:1460` `b64_domains` berisi 20 domain (12 base + 8 baru: beeg.com, spankbang.com, tube8.com, youjizz.com, 4tube.com, nuvid.com, sunporno.com, tnaflix.com) — semua backed extractor yt-dlp `bin/yt-dlp`.
+   - `cmd_toggle_vault` wajib idempotent merge: jika `vault_domains.conf` sudah ada, hanya append baris yang belum ada (preserve custom edits user), jangan overwrite penuh.
+   - DoH bypass (`src/sitecustomize.py`) dan clipboard daemon (`bin/hyperdl_daemon`) wajib baca `vault_domains.conf` yang sama untuk filter domain.
