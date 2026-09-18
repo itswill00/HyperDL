@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.26",
-  "versionCode": 13260,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.26/HyperDL-v1.3.26.zip",
+  "version": "v1.3.27",
+  "versionCode": 13270,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.27/HyperDL-v1.3.27.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "fix: show and copy source URL for downloaded media; persist link via .url.txt sidecar, display in history and enable one-tap copy"
+  "notes": "feat(vault): expand vault to 20 domains - add beeg, spankbang, tube8, youjizz, 4tube, nuvid, sunporno, tnaflix (all yt-dlp backed)"
 }

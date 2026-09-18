@@ -1128,7 +1128,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.26";
+    char mod_version[32] = "v1.3.27";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {
@@ -1454,18 +1454,47 @@ static void cmd_toggle_vault(const char *val) {
         chmod(nomedia, 0666);
 
         const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
-        if (access(conf_path, F_OK) != 0) {
-            FILE *cf = fopen(conf_path, "w");
-            if (cf) {
-                static const char b64_domains[] = "cG9ybmh1Yi5jb20KeG54eC5jb20KeHZpZGVvcy5jb20KcmVkdHViZS5jb20KeGhhbXN0ZXIuY29tCmVwb3JuZXIuY29tCnlvdXBvcm4uY29tCnZqYXYuY29tCmphcGFuaGR2LmNvbQpqYXBhbmVzZXBvcm4ueHh4Cnhoc29jaWFsLmNvbQpiZHNtc3RyZWFrLmNvbQo=";
-                size_t out_len = 0;
-                unsigned char *dec = base64_decode(b64_domains, strlen(b64_domains), &out_len);
-                if (dec) {
-                    fwrite(dec, 1, out_len, cf);
-                    free(dec);
+        {
+            static const char b64_domains[] = "cG9ybmh1Yi5jb20KeG54eC5jb20KeHZpZGVvcy5jb20KcmVkdHViZS5jb20KeGhhbXN0ZXIuY29tCmVwb3JuZXIuY29tCnlvdXBvcm4uY29tCnZqYXYuY29tCmphcGFuaGR2LmNvbQpqYXBhbmVzZXBvcm4ueHh4Cnhoc29jaWFsLmNvbQpiZHNtc3RyZWFrLmNvbQpiZWVnLmNvbQpzcGFua2JhbmcuY29tCnR1YmU4LmNvbQp5b3VqaXp6LmNvbQo0dHViZS5jb20KbnV2aWQuY29tCnN1bnBvcm5vLmNvbQp0bmFmbGl4LmNvbQo=";
+            size_t out_len = 0;
+            unsigned char *dec = base64_decode(b64_domains, strlen(b64_domains), &out_len);
+            if (dec) {
+                FILE *existing = fopen(conf_path, "r");
+                if (!existing) {
+                    FILE *cf = fopen(conf_path, "w");
+                    if (cf) { fwrite(dec, 1, out_len, cf); fclose(cf); chmod(conf_path, 0666); }
+                } else {
+                    char existing_buf[8192] = {0};
+                    size_t existing_len = fread(existing_buf, 1, sizeof(existing_buf)-1, existing);
+                    fclose(existing);
+                    char required[4096];
+                    size_t cpy = out_len < sizeof(required)-1 ? out_len : sizeof(required)-1;
+                    memcpy(required, dec, cpy); required[cpy] = '\0';
+                    char *saveptr = NULL;
+                    char *line = strtok_r(required, "\n", &saveptr);
+                    char to_append[4096] = {0};
+                    int need = 0;
+                    while (line) {
+                        while (*line==' '||*line=='\t'||*line=='\r') line++;
+                        size_t ll = strlen(line);
+                        while (ll && (line[ll-1]==' '||line[ll-1]=='\t'||line[ll-1]=='\r')) line[--ll]='\0';
+                        if (*line && !strstr(existing_buf, line)) {
+                            if (to_append[0]) strcat(to_append, "\n");
+                            strcat(to_append, line);
+                            need = 1;
+                        }
+                        line = strtok_r(NULL, "\n", &saveptr);
+                    }
+                    if (need) {
+                        FILE *af = fopen(conf_path, "a");
+                        if (af) {
+                            if (existing_len && existing_buf[existing_len-1] != '\n') fputc('\n', af);
+                            fputs(to_append, af); fputc('\n', af);
+                            fclose(af); chmod(conf_path, 0666);
+                        }
+                    }
                 }
-                fclose(cf);
-                chmod(conf_path, 0666);
+                free(dec);
             }
         }
         printf("{\"success\":true,\"vault_enabled\":true}\n");
