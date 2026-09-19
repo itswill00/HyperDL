@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.27' }}
+            {{ sysInfo.version || 'v1.3.28' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -777,7 +777,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.27' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.28' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -3062,7 +3062,7 @@ onUnmounted(() => {
   color: var(--on-surface);
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
   width: 100%;
   text-align: left;
 }
@@ -3146,20 +3146,6 @@ onUnmounted(() => {
 
 .row-selected {
   background: rgba(255, 255, 255, 0.05);
-}
-
-.pulse-dot {
-  width: 6px;
-  height: 6px;
-  background: #a8c7fa;
-  border-radius: 50%;
-  animation: pulseDot 1.5s infinite;
-}
-
-@keyframes pulseDot {
-  0% { transform: scale(0.9); opacity: 0.7; box-shadow: 0 0 0 0 rgba(168, 199, 250, 0.7); }
-  70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 5px rgba(168, 199, 250, 0); }
-  100% { transform: scale(0.9); opacity: 0.7; }
 }
 
 .dialog-backdrop {
@@ -3689,6 +3675,5 @@ onUnmounted(() => {
 
 .cookie-status-dot.active {
   background: #63db8e;
-  box-shadow: 0 0 6px rgba(99, 219, 142, 0.6);
 }
 </style>

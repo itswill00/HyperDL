@@ -1128,7 +1128,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.27";
+    char mod_version[32] = "v1.3.28";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
     if (mp) {

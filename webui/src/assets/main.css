@@ -375,7 +375,7 @@ html, body, #app {
 }
 
 .progress-fill.paused {
-  background: linear-gradient(90deg, #ffa726 0%, #ffb74d 100%);
+  background: #ffb74d;
 }
 
 .chips-row {

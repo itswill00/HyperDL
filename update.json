@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.27",
-  "versionCode": 13270,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.27/HyperDL-v1.3.27.zip",
+  "version": "v1.3.28",
+  "versionCode": 13280,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.28/HyperDL-OTA-v1.3.28.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "feat(vault): expand vault to 20 domains - add beeg, spankbang, tube8, youjizz, 4tube, nuvid, sunporno, tnaflix (all yt-dlp backed)"
+  "notes": "fix(webui): remove AI slop - flat status dots, flat paused progress, specific transitions"
 }
