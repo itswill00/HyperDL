@@ -30,9 +30,6 @@
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
     "/data/adb/modules_update/hyperdl/runtime/bin/python3",
-    "/data/data/com.termux/files/home/HyperDL/runtime/bin/python3",
-    "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
-    "/data/data/com.termux/files/usr/bin/python3",
     "/system/bin/python3",
     "/system/xbin/python3",
     "/data/adb/modules/python/bin/python3",
@@ -123,11 +120,6 @@ static void setup_python_env(const char *python_bin) {
         setenv("PYTHONPATH", pypath, 1);
         setenv("LD_LIBRARY_PATH", libdir, 1);
         setenv("SSL_CERT_FILE", cacert, 1);
-    } else if (strstr(python_bin, "com.termux")) {
-        setenv("PATH", "/data/data/com.termux/files/usr/bin:/system/bin:/system/xbin", 1);
-        setenv("LD_LIBRARY_PATH", "/data/data/com.termux/files/usr/lib", 1);
-        setenv("HOME", "/data/data/com.termux/files/home", 1);
-        setenv("PREFIX", "/data/data/com.termux/files/usr", 1);
     } else if (strstr(python_bin, "py2droid")) {
         setenv("PYTHONHOME", "/data/adb/py2droid/usr", 1);
         setenv("PATH", "/data/adb/py2droid/usr/bin:/system/bin:/system/xbin", 1);
@@ -254,10 +246,6 @@ static const char *get_bundle_path(void) {
         "/data/adb/modules/hyperdl/system/bin/hyperdl.bundle",
         "/data/adb/modules_update/hyperdl/bin/hyperdl.bundle",
         "/data/adb/modules_update/hyperdl/system/bin/hyperdl.bundle",
-        "/data/data/com.termux/files/home/HyperDL/bin/hyperdl.bundle",
-        "/data/data/com.termux/files/home/HyperDL/system/bin/hyperdl.bundle",
-        "/data/data/com.termux/files/home/HyperDL_Module/bin/hyperdl.bundle",
-        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl.bundle",
         NULL
     };
     for (int i = 0; candidates[i]; i++) {
@@ -1134,8 +1122,7 @@ static void cmd_info(void) {
 
     char mod_version[32] = "v1.3.28";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
-    if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL/module.prop", "r");
-    if (!mp) mp = fopen("/data/data/com.termux/files/home/HyperDL_Module/module.prop", "r");
+    if (!mp) mp = fopen("/data/adb/modules_update/hyperdl/module.prop", "r");
     if (mp) {
         char line[256];
         while (fgets(line, sizeof(line), mp)) {
@@ -1165,9 +1152,6 @@ static void cmd_info(void) {
     int has_cookies = (access(COOKIES_FILE, F_OK) == 0);
     int has_ffmpeg = (access("/data/adb/modules/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
                      (access("/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/data/data/com.termux/files/home/HyperDL/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/data/data/com.termux/files/usr/bin/ffmpeg", X_OK) == 0) ||
                      (access("/system/bin/ffmpeg", X_OK) == 0);
 
     printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s,\"audio_format\":\"%s\"}\n",
@@ -1325,10 +1309,6 @@ static void run_daemon_cmd(const char *action) {
             "/data/adb/modules/hyperdl/system/bin/hyperdl_daemon",
             "/data/adb/modules_update/hyperdl/bin/hyperdl_daemon",
             "/data/adb/modules_update/hyperdl/system/bin/hyperdl_daemon",
-            "/data/data/com.termux/files/home/HyperDL/bin/hyperdl_daemon",
-            "/data/data/com.termux/files/home/HyperDL/system/bin/hyperdl_daemon",
-            "/data/data/com.termux/files/home/HyperDL_Module/bin/hyperdl_daemon",
-            "/data/data/com.termux/files/home/HyperDL_Module/system/bin/hyperdl_daemon",
             "/system/bin/hyperdl_daemon",
             NULL
         };
@@ -1354,10 +1334,6 @@ static void cmd_get_clipboard(void) {
         "/data/adb/modules_update/hyperdl/system/bin/clip.jar",
         "/data/adb/hyperdl/clip.jar",
         "/system/bin/clip.jar",
-        "/data/data/com.termux/files/home/HyperDL/bin/clip.jar",
-        "/data/data/com.termux/files/home/HyperDL/system/bin/clip.jar",
-        "/data/data/com.termux/files/home/HyperDL_Module/bin/clip.jar",
-        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/clip.jar",
         NULL
     };
     for (int i = 0; jar_candidates[i]; i++) {

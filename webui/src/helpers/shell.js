@@ -68,9 +68,7 @@ const BRIDGES = [
   '/data/adb/modules/hyperdl/system/bin/libhyperdl.so',
   '/data/adb/modules_update/hyperdl/bin/libhyperdl.so',
   '/data/adb/modules_update/hyperdl/system/bin/libhyperdl.so',
-  '/system/bin/libhyperdl.so',
-  '/data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so',
-  '/data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so'
+  '/system/bin/libhyperdl.so'
 ]
 function bridgeCmd(action, arg = '') {
   const parts = BRIDGES.map(b => `[ -x ${b} ] && exec ${b} ${action}${arg ? ' ' + arg : ''}`).join(' || ')

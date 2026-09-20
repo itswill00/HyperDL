@@ -1898,10 +1898,6 @@ def get_or_download_ytdlp():
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
-        "/data/data/com.termux/files/home/HyperDL/bin/yt-dlp",
-        "/data/data/com.termux/files/home/HyperDL/system/bin/yt-dlp",
-        "/data/data/com.termux/files/home/HyperDL_Module/bin/yt-dlp",
-        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
         os.path.join(CONF_DIR, "yt-dlp"),
     ]
@@ -1974,8 +1970,6 @@ def perform_ytdlp_update():
         "/data/adb/modules_update/hyperdl/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
-        "/data/data/com.termux/files/home/HyperDL_Module/bin/yt-dlp",
-        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp"
     ]
 
     import tempfile
@@ -2018,7 +2012,6 @@ def get_module_local_prop():
     candidates = [
         "/data/adb/modules/hyperdl/module.prop",
         "/data/adb/modules_update/hyperdl/module.prop",
-        "/data/data/com.termux/files/home/HyperDL_Module/module.prop"
     ]
     props = {"version": "v1.3.19", "versionCode": "13190"}
     for p in candidates:
@@ -2083,12 +2076,12 @@ def get_python_binary():
     py_candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/python3",
         "/data/adb/modules_update/hyperdl/runtime/bin/python3",
-        "/data/data/com.termux/files/home/HyperDL/runtime/bin/python3",
-        "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
-        "/data/data/com.termux/files/usr/bin/python3",
         sys.executable,
         "/system/bin/python3",
         "/system/xbin/python3",
+        "/data/adb/modules/python/bin/python3",
+        "/data/adb/ap/bin/python3",
+        "/data/adb/ksu/bin/python3",
         "python3"
     ]
     for p in py_candidates:
@@ -2099,9 +2092,7 @@ def get_python_binary():
 def _resolve_runtime_dir():
     for d in (
         "/data/adb/modules/hyperdl/runtime",
-        "/data/adb/modules_update/hyperdl/runtime",
-        "/data/data/com.termux/files/home/HyperDL/runtime",
-        "/data/data/com.termux/files/home/HyperDL_Module/runtime"
+        "/data/adb/modules_update/hyperdl/runtime"
     ):
         if os.path.isdir(d):
             return d
@@ -2131,17 +2122,8 @@ def get_ffmpeg_binary():
     candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL/runtime/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg",
         "/data/adb/modules/hyperdl/bin/ffmpeg",
         "/data/adb/modules/hyperdl/system/bin/ffmpeg",
-        "/data/adb/modules_update/hyperdl/bin/ffmpeg",
-        "/data/adb/modules_update/hyperdl/system/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL/system/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL_Module/bin/ffmpeg",
-        "/data/data/com.termux/files/home/HyperDL_Module/system/bin/ffmpeg",
-        "/data/data/com.termux/files/usr/bin/ffmpeg",
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
@@ -2457,7 +2439,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
 
     node_bin = None
-    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+    for nc in ["/system/bin/node", "/system/xbin/node"]:
         if os.path.isfile(nc) and os.access(nc, os.X_OK):
             node_bin = nc
             break
@@ -2714,7 +2696,7 @@ def probe_resolutions(url):
     py_bin = get_python_binary()
 
     node_bin = None
-    for nc in ["/data/data/com.termux/files/usr/bin/node", "/system/bin/node", "/system/xbin/node"]:
+    for nc in ["/system/bin/node", "/system/xbin/node"]:
         if os.path.isfile(nc) and os.access(nc, os.X_OK):
             node_bin = nc
             break
