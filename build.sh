@@ -1,7 +1,7 @@
 #!/system/bin/sh
 set -e
 
-PROJECT_DIR="/data/data/com.termux/files/home/HyperDL_Module"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
 DEPLOY=false
@@ -116,8 +116,8 @@ if [ "$DEPLOY" = "true" ]; then
         [ -f bin/clip.jar ] && cp -f bin/clip.jar /data/adb/hyperdl/clip.jar
         cp -f webroot/index.html \"\$TARGET/webroot/index.html\"
 
-        if [ ! -d \"\$TARGET/runtime\" ] || [ ! -f \"\$TARGET/runtime/bin/python3\" ]; then
-            echo '   installing runtime...'
+        if [ -d runtime ]; then
+            echo '   syncing runtime...'
             cp -rf runtime \"\$TARGET/\"
         fi
 

@@ -98,7 +98,7 @@
             <button
               v-if="url"
               class="btn btn-icon"
-              style="background: transparent; border: none; width: 28px; height: 28px;"
+              style="background: transparent; border: none; width: 28px; height: 28px; flex-shrink: 0;"
               @click="url = ''"
               title="Clear"
             >
@@ -106,8 +106,8 @@
             </button>
             <button
               v-else
-              class="btn btn-secondary"
-              style="padding: 6px 12px; font-size: 11px; margin-left: 4px;"
+              class="btn btn-secondary paste-btn"
+              style="padding: 6px 10px; font-size: 11px; margin-left: 4px; flex-shrink: 0; white-space: nowrap; border-radius: 8px;"
               @click="pasteClipboard"
             >
               <Icons name="clipboard" :size="13" />
@@ -3237,7 +3237,8 @@ onUnmounted(() => {
 .clip-sniffer-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   background: var(--surface-container-high);
   border: 1px solid var(--primary);
   border-radius: 12px;
@@ -3283,7 +3284,7 @@ onUnmounted(() => {
 }
 
 .clip-sniffer-content {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
 }
 
@@ -3308,6 +3309,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .clip-action-btn {

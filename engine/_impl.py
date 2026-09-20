@@ -1898,6 +1898,8 @@ def get_or_download_ytdlp():
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/bin/yt-dlp",
         "/data/adb/modules_update/hyperdl/system/bin/yt-dlp",
+        "/data/data/com.termux/files/home/HyperDL/bin/yt-dlp",
+        "/data/data/com.termux/files/home/HyperDL/system/bin/yt-dlp",
         "/data/data/com.termux/files/home/HyperDL_Module/bin/yt-dlp",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/yt-dlp",
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
@@ -2081,7 +2083,9 @@ def get_python_binary():
     py_candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/python3",
         "/data/adb/modules_update/hyperdl/runtime/bin/python3",
+        "/data/data/com.termux/files/home/HyperDL/runtime/bin/python3",
         "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/python3",
+        "/data/data/com.termux/files/usr/bin/python3",
         sys.executable,
         "/system/bin/python3",
         "/system/xbin/python3",
@@ -2093,7 +2097,12 @@ def get_python_binary():
     return "python3"
 
 def _resolve_runtime_dir():
-    for d in ("/data/adb/modules/hyperdl/runtime", "/data/adb/modules_update/hyperdl/runtime", "/data/data/com.termux/files/home/HyperDL_Module/runtime"):
+    for d in (
+        "/data/adb/modules/hyperdl/runtime",
+        "/data/adb/modules_update/hyperdl/runtime",
+        "/data/data/com.termux/files/home/HyperDL/runtime",
+        "/data/data/com.termux/files/home/HyperDL_Module/runtime"
+    ):
         if os.path.isdir(d):
             return d
     return None
@@ -2122,13 +2131,17 @@ def get_ffmpeg_binary():
     candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL/runtime/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/runtime/bin/ffmpeg",
         "/data/adb/modules/hyperdl/bin/ffmpeg",
         "/data/adb/modules/hyperdl/system/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/system/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL/bin/ffmpeg",
+        "/data/data/com.termux/files/home/HyperDL/system/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/bin/ffmpeg",
         "/data/data/com.termux/files/home/HyperDL_Module/system/bin/ffmpeg",
+        "/data/data/com.termux/files/usr/bin/ffmpeg",
         "/system/bin/ffmpeg",
         "/system/xbin/ffmpeg",
     ]
