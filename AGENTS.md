@@ -7,6 +7,7 @@
    - Never use `backdrop-filter: blur(...)` in WebUI overlays; use solid semi-transparent colors (e.g. `rgba(0, 0, 0, 0.75)`).
    - Use optimistic UI updates for list deletions and mutations.
    - Never invoke `pauseDownload()` on `window.onoffline`. Android WebViews emit false offline events during network handovers.
+   - Flex containers with text inputs (e.g. search/URL input bars) MUST have `min-width: 0; width: 100%;` on input elements and `overflow: hidden;` on wrappers to prevent buttons (like Paste) from overflowing off-screen on compact mobile viewports.
 
 2. **Native C Bridge Performance**:
    - Never run blocking `system("am ...")` calls in `src/main.c`. Always execute system scans and background notifications asynchronously with `(...) &`.
@@ -49,3 +50,9 @@
    - Source of truth tunggal: `src/main.c:1460` `b64_domains` berisi 20 domain (12 base + 8 baru: beeg.com, spankbang.com, tube8.com, youjizz.com, 4tube.com, nuvid.com, sunporno.com, tnaflix.com) — semua backed extractor yt-dlp `bin/yt-dlp`.
    - `cmd_toggle_vault` wajib idempotent merge: jika `vault_domains.conf` sudah ada, hanya append baris yang belum ada (preserve custom edits user), jangan overwrite penuh.
    - DoH bypass (`src/sitecustomize.py`) dan clipboard daemon (`bin/hyperdl_daemon`) wajib baca `vault_domains.conf` yang sama untuk filter domain.
+
+9. **Strict Standalone Module Isolation (Zero Termux Runtime Dependency)**:
+   - The Magisk / KernelSU / APatch module MUST be 100% standalone and isolated inside `/data/adb/modules/hyperdl/` and `/system/`.
+   - Termux is strictly the local build and compilation environment; runtime code (`src/main.c`, `engine/`, `bin/hyperdl_daemon`, and `webui/src/helpers/shell.js`) must NEVER reference `/data/data/com.termux/...`.
+   - Bundled ELF binaries (`python3`, dynamic extensions `.so`, `ffmpeg.bin`, `ffprobe.bin`) must have relative RUNPATHs (`$ORIGIN/../lib`, `$ORIGIN/../..`) set via `patchelf` during packaging.
+   - Python stdlib must be packaged as stripped `.pyc` bytecode inside a single compressed archive (`python314.zip`) without GUI, tests, or unused debug modules.
