@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.28",
-  "versionCode": 13280,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.28/HyperDL-OTA-v1.3.28.zip",
+  "version": "v1.3.29",
+  "versionCode": 13290,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.29/HyperDL-v1.3.29.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "fix(webui): remove AI slop - flat status dots, flat paused progress, specific transitions"
+  "notes": "Fix mobile paste button layout, restore live YouTube stream probing, standalone isolation without Termux, and size reduction."
 }
