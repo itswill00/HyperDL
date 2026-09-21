@@ -36,7 +36,7 @@ static const char EMBEDDED_ENGINE_B64[] = {{
         f.write(header_content)
 
 def main():
-    # Compat: prefer engine/core.py (modular), fallback to engine/downloader.py
+    # Single source of truth: engine/_impl.py (also embedded as fallback payload in main.c)
     src_py = SRC_PY if os.path.exists(SRC_PY) else os.path.join(SRC_DIR, "downloader.py")
     if not os.path.exists(src_py):
         print(f"error: {src_py} not found", file=sys.stderr)

@@ -30,7 +30,8 @@ ui_print "- Preparing directories..."
 mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null || true
 chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
 mkdir -p /data/adb/hyperdl 2>/dev/null || true
-chmod 0777 /data/adb/hyperdl 2>/dev/null || true
+chmod 0700 /data/adb/hyperdl 2>/dev/null || true
+[ -f /data/adb/hyperdl/cookies.txt ] && chmod 0600 /data/adb/hyperdl/cookies.txt 2>/dev/null || true
 mkdir -p /data/local/tmp 2>/dev/null || true
 chmod 0777 /data/local/tmp 2>/dev/null || true
 

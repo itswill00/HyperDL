@@ -123,7 +123,9 @@ if [ "$DEPLOY" = "true" ]; then
 
         chmod 755 \"\$TARGET/bin/\"* \"\$TARGET/service.sh\" \"\$TARGET/uninstall.sh\"
         chmod 644 \"\$TARGET/module.prop\" \"\$TARGET/webroot/index.html\"
-        chmod 0777 /storage/emulated/0/Download/HyperDL /data/adb/hyperdl 2>/dev/null || true
+        chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+        chmod 700 /data/adb/hyperdl 2>/dev/null || true
+        [ -f /data/adb/hyperdl/cookies.txt ] && chmod 600 /data/adb/hyperdl/cookies.txt 2>/dev/null || true
         chcon -R u:object_r:system_file:s0 \"\$TARGET\" 2>/dev/null || true
 
         for mgr_bin in /data/adb/ap/bin /data/adb/ksu/bin /data/adb/modules/bin; do
