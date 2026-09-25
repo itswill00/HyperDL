@@ -49,7 +49,7 @@ export LD_LIBRARY_PATH="/system/lib64:/system/lib"
 if [ -n "$DIR" ] && [ -x "$DIR/{tool}.bin" ]; then
     exec "$DIR/{tool}.bin" "$@"
 fi
-for cand in /data/adb/modules/hyperdl/runtime/bin/{tool}.bin /data/data/com.termux/files/home/HyperDL_Module/runtime/bin/{tool}.bin; do
+for cand in /data/adb/modules/hyperdl/runtime/bin/{tool}.bin /data/adb/modules_update/hyperdl/runtime/bin/{tool}.bin; do
     if [ -x "$cand" ]; then
         exec "$cand" "$@"
     fi
@@ -148,6 +148,17 @@ exec {tool}.bin "$@"
     if os.path.exists(sitecustomize_src):
         os.makedirs(py_ver_dir, exist_ok=True)
         shutil.copy2(sitecustomize_src, os.path.join(py_ver_dir, "sitecustomize.py"))
+
+    patchelf_bin = shutil.which("patchelf")
+    if patchelf_bin:
+        print("patching ELF runpaths for 100% standalone isolation...")
+        py_bin = os.path.join(bin_dir, "python3")
+        subprocess.run([patchelf_bin, "--set-rpath", "$ORIGIN/../lib", py_bin], check=False)
+        for f in glob.glob(f"{dyn_dir}/*.so"):
+            subprocess.run([patchelf_bin, "--set-rpath", "$ORIGIN/../..", f], check=False)
+        for f in glob.glob(f"{lib_dir}/*.so*"):
+            if not os.path.islink(f):
+                subprocess.run([patchelf_bin, "--set-rpath", "$ORIGIN", f], check=False)
 
     env = {
         "PATH": f"{bin_dir}:/system/bin",

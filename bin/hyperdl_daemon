@@ -13,9 +13,7 @@ find_jar() {
         /data/adb/hyperdl/clip.jar \
         /system/bin/clip.jar \
         "$MODDIR/bin/clip.jar" \
-        "$MODDIR/system/bin/clip.jar" \
-        /data/data/com.termux/files/home/HyperDL_Module/bin/clip.jar \
-        /data/data/com.termux/files/home/HyperDL_Module/system/bin/clip.jar; do
+        "$MODDIR/system/bin/clip.jar"; do
         if [ -f "$j" ]; then
             echo "$j"
             return 0
@@ -32,9 +30,7 @@ find_bridge() {
         /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so \
         /system/bin/libhyperdl.so \
         "$MODDIR/bin/libhyperdl.so" \
-        "$MODDIR/system/bin/libhyperdl.so" \
-        /data/data/com.termux/files/home/HyperDL_Module/bin/libhyperdl.so \
-        /data/data/com.termux/files/home/HyperDL_Module/system/bin/libhyperdl.so; do
+        "$MODDIR/system/bin/libhyperdl.so"; do
         if [ -x "$b" ]; then
             echo "$b"
             return 0
