@@ -59,14 +59,16 @@ VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
 if [ "$CLEAN" = "true" ]; then
     echo "cleaning build artifacts..."
     rm -rf webui/dist webroot/index.html bin/libhyperdl.so bin/hyperdl.bundle releases
+    find engine tests scripts webui/src -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
+    find engine tests scripts webui/src -name "*.pyc" -delete 2>/dev/null || true
     exit 0
 fi
 
 # 1. Incremental Component Builds
 mkdir -p bin
 
-# Engine bundle
-if [ ! -f "bin/hyperdl.bundle" ] || [ "engine/downloader.py" -nt "bin/hyperdl.bundle" ]; then
+# Python bundle (source of truth: _impl.py)
+if [ ! -f "bin/hyperdl.bundle" ] || [ "engine/downloader.py" -nt "bin/hyperdl.bundle" ] || [ "engine/_impl.py" -nt "bin/hyperdl.bundle" ]; then
     echo "-> bundling python extractor..."
     python3 scripts/bundle_engine.py
 fi
@@ -150,6 +152,13 @@ rm -f "$OUT_DIR"/HyperDL-*.zip 2>/dev/null || true
 echo "-> packaging module (${ZIP_NAME})..."
 zip -qr9 "$OUT_DIR/$ZIP_NAME" module.prop customize.sh service.sh uninstall.sh bin runtime webroot -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
 echo "build finished: $OUT_DIR/$ZIP_NAME"
+
+# Mirror release zip to internal storage for easy sharing
+if [ -d "/sdcard" ]; then
+    mkdir -p "/sdcard/HyperDL_Releases" 2>/dev/null || true
+    cp -f "$OUT_DIR/$ZIP_NAME" "/sdcard/HyperDL_Releases/$ZIP_NAME" 2>/dev/null && \
+        echo "mirrored to /sdcard/HyperDL_Releases/$ZIP_NAME" || true
+fi
 
 # 4. Release to GitHub
 if [ "$RELEASE" = "true" ]; then

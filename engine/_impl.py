@@ -1431,7 +1431,7 @@ def resolve_facebook(url, fmt="video"):
                 "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
             }
 
-        if fmt != "audio":
+        if fmt not in ("audio", "video"):
             og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html) or \
                      re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html)
             if og_img:
@@ -1538,7 +1538,7 @@ def resolve_pinterest(url, fmt="video"):
         except Exception as e:
             print(f"Pinterest API note: {e}", file=sys.stderr)
 
-        if fmt != "audio":
+        if fmt not in ("audio", "video"):
             try:
                 req_html = urllib.request.Request(clean_url, headers={"User-Agent": USER_AGENT})
                 with urllib.request.urlopen(req_html, timeout=4) as resp:
@@ -1632,7 +1632,7 @@ def resolve_reddit(url, fmt="video"):
                             ext = "png" if ".png" in post_url.lower() else "jpg"
                             return {"url": post_url, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
 
-                        preview_imgs = post.get("preview", {}).get("images", [])
+                        preview_imgs = (post.get("preview") or {}).get("images", [])
                         if preview_imgs and fmt != "audio":
                             src_u = (preview_imgs[0].get("source") or {}).get("url")
                             if src_u:
@@ -1640,7 +1640,7 @@ def resolve_reddit(url, fmt="video"):
                                 ext = "png" if ".png" in clean_src.lower() else "jpg"
                                 return {"url": clean_src, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
 
-                        media = post.get("media") or post.get("secure_media") or post.get("preview", {}).get("reddit_video_preview")
+                        media = post.get("media") or post.get("secure_media") or (post.get("preview") or {}).get("reddit_video_preview")
                         rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
                         fallback = rv.get("fallback_url")
                         if fallback and rv.get("is_gif"):
@@ -1758,7 +1758,6 @@ def resolve_twitter(url, fmt="video"):
 
     guest_endpoints = [
         f"https://api.fxtwitter.com/status/{status_id}",
-        f"https://api.vxtwitter.com/Twitter/status/{status_id}",
         f"https://cdn.syndication.twimg.com/tweet-result?id={status_id}&token=4"
     ]
 
@@ -1768,7 +1767,7 @@ def resolve_twitter(url, fmt="video"):
             return ep, json.loads(resp.read().decode("utf-8"))
 
     results = []
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(query_guest_ep, ep): ep for ep in guest_endpoints}
         for f in as_completed(futures):
             try:
@@ -2246,7 +2245,7 @@ def resolve_threads(url, fmt="video"):
             m_auth = re.search(r'threads\.net/@([^/]+)', url)
             author = m_auth.group(1) if m_auth else None
             return {"url": vurl, "title": title, "ext": "mp4", "kind": "video", "id": post_id, "channel": author, "platform": "Threads"}
-        if fmt != "audio":
+        if fmt not in ("audio", "video"):
             images = re.findall(r'property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html)
             if not images:
                 images = re.findall(r'content=["\']([^"\']+)["\']\s+property=["\']og:image["\']', html)
