@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.33' }}
+            {{ sysInfo.version || 'v1.3.34' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -777,7 +777,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.33' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.34' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>

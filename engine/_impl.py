@@ -309,10 +309,17 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
     Post real-time download status to the Android system notification bar using /system/bin/cmd notification.
     Runs as UID 2000 (com.android.shell) so Android NotificationManager enqueues it cleanly.
     Single-line title and single-line body ensures zero literal escape sequences ('\n') on any Android OEM.
+    NOTE: `cmd notification post` has no silent/only-alert-once flag, so every post replays
+    the notification sound. To avoid sound spam, per-tick `downloading` progress posts are
+    skipped unless /data/adb/hyperdl/verbose_notifications exists. State changes
+    (resolving/completed/error/paused) still alert normally. Live progress stays in WebUI.
     """
     global _last_notif_time, _last_notif_pct
 
     if os.path.exists("/data/adb/hyperdl/disable_notifications"):
+        return
+
+    if status == "downloading" and not os.path.exists("/data/adb/hyperdl/verbose_notifications"):
         return
 
     now = time.time()
