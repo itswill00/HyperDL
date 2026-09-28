@@ -56,7 +56,7 @@ export function formatErrorMessage(err) {
     return 'Network security error: SSL certificate verification failed. Check device date and time.'
   }
   if (str.includes('HTTP Error 403') || low.includes('forbidden')) {
-    return 'Access blocked by platform (HTTP 403). Session cookies may be required.'
+    return 'Access blocked by platform (HTTP 403). Public links work without cookies — this one may need session cookies, or yours may have expired.'
   }
   if (str.includes('HTTP Error 404') || low.includes('not found')) {
     return 'Media not found (HTTP 404). The link may be broken or deleted.'

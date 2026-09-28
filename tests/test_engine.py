@@ -89,6 +89,40 @@ class TestHumanizeError(unittest.TestCase):
         out = humanize_error("HTTP Error 403: Forbidden")
         self.assertIn("403", out)
 
+    def test_403_no_cookies_points_to_optional(self):
+        out = humanize_error("HTTP Error 403: Forbidden")
+        self.assertIn("without cookies", out)
+
+    def test_403_with_cookies_points_to_expiry(self):
+        import engine._impl as impl
+        orig_url = impl.CURRENT_URL
+        orig_load = impl.load_cookies
+        try:
+            impl.CURRENT_URL = "https://www.instagram.com/reel/abc123/"
+            impl.load_cookies = lambda domain="": {"sessionid": "x"}
+            out = humanize_error("HTTP Error 403: Forbidden")
+            self.assertIn("expired", out)
+        finally:
+            impl.CURRENT_URL = orig_url
+            impl.load_cookies = orig_load
+
+    def test_private_no_cookies_points_to_optional(self):
+        out = humanize_error("Login required")
+        self.assertIn("without cookies", out)
+
+    def test_private_with_cookies_points_to_expiry(self):
+        import engine._impl as impl
+        orig_url = impl.CURRENT_URL
+        orig_load = impl.load_cookies
+        try:
+            impl.CURRENT_URL = "https://x.com/user/status/123"
+            impl.load_cookies = lambda domain="": {"auth_token": "x"}
+            out = humanize_error("Login required to view this private video")
+            self.assertIn("expired", out)
+        finally:
+            impl.CURRENT_URL = orig_url
+            impl.load_cookies = orig_load
+
     def test_passthrough_unknown(self):
         self.assertEqual(humanize_error("weird failure"), "weird failure")
 

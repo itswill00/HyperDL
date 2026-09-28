@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.41",
-  "versionCode": 13410,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.41/HyperDL-v1.3.41.zip",
+  "version": "v1.3.42",
+  "versionCode": 13420,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.42/HyperDL-v1.3.42.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Download list sort options: Newest, Oldest, Largest, Name with persisted preference."
+  "notes": "Cookies fully optional: smart auth errors distinguish missing vs expired session per platform, Cookies tab reframed as optional."
 }

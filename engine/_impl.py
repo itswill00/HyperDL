@@ -292,13 +292,17 @@ def humanize_error(e):
     if "certificate_verify_failed" in low or ("ssl" in low and "verify" in low):
         return "Network security error: SSL certificate verification failed. Check device date/time."
     if "http error 403" in low or "forbidden" in low:
-        return "Access denied by platform (HTTP 403). Session cookies may be required."
+        if has_cookies_for_current():
+            return "Access denied by platform (HTTP 403). Session cookies may have expired, try refreshing them."
+        return "Access denied by platform (HTTP 403). Public links work without cookies, but this one may need session cookies."
     if "ffmpeg" in low and ("not found" in low or "not installed" in low):
         return "FFmpeg postprocessing failed. Please verify module installation."
     if "http error 404" in low or "404 not found" in low or "404: not found" in low:
         return "Media not found (HTTP 404). Link may be expired or deleted."
     if "private video" in low or "login required" in low:
-        return "Content is private or requires authentication. Please configure cookies."
+        if has_cookies_for_current():
+            return "Content is private or the session expired. Try refreshing session cookies."
+        return "Content is private or requires login. Public links work without cookies — for this one, adding session cookies may help."
     return msg
 
 _last_notif_time = 0.0
@@ -615,6 +619,35 @@ def load_cookies(domain=""):
 def get_cookie_header(domain=""):
     c = load_cookies(domain)
     return "; ".join(f"{k}={v}" for k, v in c.items()) if c else ""
+
+def has_cookies_for_current():
+    try:
+        low_u = (CURRENT_URL or "").lower()
+        domains = []
+        if "tiktok.com" in low_u or "douyin.com" in low_u:
+            domains = ["tiktok.com"]
+        elif "instagram.com" in low_u or "instagr.am" in low_u:
+            domains = ["instagram.com"]
+        elif "facebook.com" in low_u or "fb.watch" in low_u or "fb.com" in low_u:
+            domains = ["facebook.com"]
+        elif "pinterest.com" in low_u or "pin.it" in low_u:
+            domains = ["pinterest.com"]
+        elif "reddit.com" in low_u or "redd.it" in low_u:
+            domains = ["reddit.com"]
+        elif "twitter.com" in low_u or "x.com" in low_u or "t.co" in low_u:
+            domains = ["x.com", "twitter.com"]
+        elif "youtube.com" in low_u or "youtu.be" in low_u:
+            domains = ["youtube.com", "google.com"]
+        elif "threads.net" in low_u or "threads.com" in low_u:
+            domains = ["threads.net", "threads.com"]
+        elif "bilibili.com" in low_u or "b23.tv" in low_u:
+            domains = ["bilibili.com"]
+        for d in domains:
+            if load_cookies(d):
+                return True
+        return bool(load_cookies())
+    except Exception:
+        return False
 
 def decode_base64_padded(val):
     padding = (4 - len(val) % 4) % 4
