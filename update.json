@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.38",
-  "versionCode": 13380,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.38/HyperDL-v1.3.38.zip",
+  "version": "v1.3.39",
+  "versionCode": 13390,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.39/HyperDL-v1.3.39.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Uniform 3 action buttons per download row, drop redundant gallery button (preview modal already has Open and Delete)."
+  "notes": "Clean download titles: strip trailing media ID and album index from filenames, extension stays in meta row."
 }

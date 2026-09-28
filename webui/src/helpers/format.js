@@ -123,6 +123,24 @@ export function formatTruncatedUrl(u) {
   }
 }
 
+export function cleanDisplayName(name) {
+  if (!name) return ''
+  let base = String(name)
+  const dot = base.lastIndexOf('.')
+  if (dot > 0) base = base.slice(0, dot)
+  let m = /^(.*)_([A-Za-z0-9]{6,})_(\d+)$/.exec(base)
+  if (m) {
+    const cleaned = m[1].trim()
+    return cleaned || base
+  }
+  m = /^(.*)_([A-Za-z0-9]{6,})$/.exec(base)
+  if (m && (/^\d+$/.test(m[2]) || m[2].length >= 8)) {
+    const cleaned = m[1].trim()
+    return cleaned || base
+  }
+  return base
+}
+
 export function isVideoExt(ext) {
   const e = (ext || '').toLowerCase()
   return ['mp4', 'mkv', 'webm', 'mov', 'avi', 'flv'].includes(e)

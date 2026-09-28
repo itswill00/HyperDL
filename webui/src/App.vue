@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.38' }}
+            {{ sysInfo.version || 'v1.3.39' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -482,7 +482,7 @@
               </div>
               <div style="min-width: 0; flex: 1;">
                 <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
-                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">{{ item.name }}</span>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">{{ cleanDisplayName(item.name) }}</span>
                   <span v-if="albumMap.get(item.path)" style="flex-shrink: 0; font-size: 9px; font-weight: 700; color: var(--on-surface-variant); border: 1px solid var(--outline-variant); border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;">{{ albumMap.get(item.path) }}</span>
                 </div>
                 <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -771,7 +771,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.38' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.39' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -1040,7 +1040,7 @@
       <div class="preview-card">
         <div class="preview-top-bar">
           <div class="preview-title-box">
-            <div class="preview-filename">{{ previewModal.item?.name }}</div>
+            <div class="preview-filename">{{ cleanDisplayName(previewModal.item?.name) }}</div>
             <div class="preview-meta">
               {{ previewModal.item?.size }} · {{ (previewModal.item?.ext || '').toLowerCase() }}
               <span v-if="previewImagesList.length > 1 && previewModal.isImage">
@@ -1121,6 +1121,7 @@ import {
   formatSpeedInfo,
   formatFileSize,
   formatTruncatedUrl,
+  cleanDisplayName,
   isVideoExt,
   isImageExt,
   isAudioExt,
