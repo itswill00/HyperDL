@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.40' }}
+            {{ sysInfo.version || 'v1.3.41' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -453,6 +453,37 @@
               <span>Audio ({{ audioCount }})</span>
             </button>
           </div>
+
+          <div class="filter-chips-row" style="margin-top: 6px;">
+            <button
+              class="filter-chip"
+              :class="{ active: sortOrder === 'newest' }"
+              @click="setSortOrder('newest')"
+            >
+              <span>Newest</span>
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: sortOrder === 'oldest' }"
+              @click="setSortOrder('oldest')"
+            >
+              <span>Oldest</span>
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: sortOrder === 'largest' }"
+              @click="setSortOrder('largest')"
+            >
+              <span>Largest</span>
+            </button>
+            <button
+              class="filter-chip"
+              :class="{ active: sortOrder === 'name' }"
+              @click="setSortOrder('name')"
+            >
+              <span>Name</span>
+            </button>
+          </div>
         </div>
 
         <div class="md3-list-group" v-if="filteredHistoryList.length > 0">
@@ -771,7 +802,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.40' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.41' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -2123,8 +2154,30 @@ const filteredHistoryList = computed(() => {
   if (q) {
     list = list.filter(i => (i.name || '').toLowerCase().includes(q) || (i.folder || '').toLowerCase().includes(q) || (decodeSourceUrl(i) || '').toLowerCase().includes(q))
   }
+
+  if (sortOrder.value === 'oldest') {
+    return [...list].sort((a, b) => (a.mtime || 0) - (b.mtime || 0))
+  }
+  if (sortOrder.value === 'largest') {
+    return [...list].sort((a, b) => (b.bytes || 0) - (a.bytes || 0))
+  }
+  if (sortOrder.value === 'name') {
+    return [...list].sort((a, b) => String(cleanDisplayName(a.name)).localeCompare(String(cleanDisplayName(b.name))))
+  }
   return list
 })
+
+const sortOrder = ref('newest')
+try {
+  const savedSort = localStorage.getItem('hyperdl_sort')
+  if (savedSort === 'oldest' || savedSort === 'largest' || savedSort === 'name' || savedSort === 'newest') {
+    sortOrder.value = savedSort
+  }
+} catch (e) {}
+function setSortOrder(v) {
+  sortOrder.value = v
+  try { localStorage.setItem('hyperdl_sort', v) } catch (e) {}
+}
 
 function clearSearchAndFilter() {
   searchQuery.value = ''

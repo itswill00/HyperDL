@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.40",
-  "versionCode": 13400,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.40/HyperDL-v1.3.40.zip",
+  "version": "v1.3.41",
+  "versionCode": 13410,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.41/HyperDL-v1.3.41.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Smooth carousel preview: preload neighbor images, keep current image visible while next loads, swipe left/right navigation."
+  "notes": "Download list sort options: Newest, Oldest, Largest, Name with persisted preference."
 }
