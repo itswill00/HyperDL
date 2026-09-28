@@ -172,7 +172,7 @@ def get_target_directory(base_outdir, info, url=""):
             platform = "Pinterest"
         elif "reddit.com" in low or "redd.it" in low:
             platform = "Reddit"
-        elif "threads.net" in low:
+        elif "threads.net" in low or "threads.com" in low:
             platform = "Threads"
         elif "bilibili.com" in low or "b23.tv" in low:
             platform = "Bilibili"
@@ -1614,14 +1614,18 @@ def resolve_reddit(url, fmt="video"):
                 try:
                     data = f.result()
                     if isinstance(data, list) and data:
-                        post = data[0].get("data", {}).get("children", [{}])[0].get("data", {})
+                        post_root = ((data[0] or {}).get("data") or {})
+                        children = post_root.get("children") or [{}]
+                        post = ((children[0] or {}).get("data")) or {}
                         title = post.get("title") or "Reddit Media"
 
-                        gallery = post.get("media_metadata", {})
+                        gallery = (post.get("media_metadata") or {})
                         if isinstance(gallery, dict) and gallery:
                             images = []
                             for k, meta in gallery.items():
-                                src = meta.get("s", {}).get("u") or meta.get("s", {}).get("mp4")
+                                meta = (meta or {})
+                                s_obj = (meta.get("s") or {})
+                                src = s_obj.get("u") or s_obj.get("mp4")
                                 if src:
                                     images.append(pyhtml.unescape(src).replace("&amp;", "&"))
                             if images:
@@ -1632,24 +1636,26 @@ def resolve_reddit(url, fmt="video"):
                             ext = "png" if ".png" in post_url.lower() else "jpg"
                             return {"url": post_url, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
 
-                        preview_imgs = (post.get("preview") or {}).get("images", [])
-                        if preview_imgs and fmt != "audio":
-                            src_u = (preview_imgs[0].get("source") or {}).get("url")
-                            if src_u:
-                                clean_src = pyhtml.unescape(src_u).replace("&amp;", "&")
-                                ext = "png" if ".png" in clean_src.lower() else "jpg"
-                                return {"url": clean_src, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
-
-                        media = post.get("media") or post.get("secure_media") or (post.get("preview") or {}).get("reddit_video_preview")
-                        rv = (media.get("reddit_video") if isinstance(media, dict) and media.get("reddit_video") else media) or {}
+                        media = post.get("media") or post.get("secure_media") or ((post.get("preview") or {}).get("reddit_video_preview"))
+                        media = (media or {})
+                        rv = (media.get("reddit_video") if isinstance(media.get("reddit_video"), dict) else media) or {}
                         fallback = rv.get("fallback_url")
-                        if fallback and rv.get("is_gif"):
+                        if fallback:
                             return {
                                 "url": fallback,
                                 "title": title,
                                 "ext": "mp4",
                                 "kind": "video"
                             }
+
+                        if fmt in ("photo", "image", "album"):
+                            preview_imgs = ((post.get("preview") or {}).get("images")) or []
+                            if preview_imgs:
+                                src_u = (((preview_imgs[0] or {}).get("source")) or {}).get("url")
+                                if src_u:
+                                    clean_src = pyhtml.unescape(src_u).replace("&amp;", "&")
+                                    ext = "png" if ".png" in clean_src.lower() else "jpg"
+                                    return {"url": clean_src, "title": title, "ext": ext, "kind": "image", "platform": "Reddit"}
                 except Exception:
                     continue
     except Exception as e:
@@ -1779,43 +1785,47 @@ def resolve_twitter(url, fmt="video"):
 
     has_video_indicator = False
     for ep, data in results:
-        title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
-        g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
+        data = (data or {})
+        tweet_fallback = (data.get("tweet") or {})
+        title = data.get("text") or tweet_fallback.get("text") or f"Tweet_{status_id}"
+        g_auth = ((data.get("author") or {}).get("screen_name")) or data.get("user_screen_name") or author
         fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
 
         v_url = None
-        if "vxtwitter" in ep:
-            v_url = data.get("video_url")
+        if "fxtwitter" in ep or "vxtwitter" in ep:
+            v_url = data.get("video_url") or None
             for m in (data.get("media_extended") or []):
-                if str(m.get("type", "")).lower() in ("video", "animated_gif", "gif"):
+                if str((m or {}).get("type", "")).lower() in ("video", "animated_gif", "gif"):
                     has_video_indicator = True
-                    if m.get("url") and not v_url:
-                        v_url = m.get("url")
+                    if (m or {}).get("url") and not v_url:
+                        v_url = (m or {}).get("url")
             if data.get("video_url"):
                 has_video_indicator = True
-        elif "fxtwitter" in ep:
-            vids = data.get("tweet", {}).get("media", {}).get("videos") or []
+            tweet_obj = (data.get("tweet") or {})
+            media_obj = (tweet_obj.get("media") or {})
+            vids = media_obj.get("videos") or []
             if vids:
                 has_video_indicator = True
-                if vids[0].get("url"):
-                    v_url = vids[0].get("url")
+                if (vids[0] or {}).get("url") and not v_url:
+                    v_url = (vids[0] or {}).get("url")
         elif "syndication" in ep:
             for md in (data.get("mediaDetails") or []):
+                md = (md or {})
                 if str(md.get("type", "")).lower() in ("video", "animated_gif"):
                     has_video_indicator = True
-                    variants = md.get("video_info", {}).get("variants") or []
-                    mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+                    variants = ((md.get("video_info") or {}).get("variants")) or []
+                    mp4s = [v for v in variants if (v or {}).get("content_type") == "video/mp4" and (v or {}).get("url")]
                     if mp4s and not v_url:
-                        mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
-                        v_url = mp4s[0]["url"]
-            if (data.get("video") or {}).get("variants"):
+                        mp4s.sort(key=lambda x: int((x or {}).get("bitrate") or 0), reverse=True)
+                        v_url = (mp4s[0] or {}).get("url")
+            if ((data.get("video") or {}).get("variants")):
                 has_video_indicator = True
                 if not v_url:
-                    variants = data["video"]["variants"]
-                    mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
+                    variants = ((data.get("video") or {}).get("variants")) or []
+                    mp4s = [v for v in variants if (v or {}).get("content_type") == "video/mp4" and (v or {}).get("url")]
                     if mp4s:
-                        mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
-                        v_url = mp4s[0]["url"]
+                        mp4s.sort(key=lambda x: int((x or {}).get("bitrate") or 0), reverse=True)
+                        v_url = (mp4s[0] or {}).get("url")
 
         if not v_url and data.get("video_url"):
             has_video_indicator = True
@@ -1838,21 +1848,25 @@ def resolve_twitter(url, fmt="video"):
 
     if fmt != "audio":
         for ep, data in results:
-            title = data.get("text") or data.get("tweet", {}).get("text") or f"Tweet_{status_id}"
-            g_auth = (data.get("author") or {}).get("screen_name") or data.get("user_screen_name") or author
+            data = (data or {})
+            tweet_fallback_p = (data.get("tweet") or {})
+            title = data.get("text") or tweet_fallback_p.get("text") or f"Tweet_{status_id}"
+            g_auth = ((data.get("author") or {}).get("screen_name")) or data.get("user_screen_name") or author
             fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
 
             photos = []
-            if "fxtwitter" in ep:
-                photos = [p.get("url") for p in data.get("tweet", {}).get("media", {}).get("photos", []) if p.get("url")]
-            elif "vxtwitter" in ep:
-                m_ext = data.get("media_extended") or []
-                if m_ext:
-                    photos = [m.get("url") for m in m_ext if str(m.get("type", "")).lower() == "image" and m.get("url")]
-                elif data.get("mediaURLs"):
-                    photos = [u for u in data["mediaURLs"] if u]
+            if "fxtwitter" in ep or "vxtwitter" in ep:
+                tweet_obj_p = (data.get("tweet") or {})
+                media_obj_p = (tweet_obj_p.get("media") or {})
+                photos = [p.get("url") for p in (media_obj_p.get("photos") or []) if (p or {}).get("url")]
+                if not photos:
+                    m_ext = data.get("media_extended") or []
+                    if m_ext:
+                        photos = [m.get("url") for m in m_ext if str((m or {}).get("type", "")).lower() == "image" and (m or {}).get("url")]
+                    elif data.get("mediaURLs"):
+                        photos = [u for u in (data.get("mediaURLs") or []) if u]
             elif "syndication" in ep:
-                photos = [p.get("url") for p in (data.get("photos") or []) if p.get("url")]
+                photos = [(p or {}).get("url") for p in (data.get("photos") or []) if (p or {}).get("url")]
 
             if photos:
                 fb_album = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": "album", "is_yt": False, "title": title, "channel": g_auth, "id": status_id, "platform": "Twitter"}
@@ -2041,7 +2055,6 @@ def check_module_update():
         "latest_version": cur_ver,
         "latest_code": cur_code,
         "has_update": False,
-        "ota_url": "",
         "zip_url": "",
         "changelog": "",
         "notes": ""
@@ -2058,7 +2071,6 @@ def check_module_update():
                 latest_code = cur_code
             res["latest_version"] = latest_ver
             res["latest_code"] = latest_code
-            res["ota_url"] = data.get("otaUrl", "")
             res["zip_url"] = data.get("zipUrl", "")
             res["changelog"] = data.get("changelog", "")
             res["notes"] = data.get("notes", "")
@@ -2188,19 +2200,22 @@ def resolve_bluesky(url, fmt="video"):
         images = embed.get("images") or []
         if images and fmt != "audio":
             if len(images) == 1:
-                img_url = images[0].get("fullsize") or images[0].get("thumb")
-                return {
-                    "url": img_url,
-                    "title": title,
-                    "id": rkey,
-                    "ext": "jpg",
-                    "kind": "image",
-                    "platform": "Bluesky",
-                    "author": author,
-                    "channel": author
-                }
+                img0 = (images[0] or {})
+                img_url = img0.get("fullsize") or img0.get("thumb")
+                if img_url:
+                    return {
+                        "url": img_url,
+                        "title": title,
+                        "id": rkey,
+                        "ext": "jpg",
+                        "kind": "image",
+                        "platform": "Bluesky",
+                        "author": author,
+                        "channel": author
+                    }
             items = []
             for img in images:
+                img = (img or {})
                 i_url = img.get("fullsize") or img.get("thumb")
                 if i_url:
                     items.append({"url": i_url, "ext": "jpg", "kind": "image"})
@@ -2222,7 +2237,7 @@ def resolve_bluesky(url, fmt="video"):
 
 def resolve_threads(url, fmt="video"):
     update_status("resolving", title="Resolving Threads media...")
-    m = re.search(r'threads\.net/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
+    m = re.search(r'threads\.(?:net|com)/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
     post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
     try:
         hdrs = {
@@ -2230,7 +2245,7 @@ def resolve_threads(url, fmt="video"):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9"
         }
-        cookie_hdr = get_cookie_header("threads.net")
+        cookie_hdr = get_cookie_header("threads.net") or get_cookie_header("threads.com")
         if cookie_hdr:
             hdrs["Cookie"] = cookie_hdr
         req = urllib.request.Request(url, headers=hdrs)
@@ -2242,7 +2257,7 @@ def resolve_threads(url, fmt="video"):
             vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
             og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
             title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
-            m_auth = re.search(r'threads\.net/@([^/]+)', url)
+            m_auth = re.search(r'threads\.(?:net|com)/@([^/]+)', url)
             author = m_auth.group(1) if m_auth else None
             return {"url": vurl, "title": title, "ext": "mp4", "kind": "video", "id": post_id, "channel": author, "platform": "Threads"}
         if fmt not in ("audio", "video"):
@@ -2253,7 +2268,7 @@ def resolve_threads(url, fmt="video"):
                 images = [pyhtml.unescape(u).replace("&amp;", "&") for u in images]
                 og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
                 title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
-                m_auth = re.search(r'threads\.net/@([^/]+)', url)
+                m_auth = re.search(r'threads\.(?:net|com)/@([^/]+)', url)
                 author = m_auth.group(1) if m_auth else None
                 if len(images) == 1:
                     return {"url": images[0], "title": title, "ext": "jpg", "kind": "image", "id": post_id, "channel": author, "platform": "Threads"}
@@ -2308,7 +2323,13 @@ def resolve_bilibili(url, fmt="video"):
 
     bvid = m_bv.group(1) if m_bv else None
     aid = m_av.group(1) if m_av else None
-    hdrs = {"User-Agent": USER_AGENT, "Referer": "https://www.bilibili.com/"}
+    title = f"Bilibili_{bvid or aid}"
+    hdrs = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://www.bilibili.com/",
+        "Origin": "https://www.bilibili.com",
+        "Accept": "application/json, text/plain, */*",
+    }
     cookie_hdr = get_cookie_header("bilibili.com")
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
@@ -2316,7 +2337,7 @@ def resolve_bilibili(url, fmt="video"):
     try:
         params = f"bvid={bvid}" if bvid else f"aid={aid}"
         req = urllib.request.Request(f"https://api.bilibili.com/x/web-interface/view?{params}", headers=hdrs)
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=4) as resp:
             d = json.loads(resp.read().decode("utf-8"))
         info = (d.get("data") or {})
         title = info.get("title") or (f"Bilibili_{bvid or aid}")
@@ -2332,12 +2353,13 @@ def resolve_bilibili(url, fmt="video"):
             else:
                 play_params = f"avid={vid_aid}&cid={cid}&{q_param}"
             req2 = urllib.request.Request(f"https://api.bilibili.com/x/player/playurl?{play_params}", headers=hdrs)
-            with urllib.request.urlopen(req2, timeout=5) as resp2:
+            with urllib.request.urlopen(req2, timeout=4) as resp2:
                 pd = json.loads(resp2.read().decode("utf-8"))
             durl = ((pd.get("data") or {}).get("durl") or [])
             if durl:
-                best = max(durl, key=lambda x: x.get("size", 0))
-                media_url = best.get("url") or best.get("backup_url", [None])[0]
+                best = max(durl, key=lambda x: (x or {}).get("size", 0))
+                best = (best or {})
+                media_url = best.get("url") or ((best.get("backup_url") or [None])[0])
                 if media_url:
                     return {
                         "url": media_url,
@@ -2352,7 +2374,7 @@ def resolve_bilibili(url, fmt="video"):
     except Exception as e:
         print(f"Bilibili API note: {e}", file=sys.stderr)
 
-    return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title if 'title' in dir() else "Bilibili Video", "platform": "Bilibili"}
+    return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "Bilibili"}
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     return {
@@ -2921,7 +2943,7 @@ def main():
             info = resolve_reddit(url, fmt)
         elif "youtube.com" in low_url or "youtu.be" in low_url:
             info = resolve_youtube(url, fmt)
-        elif "threads.net" in low_url:
+        elif "threads.net" in low_url or "threads.com" in low_url:
             info = resolve_threads(url, fmt)
         elif "streamable.com" in low_url:
             info = resolve_streamable(url, fmt)

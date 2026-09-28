@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.31",
-  "versionCode": 13310,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.31/HyperDL-v1.3.31.zip",
+  "version": "v1.3.33",
+  "versionCode": 13330,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.33/HyperDL-v1.3.33.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Scraper hardening: drop dead X mirror, video requests never fall back to cover images (FB/Pinterest/Threads), harden Reddit null JSON, yt-dlp 2026.08.19 verified."
+  "notes": "Remove OTA function entirely, full-zip only releases."
 }

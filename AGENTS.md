@@ -30,7 +30,7 @@
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.
    - Release zips are stored strictly in `/sdcard/HyperDL_Releases/`.
-   - **OTA-Only Default**: Perbaikan scraper (`engine/downloader.py`), WebUI (`webui/`), atau bridge (`src/main.c`) WAJIB dirilis sebagai **OTA-Only** (`HyperDL-OTA-vX.Y.Z.zip`), jangan rilis Standalone (~44 MB) kecuali runtime Python/FFmpeg (`runtime/`) beneran berubah atau user minta standalone secara eksplisit.
+   - **Full-Zip Only**: Semua perbaikan (scraper `engine/`, WebUI `webui/`, bridge `src/main.c`) SELALU dirilis sebagai **Full Zip** (`HyperDL-vX.Y.Z.zip`). Fungsi OTA sudah dibuang sepenuhnya, jangan buat `HyperDL-OTA-*.zip` dalam kondisi apapun.
 
 6. **Strict Release Gate (Mandatory User Confirmation)**:
    - DILARANG KERAS membuat tag rilis GitHub (`gh release create`), push tag rilis, atau update release feed metadata publik sebelum:
