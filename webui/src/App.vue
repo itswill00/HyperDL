@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.37' }}
+            {{ sysInfo.version || 'v1.3.38' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -493,22 +493,15 @@
             </div>
 
             <div v-if="selectedFiles.size === 0" style="display: flex; align-items: center; gap: 6px;">
-              <button v-if="decodeSourceUrl(item)" class="btn btn-icon" @click.stop="copySourceLink(item)" title="Copy source link">
+              <button class="btn btn-icon" :disabled="!decodeSourceUrl(item)" @click.stop="copySourceLink(item)" title="Copy source link">
                 <Icons name="copy" :size="14" />
               </button>
-              <template v-if="isImageExt(item.ext)">
-                <button class="btn btn-icon" @click.stop="openPreview(item)" title="Preview image">
-                  <Icons name="eye" :size="14" />
-                </button>
-                <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" title="Open in gallery">
-                  <Icons name="external-link" :size="14" />
-                </button>
-              </template>
-              <template v-else>
-                <button class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" :title="isVideoExt(item.ext) ? 'Play video' : (isAudioExt(item.ext) ? 'Play audio' : 'Open file')">
-                  <Icons :name="isVideoExt(item.ext) || isAudioExt(item.ext) ? 'play' : 'external-link'" :size="14" />
-                </button>
-              </template>
+              <button v-if="isImageExt(item.ext)" class="btn btn-icon" @click.stop="openPreview(item)" title="Preview image">
+                <Icons name="eye" :size="14" />
+              </button>
+              <button v-else class="btn btn-icon" :disabled="openingPath === item.path" @click.stop="openMedia(item.path)" :title="isVideoExt(item.ext) ? 'Play video' : (isAudioExt(item.ext) ? 'Play audio' : 'Open file')">
+                <Icons :name="isVideoExt(item.ext) || isAudioExt(item.ext) ? 'play' : 'external-link'" :size="14" />
+              </button>
               <button class="btn btn-icon" style="color: var(--error);" @click.stop="deleteItem(item)" title="Delete">
                 <Icons name="trash" :size="14" />
               </button>
@@ -778,7 +771,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.37' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.38' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>

@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.37",
-  "versionCode": 13370,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.37/HyperDL-v1.3.37.zip",
+  "version": "v1.3.38",
+  "versionCode": 13380,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.38/HyperDL-v1.3.38.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Album badge n/m on carousel items sharing folder and base name, siblings sorted by index."
+  "notes": "Uniform 3 action buttons per download row, drop redundant gallery button (preview modal already has Open and Delete)."
 }
