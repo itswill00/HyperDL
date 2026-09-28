@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.39",
-  "versionCode": 13390,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.39/HyperDL-v1.3.39.zip",
+  "version": "v1.3.40",
+  "versionCode": 13400,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.40/HyperDL-v1.3.40.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Clean download titles: strip trailing media ID and album index from filenames, extension stays in meta row."
+  "notes": "Smooth carousel preview: preload neighbor images, keep current image visible while next loads, swipe left/right navigation."
 }

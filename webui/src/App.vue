@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.39' }}
+            {{ sysInfo.version || 'v1.3.40' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -771,7 +771,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.39' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.40' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -1053,19 +1053,20 @@
           </button>
         </div>
 
-        <div class="preview-body">
-          <div v-if="previewLoading" class="preview-center-box">
+        <div class="preview-body" @touchstart="onPreviewTouchStart" @touchend="onPreviewTouchEnd">
+          <div v-if="previewLoading && !previewData" class="preview-center-box">
             <div class="spinner"></div>
             <div style="font-size: 12px; color: var(--on-surface-variant); margin-top: 10px;">Loading preview...</div>
           </div>
 
           <div v-else-if="previewModal.isImage && previewData" class="preview-image-container">
             <img :src="previewData" class="preview-image" :alt="previewModal.item?.name" />
+            <div v-if="previewNavLoading" style="position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 10px; color: var(--on-surface-variant); background: rgba(0,0,0,0.6); border-radius: 999px;">Loading...</div>
             
             <button
               v-if="previewImagesList.length > 1"
               class="preview-nav-btn prev"
-              :disabled="currentImageIndex <= 0"
+              :disabled="currentImageIndex <= 0 || previewNavLoading"
               @click="navigatePreview(-1)"
               title="Previous"
             >
@@ -1074,7 +1075,7 @@
             <button
               v-if="previewImagesList.length > 1"
               class="preview-nav-btn next"
-              :disabled="currentImageIndex >= previewImagesList.length - 1"
+              :disabled="currentImageIndex >= previewImagesList.length - 1 || previewNavLoading"
               @click="navigatePreview(1)"
               title="Next"
             >
@@ -1195,6 +1196,8 @@ const previewModal = ref({
 const previewData = ref('')
 const previewLoading = ref(false)
 const previewError = ref('')
+const previewNavLoading = ref(false)
+const previewCache = ref(new Map())
 
 const sysInfo = ref({ python: '', storage_free: '' })
 const ytdlpInfo = ref({ current: '', latest: '', has_update: false })
@@ -2234,7 +2237,47 @@ const currentImageIndex = computed(() => {
   return previewImagesList.value.findIndex(i => i.path === previewModal.value.item.path)
 })
 
-async function openPreview(item) {
+async function fetchPreviewPayload(item) {
+  const raw = await runBridge('preview', item.path)
+  if (raw && raw.startsWith('{')) {
+    const res = JSON.parse(raw)
+    if (res.success && res.data) return { ok: true, data: res.data }
+    if (res.error === 'too_large') return { ok: false, error: `File size is ${res.size || item.size}. Tap 'Open in app' to view.` }
+    return { ok: false, error: 'Preview not available for this image.' }
+  }
+  return { ok: false, error: 'Could not generate preview.' }
+}
+
+function prunePreviewCache() {
+  const list = previewImagesList.value
+  const idx = currentImageIndex.value
+  const keep = new Set()
+  for (const ni of [idx - 1, idx, idx + 1]) {
+    if (ni >= 0 && ni < list.length) keep.add(list[ni].path)
+  }
+  for (const key of [...previewCache.value.keys()]) {
+    if (!keep.has(key)) previewCache.value.delete(key)
+  }
+}
+
+function preloadPreviewNeighbors() {
+  const list = previewImagesList.value
+  const idx = currentImageIndex.value
+  if (idx === -1) return
+  for (const ni of [idx - 1, idx + 1]) {
+    if (ni < 0 || ni >= list.length) continue
+    const it = list[ni]
+    if (previewCache.value.has(it.path)) continue
+    runBridge('preview', it.path).then(raw => {
+      try {
+        const res = JSON.parse(raw)
+        if (res && res.success && res.data) previewCache.value.set(it.path, res.data)
+      } catch (e) {}
+    }).catch(() => {})
+  }
+}
+
+async function openPreview(item, opts = {}) {
   if (!item || !item.path) return
   const ext = (item.ext || '').toLowerCase()
   if (!isImageExt(ext)) {
@@ -2242,33 +2285,49 @@ async function openPreview(item) {
     return
   }
 
+  const keepCurrent = !!opts.keepCurrent && previewModal.value.show
   previewModal.value = {
     show: true,
     item,
     isImage: true
   }
-  previewData.value = ''
   previewError.value = ''
+  previewNavLoading.value = false
+
+  const cached = previewCache.value.get(item.path)
+  if (cached) {
+    previewData.value = cached
+    previewLoading.value = false
+    preloadPreviewNeighbors()
+    return
+  }
+
+  if (!keepCurrent) {
+    previewData.value = ''
+  }
   previewLoading.value = true
 
   try {
-    const raw = await runBridge('preview', item.path)
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      if (res.success && res.data) {
-        previewData.value = res.data
-      } else if (res.error === 'too_large') {
-        previewError.value = `File size is ${res.size || item.size}. Tap 'Open in app' to view.`
-      } else {
-        previewError.value = 'Preview not available for this image.'
-      }
+    const res = await fetchPreviewPayload(item)
+    if (previewModal.value.item?.path !== item.path) return
+    if (res.ok) {
+      previewData.value = res.data
+      previewCache.value.set(item.path, res.data)
+      prunePreviewCache()
+      preloadPreviewNeighbors()
     } else {
-      previewError.value = 'Could not generate preview.'
+      if (!keepCurrent) previewData.value = ''
+      previewError.value = res.error
     }
   } catch (e) {
+    if (previewModal.value.item?.path !== item.path) return
+    if (!keepCurrent) previewData.value = ''
     previewError.value = 'Failed to load preview.'
   } finally {
-    previewLoading.value = false
+    if (previewModal.value.item?.path === item.path) {
+      previewLoading.value = false
+      previewNavLoading.value = false
+    }
   }
 }
 
@@ -2277,16 +2336,34 @@ function closePreview() {
   previewModal.value.item = null
   previewData.value = ''
   previewError.value = ''
+  previewNavLoading.value = false
+  previewCache.value.clear()
 }
 
 function navigatePreview(direction) {
+  if (previewNavLoading.value) return
   const list = previewImagesList.value
   const curIdx = currentImageIndex.value
   if (curIdx === -1 || list.length <= 1) return
   const nextIdx = curIdx + direction
   if (nextIdx >= 0 && nextIdx < list.length) {
-    openPreview(list[nextIdx])
+    previewNavLoading.value = true
+    openPreview(list[nextIdx], { keepCurrent: true })
   }
+}
+
+let previewTouchX = null
+function onPreviewTouchStart(e) {
+  const t = e.changedTouches && e.changedTouches[0]
+  previewTouchX = t ? t.clientX : null
+}
+function onPreviewTouchEnd(e) {
+  const t = e.changedTouches && e.changedTouches[0]
+  if (!t || previewTouchX === null || previewTouchX === undefined) return
+  const dx = t.clientX - previewTouchX
+  previewTouchX = null
+  if (Math.abs(dx) < 40) return
+  navigatePreview(dx < 0 ? 1 : -1)
 }
 
 async function deleteFromPreview() {
