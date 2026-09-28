@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.35",
-  "versionCode": 13350,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.35/HyperDL-v1.3.35.zip",
+  "version": "v1.3.36",
+  "versionCode": 13360,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.36/HyperDL-v1.3.36.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Notification progress via milestones 25/50/75 plus stage updates, max a few alerts per download instead of per-tick spam."
+  "notes": "Fix download list meta wrapping: single-line ellipsis for folder/size/ext/source URL, vault list too."
 }
