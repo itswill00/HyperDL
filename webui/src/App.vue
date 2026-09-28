@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.36' }}
+            {{ sysInfo.version || 'v1.3.37' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -481,8 +481,9 @@
                 <Icons :name="getExtIcon(item.ext)" :size="16" />
               </div>
               <div style="min-width: 0; flex: 1;">
-                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  {{ item.name }}
+                <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">{{ item.name }}</span>
+                  <span v-if="albumMap.get(item.path)" style="flex-shrink: 0; font-size: 9px; font-weight: 700; color: var(--on-surface-variant); border: 1px solid var(--outline-variant); border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;">{{ albumMap.get(item.path) }}</span>
                 </div>
                 <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                   <span v-if="item.folder" style="color: var(--primary); font-weight: 500;">{{ item.folder }} · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
@@ -777,7 +778,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.36' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.37' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -2052,6 +2053,12 @@ async function copySourceLink(item) {
   }
 }
 
+function parseAlbumIndex(name) {
+  const m = /^(.*)_(\d+)\.([^.]+)$/.exec(name || '')
+  if (!m) return null
+  return { base: m[1], idx: parseInt(m[2], 10) }
+}
+
 async function fetchHistory() {
   try {
     const raw = await runBridge('list')
@@ -2062,7 +2069,19 @@ async function fetchHistory() {
           try { it.source_url = atob(it.source_url_b64) } catch (e) { it.source_url = '' }
         }
       }
-      list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
+      const albKey = new Map()
+      for (const it of list) {
+        const p = parseAlbumIndex(it.name)
+        albKey.set(it.path, p ? { group: (it.folder || '') + '|' + p.base, idx: p.idx } : null)
+      }
+      list.sort((a, b) => {
+        const d = (b.mtime || 0) - (a.mtime || 0)
+        if (d !== 0) return d
+        const ka = albKey.get(a.path)
+        const kb = albKey.get(b.path)
+        if (ka && kb && ka.group === kb.group) return ka.idx - kb.idx
+        return 0
+      })
       historyList.value = list
       const currentPaths = new Set(historyList.value.map(i => i.path))
       selectedFiles.value = new Set([...selectedFiles.value].filter(p => currentPaths.has(p)))
@@ -2074,6 +2093,24 @@ async function fetchHistory() {
 const videoCount = computed(() => historyList.value.filter(i => isVideoExt(i.ext)).length)
 const imageCount = computed(() => historyList.value.filter(i => isImageExt(i.ext)).length)
 const audioCount = computed(() => historyList.value.filter(i => isAudioExt(i.ext)).length)
+
+const albumMap = computed(() => {
+  const groups = new Map()
+  for (const it of historyList.value) {
+    const p = parseAlbumIndex(it.name)
+    if (!p) continue
+    const key = (it.folder || '') + '|' + p.base
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push({ path: it.path, idx: p.idx })
+  }
+  const out = new Map()
+  for (const arr of groups.values()) {
+    if (arr.length < 2) continue
+    arr.sort((a, b) => a.idx - b.idx)
+    arr.forEach((e, i) => out.set(e.path, (i + 1) + '/' + arr.length))
+  }
+  return out
+})
 
 const filteredHistoryList = computed(() => {
   let list = historyList.value

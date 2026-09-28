@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.36",
-  "versionCode": 13360,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.36/HyperDL-v1.3.36.zip",
+  "version": "v1.3.37",
+  "versionCode": 13370,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.37/HyperDL-v1.3.37.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Fix download list meta wrapping: single-line ellipsis for folder/size/ext/source URL, vault list too."
+  "notes": "Album badge n/m on carousel items sharing folder and base name, siblings sorted by index."
 }
