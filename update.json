@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.34",
-  "versionCode": 13340,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.34/HyperDL-v1.3.34.zip",
+  "version": "v1.3.35",
+  "versionCode": 13350,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.35/HyperDL-v1.3.35.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Silent progress notifications: skip per-tick downloading posts (cmd post has no silent flag, every post replays sound), keep resolving/completed/error/paused alerts, verbose opt-in via verbose_notifications file."
+  "notes": "Notification progress via milestones 25/50/75 plus stage updates, max a few alerts per download instead of per-tick spam."
 }

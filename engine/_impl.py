@@ -303,6 +303,7 @@ def humanize_error(e):
 
 _last_notif_time = 0.0
 _last_notif_pct = -1
+_last_notif_milestone = -1
 
 def post_android_notification(status, percent=0, speed="", downloaded="", total="", title="", file_path="", error="", eta=""):
     """
@@ -310,16 +311,14 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
     Runs as UID 2000 (com.android.shell) so Android NotificationManager enqueues it cleanly.
     Single-line title and single-line body ensures zero literal escape sequences ('\n') on any Android OEM.
     NOTE: `cmd notification post` has no silent/only-alert-once flag, so every post replays
-    the notification sound. To avoid sound spam, per-tick `downloading` progress posts are
-    skipped unless /data/adb/hyperdl/verbose_notifications exists. State changes
-    (resolving/completed/error/paused) still alert normally. Live progress stays in WebUI.
+    the notification sound. To avoid sound spam, `downloading` progress is only posted at
+    coarse milestones (25/50/75%) unless /data/adb/hyperdl/verbose_notifications exists
+    (verbose = per-tick posts like before). State changes (resolving/completed/error/paused)
+    still alert normally. Live per-tick progress stays in WebUI.
     """
-    global _last_notif_time, _last_notif_pct
+    global _last_notif_time, _last_notif_pct, _last_notif_milestone
 
     if os.path.exists("/data/adb/hyperdl/disable_notifications"):
-        return
-
-    if status == "downloading" and not os.path.exists("/data/adb/hyperdl/verbose_notifications"):
         return
 
     now = time.time()
@@ -333,13 +332,25 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
     notif_text = ""
 
     if status == "resolving":
+        if now - _last_notif_time < 3.0:
+            return
+        _last_notif_milestone = -1
         notif_title = "HyperDL"
         notif_text = f"Connecting to source • {clean_title}" if clean_title != "Media" else "Connecting to media source..."
     elif status == "downloading":
-        if (now - _last_notif_time < 2.0) and (abs(percent - _last_notif_pct) < 10):
-            return
-        if (now - _last_notif_time < 1.0):
-            return
+        if os.path.exists("/data/adb/hyperdl/verbose_notifications"):
+            if (now - _last_notif_time < 2.0) and (abs(percent - _last_notif_pct) < 10):
+                return
+            if (now - _last_notif_time < 1.0):
+                return
+        else:
+            low_title = clean_title.lower()
+            is_stage = any(k in low_title for k in ("merg", "mux", "encod", "extract", "retry"))
+            milestone = (int(percent) // 25) * 25
+            if not is_stage and (milestone <= _last_notif_milestone or milestone <= 0 or milestone >= 100):
+                return
+            if not is_stage:
+                _last_notif_milestone = milestone
 
         notif_title = clean_title if clean_title != "Media" else "HyperDL • Downloading"
         
