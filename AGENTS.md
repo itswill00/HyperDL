@@ -25,6 +25,8 @@ is allowed to contain Indonesian.
    - Always use `(d.get("key") or {})` when traversing dynamic social media JSON to prevent `NoneType` crashes on `null` fields.
    - For HLS `.m3u8` streams, remux with FFmpeg using `-f mp4` and `.tmp.mp4` temporary files; do not pass concurrent chunk flags to yt-dlp on HLS.
    - Guard against signed-URL resume drift: if a download fails with a range error (HTTP 416), purge the stale partial and retry once from the start rather than forcing resume.
+   - Resolution probes are cached in `/data/adb/hyperdl/cache/probe_cache.json` (TTL 6h, capped at 200 entries, `0600`). The cache MUST only hold the format/height list, never signed stream URLs, so downloads always re-resolve fresh URLs.
+   - Any cache read must fail open on a corrupt or unreadable file, and writes must be atomic (`.tmp` + `os.replace`).
 
 4. **Tone & Branding**:
    - Avoid robotic words. Specifically, do NOT use the word "engine" in user-facing texts, logs, or UI.

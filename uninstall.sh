@@ -11,6 +11,8 @@ pkill -9 -f "yt-dlp.*HyperDL" 2>/dev/null || true
 
 rm -f /data/local/tmp/hyperdl* 2>/dev/null || true
 
+# Downloaded media is the user's data and stays untouched. Everything else,
+# including the resolution cache, goes.
 rm -rf /data/adb/hyperdl 2>/dev/null || true
 
 exit 0

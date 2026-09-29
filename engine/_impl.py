@@ -27,6 +27,11 @@ STATUS_FILE = "/data/local/tmp/hyperdl_status.json"
 PID_FILE = "/data/local/tmp/hyperdl.pid"
 PROBE_FILE = "/data/local/tmp/hyperdl_probe.json"
 PROBE_PID = "/data/local/tmp/hyperdl_probe.pid"
+CACHE_DIR = "/data/adb/hyperdl/cache"
+# Stream URLs carry short-lived signatures, so a cached resolution list is only
+# useful for picking a format. The signed URL itself is always re-resolved at
+# download time, which is what keeps the HTTP 416 fix intact.
+PROBE_CACHE_TTL = 6 * 60 * 60
 CONF_DIR = "/data/adb/hyperdl"
 ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
@@ -2767,6 +2772,57 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     raise RuntimeError("Media file not found after download completed")
 
+def _probe_cache_path():
+    return os.path.join(CACHE_DIR, "probe_cache.json")
+
+def _load_probe_cache():
+    try:
+        with open(_probe_cache_path(), "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+def _save_probe_cache(cache):
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = _probe_cache_path() + f".tmp.{os.getpid()}"
+        with open(tmp, "w") as f:
+            json.dump(cache, f)
+        os.replace(tmp, _probe_cache_path())
+        try:
+            os.chmod(_probe_cache_path(), 0o600)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def _cache_get_probe(url, ttl=PROBE_CACHE_TTL):
+    entry = _load_probe_cache().get(url)
+    if not isinstance(entry, dict):
+        return None
+    ts = entry.get("ts", 0)
+    if time.time() - ts > ttl:
+        return None
+    res = entry.get("resolutions")
+    if not res:
+        return None
+    return res
+
+def _cache_put_probe(url, resolutions):
+    cache = _load_probe_cache()
+    now = time.time()
+    cache[url] = {"ts": now, "resolutions": resolutions}
+    for k, v in list(cache.items()):
+        if now - v.get("ts", 0) > PROBE_CACHE_TTL:
+            del cache[k]
+    if len(cache) > 200:
+        for k, _ in sorted(cache.items(), key=lambda kv: kv[1].get("ts", 0))[:len(cache) - 200]:
+            cache.pop(k, None)
+    _save_probe_cache(cache)
+
 def _write_probe_result(data):
     try:
         os.makedirs(os.path.dirname(PROBE_FILE), exist_ok=True)
@@ -2788,6 +2844,11 @@ def _write_probe_result(data):
             pass
 
 def probe_resolutions(url):
+    cached = _cache_get_probe(url)
+    if cached:
+        _write_probe_result({"status": "ready", "url": url, "resolutions": cached})
+        return cached
+
     try:
         os.nice(19)
     except Exception:
@@ -2910,6 +2971,7 @@ def probe_resolutions(url):
             "isRealStream": True
         })
 
+    _cache_put_probe(url, results)
     _write_probe_result({"status": "ready", "url": url, "resolutions": results})
     return results
 

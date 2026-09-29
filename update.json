@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.46",
-  "versionCode": 13460,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.46/HyperDL-v1.3.46.zip",
+  "version": "v1.3.47",
+  "versionCode": 13470,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.47/HyperDL-v1.3.47.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Hardens the native bridge: deletion now rejects any path outside the output folder, cookies are locked to owner-only, and downloads work on work profiles and secondary users."
+  "notes": "Faster downloads: resolution results are cached for six hours, so re-opening a link is instant instead of waiting on YouTube resolution again."
 }

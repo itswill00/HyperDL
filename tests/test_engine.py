@@ -1,5 +1,8 @@
 import os
 import sys
+import json
+import shutil
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -127,6 +130,62 @@ class TestHumanizeError(unittest.TestCase):
 
     def test_passthrough_unknown(self):
         self.assertEqual(humanize_error("weird failure"), "weird failure")
+
+
+class TestProbeCache(unittest.TestCase):
+    def setUp(self):
+        import engine._impl as impl
+        self.orig_dir = impl.CACHE_DIR
+        self.orig_ttl = impl.PROBE_CACHE_TTL
+        self.tmp = tempfile.mkdtemp()
+        impl.CACHE_DIR = self.tmp
+        self.impl = impl
+
+    def tearDown(self):
+        self.impl.CACHE_DIR = self.orig_dir
+        self.impl.PROBE_CACHE_TTL = self.orig_ttl
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_roundtrip(self):
+        res = [{"height": 1080, "label": "1080p", "filesize": 123}]
+        self.impl._cache_put_probe("https://youtu.be/abc", res)
+        self.assertEqual(self.impl._cache_get_probe("https://youtu.be/abc"), res)
+
+    def test_miss_on_unknown_url(self):
+        self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/nope"))
+
+    def test_expired_entry_is_a_miss(self):
+        self.impl._cache_put_probe("https://youtu.be/abc", [{"height": 720}])
+        path = self.impl._probe_cache_path()
+        with open(path) as f:
+            data = json.load(f)
+        for k in data:
+            data[k]["ts"] = 0
+        with open(path, "w") as f:
+            json.dump(data, f)
+        self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/abc"))
+
+    def test_empty_resolutions_not_cached(self):
+        self.impl._cache_put_probe("https://youtu.be/empty", [])
+        self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/empty"))
+
+    def test_cache_is_pruned_to_size_cap(self):
+        import time
+        base = time.time()
+        for i in range(260):
+            self.impl._cache_put_probe(f"https://youtu.be/v{i}", [{"height": 144 + i}])
+        cache = self.impl._load_probe_cache()
+        self.assertLessEqual(len(cache), 200)
+        self.assertIn("https://youtu.be/v259", cache)
+        self.assertNotIn("https://youtu.be/v0", cache)
+        del base
+
+    def test_corrupt_cache_file_fails_open(self):
+        with open(self.impl._probe_cache_path(), "w") as f:
+            f.write("{not valid json")
+        del f
+        self.assertEqual(self.impl._load_probe_cache(), {})
+        self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/abc"))
 
 
 class TestDecodeBase64Padded(unittest.TestCase):
