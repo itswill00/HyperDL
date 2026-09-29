@@ -29,7 +29,7 @@
    - Every fix or update MUST bump version and versionCode across `module.prop`, `update.json`, `webui/package.json`, `webui/src/App.vue`, `src/main.c`, and `README.md`.
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.
-   - Release zips are stored strictly in `/sdcard/HyperDL_Releases/`.
+   - Release zips live strictly in internal `releases/` (`HyperDL-vX.Y.Z.zip`). Never mirror to `/sdcard`.
    - **Full-Zip Only**: Semua perbaikan (scraper `engine/`, WebUI `webui/`, bridge `src/main.c`) SELALU dirilis sebagai **Full Zip** (`HyperDL-vX.Y.Z.zip`). Fungsi OTA sudah dibuang sepenuhnya, jangan buat `HyperDL-OTA-*.zip` dalam kondisi apapun.
 
 6. **Strict Release Gate (Mandatory User Confirmation)**:

@@ -153,13 +153,6 @@ echo "-> packaging module (${ZIP_NAME})..."
 zip -qr9 "$OUT_DIR/$ZIP_NAME" module.prop customize.sh service.sh uninstall.sh bin runtime webroot -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
 echo "build finished: $OUT_DIR/$ZIP_NAME"
 
-# Mirror release zip to internal storage for easy sharing
-if [ -d "/sdcard" ]; then
-    mkdir -p "/sdcard/HyperDL_Releases" 2>/dev/null || true
-    cp -f "$OUT_DIR/$ZIP_NAME" "/sdcard/HyperDL_Releases/$ZIP_NAME" 2>/dev/null && \
-        echo "mirrored to /sdcard/HyperDL_Releases/$ZIP_NAME" || true
-fi
-
 # 4. Release to GitHub
 if [ "$RELEASE" = "true" ]; then
     if ! command -v gh >/dev/null 2>&1; then echo "error: gh not installed"; exit 1; fi

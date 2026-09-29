@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.43",
-  "versionCode": 13430,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.43/HyperDL-v1.3.43.zip",
+  "version": "v1.3.44",
+  "versionCode": 13440,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.44/HyperDL-v1.3.44.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Fix YouTube HTTP 416 resume failure: drop forced resume flags, retry range errors from start."
+  "notes": "Drop /sdcard mirror: release zips live in internal releases/ only."
 }
