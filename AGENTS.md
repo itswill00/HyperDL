@@ -70,6 +70,8 @@ is allowed to contain Indonesian.
      - Use a `---` horizontal rule to separate major blocks; do not rely on blank lines alone.
      - Exactly one H1 per release description.
    - The one-sentence summary from the intro paragraph is reused verbatim as the `notes` field in `update.json`.
+   - Every release also ships a Telegram post in `release_notes/vX.Y.Z.tg.md`, written in Telegram Markdown (`*bold*`, triple-backtick pre block). Fixed skeleton:
+     `*HyperDL vX.Y.Z* (code)` → `*Changelog:*` + pre block of `•` bullets (one line per change, terse, no prose) → `*Notes:*` (Android 10+ arm64, flash via KernelSU/APatch/Magisk) → `*Links:*` (channel + support).
 
 9. **Vault (18+) Privacy Invariant**:
    - Isolated routing: `get_target_directory()` + `download_with_ytdlp_direct()` send URLs matching `vault_domains.conf` to `$OUTDIR/.vault/Stream` with `.nomedia` (hidden from Gallery).
