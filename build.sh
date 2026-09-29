@@ -150,7 +150,8 @@ mkdir -p "$OUT_DIR"
 ZIP_NAME="HyperDL-${VERSION}.zip"
 rm -f "$OUT_DIR"/HyperDL-*.zip 2>/dev/null || true
 echo "-> packaging module (${ZIP_NAME})..."
-zip -qr9 "$OUT_DIR/$ZIP_NAME" module.prop customize.sh service.sh uninstall.sh bin runtime webroot -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
+python3 scripts/package_zip.py "$OUT_DIR/$ZIP_NAME" \
+    module.prop customize.sh service.sh uninstall.sh bin runtime webroot
 echo "build finished: $OUT_DIR/$ZIP_NAME"
 
 # 4. Release to GitHub (source repo is the single release venue)
