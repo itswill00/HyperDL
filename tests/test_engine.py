@@ -148,8 +148,13 @@ class TestProbeCache(unittest.TestCase):
 
     def test_roundtrip(self):
         res = [{"height": 1080, "label": "1080p", "filesize": 123}]
-        self.impl._cache_put_probe("https://youtu.be/abc", res)
-        self.assertEqual(self.impl._cache_get_probe("https://youtu.be/abc"), res)
+        self.impl._cache_put_probe("https://youtu.be/abc", res,
+                                   thumbnail="https://i.ytimg.com/max.jpg",
+                                   subtitles=["id", "en"])
+        got = self.impl._cache_get_probe("https://youtu.be/abc")
+        self.assertEqual(got["resolutions"], res)
+        self.assertEqual(got["thumbnail"], "https://i.ytimg.com/max.jpg")
+        self.assertEqual(got["subtitles"], ["id", "en"])
 
     def test_miss_on_unknown_url(self):
         self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/nope"))
@@ -186,6 +191,42 @@ class TestProbeCache(unittest.TestCase):
         del f
         self.assertEqual(self.impl._load_probe_cache(), {})
         self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/abc"))
+
+
+class TestProbePayloadHelpers(unittest.TestCase):
+    def setUp(self):
+        import engine._impl as impl
+        self.impl = impl
+
+    def test_pick_thumbnail_prefers_largest(self):
+        data = {"thumbnails": [
+            {"url": "https://i.ytimg.com/small.jpg", "width": 120, "height": 90},
+            {"url": "https://i.ytimg.com/big.jpg", "width": 1280, "height": 720},
+            {"url": "not-a-url", "width": 9999, "height": 9999},
+        ]}
+        self.assertEqual(self.impl._pick_thumbnail(data), "https://i.ytimg.com/big.jpg")
+
+    def test_pick_thumbnail_falls_back_to_direct(self):
+        self.assertEqual(
+            self.impl._pick_thumbnail({"thumbnails": [], "thumbnail": "https://i.ytimg.com/d.jpg"}),
+            "https://i.ytimg.com/d.jpg")
+
+    def test_pick_thumbnail_rejects_garbage(self):
+        self.assertEqual(self.impl._pick_thumbnail({}), "")
+        self.assertEqual(self.impl._pick_thumbnail({"thumbnails": [{"url": ""}]}), "")
+        self.assertEqual(self.impl._pick_thumbnail(None), "")
+
+    def test_pick_subtitle_langs_manual_first(self):
+        data = {"subtitles": {"id": [{}], "en": [{}]},
+                "automatic_captions": {"en": [{}], "es": [{}]}}
+        langs = self.impl._pick_subtitle_langs(data)
+        self.assertEqual(langs[:2], ["id", "en"])
+        self.assertIn("es", langs)
+        self.assertEqual(len(langs), len(set(langs)))
+
+    def test_pick_subtitle_langs_empty(self):
+        self.assertEqual(self.impl._pick_subtitle_langs({}), [])
+        self.assertEqual(self.impl._pick_subtitle_langs(None), [])
 
 
 class TestDecodeBase64Padded(unittest.TestCase):

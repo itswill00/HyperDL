@@ -53,6 +53,8 @@ static const char *outdir(void) {
     return g_outdir;
 }
 
+static int path_is_managed(const char *path);
+
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
     "/data/adb/modules_update/hyperdl/runtime/bin/python3",
@@ -404,7 +406,7 @@ static void cmd_probe_result(void) {
     printf("{\"status\":\"idle\",\"resolutions\":[]}\n");
 }
 
-static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height, const char *audio_format) {
+static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height, const char *audio_format, int is_playlist, const char *pl_start, const char *pl_end, const char *sub_langs) {
     ensure_directories();
     kill_probe_if_running();
     unlink(PROBE_FILE);
@@ -480,6 +482,9 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         char fid_arg[256] = "";
         char ht_arg[64] = "";
         char af_arg[64] = "";
+        char pls_arg[64] = "";
+        char ple_arg[64] = "";
+        char sub_arg[128] = "";
         if (format_id && *format_id) {
             snprintf(fid_arg, sizeof(fid_arg), "--format-id=%s", format_id);
         }
@@ -489,9 +494,16 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         if (audio_format && *audio_format) {
             snprintf(af_arg, sizeof(af_arg), "--audio-format=%s", audio_format);
         }
+        if (is_playlist) {
+            if (pl_start && *pl_start) snprintf(pls_arg, sizeof(pls_arg), "--playlist-start=%s", pl_start);
+            if (pl_end && *pl_end) snprintf(ple_arg, sizeof(ple_arg), "--playlist-end=%s", pl_end);
+        }
+        if (sub_langs && *sub_langs) {
+            snprintf(sub_arg, sizeof(sub_arg), "--sub-langs=%s", sub_langs);
+        }
 
         char launcher[sizeof(EMBEDDED_ENGINE_B64) + 128];
-        char *exec_args[32];
+        char *exec_args[40];
         int ai = 0;
         exec_args[ai++] = (char *)python_bin;
 
@@ -514,6 +526,10 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         if (fid_arg[0]) exec_args[ai++] = fid_arg;
         if (ht_arg[0]) exec_args[ai++] = ht_arg;
         if (af_arg[0]) exec_args[ai++] = af_arg;
+        if (is_playlist) exec_args[ai++] = "--playlist";
+        if (pls_arg[0]) exec_args[ai++] = pls_arg;
+        if (ple_arg[0]) exec_args[ai++] = ple_arg;
+        if (sub_arg[0]) exec_args[ai++] = sub_arg;
         exec_args[ai] = NULL;
 
         execv(python_bin, exec_args);
@@ -844,6 +860,10 @@ static void cmd_preview(const char *path) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
         return;
     }
+    if (!path_is_managed(path)) {
+        printf("{\"success\":false,\"error\":\"path_outside_output_dir\"}\n");
+        return;
+    }
 
     struct stat st;
     if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
@@ -1075,6 +1095,10 @@ static void cmd_open(const char *path) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
         return;
     }
+    if (!path_is_managed(path)) {
+        printf("{\"success\":false,\"error\":\"path_outside_output_dir\"}\n");
+        return;
+    }
 
     struct stat st;
     if (stat(path, &st) != 0) {
@@ -1170,7 +1194,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.47";
+    char mod_version[32] = "v1.3.48";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/adb/modules_update/hyperdl/module.prop", "r");
     if (mp) {
@@ -1211,6 +1235,11 @@ static void cmd_info(void) {
 static void cmd_set_audio_format(const char *fmt) {
     if (!fmt || !*fmt) {
         printf("{\"error\":\"missing_format\"}\n");
+        return;
+    }
+    if (strcmp(fmt, "mp3") != 0 && strcmp(fmt, "flac") != 0 &&
+        strcmp(fmt, "m4a") != 0 && strcmp(fmt, "opus") != 0) {
+        printf("{\"success\":false,\"error\":\"unsupported_format\"}\n");
         return;
     }
     ensure_directories();
@@ -1463,6 +1492,130 @@ static void cmd_get_vault_status(void) {
     printf("{\"vault_enabled\":%s}\n", active ? "true" : "false");
 }
 
+static void cmd_set_notify_mode(const char *mode) {
+    ensure_directories();
+    const char *disable_f = "/data/adb/hyperdl/disable_notifications";
+    const char *verbose_f = "/data/adb/hyperdl/verbose_notifications";
+    if (mode && strcmp(mode, "silent") == 0) {
+        int fd = open(disable_f, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) close(fd);
+        unlink(verbose_f);
+    } else if (mode && strcmp(mode, "verbose") == 0) {
+        unlink(disable_f);
+        int fd = open(verbose_f, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) close(fd);
+    } else {
+        unlink(disable_f);
+        unlink(verbose_f);
+    }
+    printf("{\"success\":true}\n");
+}
+
+static void cmd_get_notify_mode(void) {
+    const char *mode = "normal";
+    if (access("/data/adb/hyperdl/disable_notifications", F_OK) == 0) mode = "silent";
+    else if (access("/data/adb/hyperdl/verbose_notifications", F_OK) == 0) mode = "verbose";
+    printf("{\"notify_mode\":\"%s\"}\n", mode);
+}
+
+static void cmd_get_vault_domains(void) {
+    const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
+    printf("{\"exists\":%s,\"domains\":[", access(conf_path, F_OK) == 0 ? "true" : "false");
+    FILE *f = fopen(conf_path, "r");
+    if (f) {
+        char line[256];
+        int first = 1;
+        while (fgets(line, sizeof(line), f)) {
+            size_t n = strlen(line);
+            while (n && (line[n-1] == '\n' || line[n-1] == '\r' || line[n-1] == ' ' || line[n-1] == '\t')) line[--n] = '\0';
+            char *s = line;
+            while (*s == ' ' || *s == '\t') s++;
+            if (!*s) continue;
+            if (!first) printf(",");
+            printf("\"");
+            for (char *p = s; *p; p++) {
+                if (*p == '"' || *p == '\\') printf("\\");
+                putchar(*p);
+            }
+            printf("\"");
+            first = 0;
+        }
+        fclose(f);
+    }
+    printf("]}\n");
+}
+
+static int valid_vault_domain(const char *d) {
+    size_t n = strlen(d);
+    if (n < 4 || n > 253) return 0;
+    int has_dot = 0;
+    for (size_t i = 0; i < n; i++) {
+        char c = d[i];
+        if (c == '.') { has_dot = 1; continue; }
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') continue;
+        return 0;
+    }
+    if (!has_dot || d[0] == '.' || d[0] == '-' || d[n-1] == '.' || d[n-1] == '-') return 0;
+    return 1;
+}
+
+static void cmd_save_vault_domains(const char *b64_data) {
+    ensure_directories();
+    if (!b64_data || !*b64_data) {
+        printf("{\"success\":false,\"error\":\"missing_data\"}\n");
+        return;
+    }
+    size_t out_len = 0;
+    unsigned char *decoded = base64_decode(b64_data, strlen(b64_data), &out_len);
+    if (!decoded) {
+        printf("{\"success\":false,\"error\":\"decode_failed\"}\n");
+        return;
+    }
+    char *text = malloc(out_len + 1);
+    if (!text) {
+        free(decoded);
+        printf("{\"success\":false,\"error\":\"decode_failed\"}\n");
+        return;
+    }
+    memcpy(text, decoded, out_len);
+    text[out_len] = '\0';
+    free(decoded);
+    char clean[8192] = {0};
+    size_t ci = 0;
+    int count = 0;
+    char *saveptr = NULL;
+    char *line = strtok_r(text, "\n", &saveptr);
+    while (line && count < 200) {
+        while (*line == ' ' || *line == '\t' || *line == '\r') line++;
+        size_t ll = strlen(line);
+        while (ll && (line[ll-1] == ' ' || line[ll-1] == '\t' || line[ll-1] == '\r')) line[--ll] = '\0';
+        for (char *p = line; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+        if (*line && valid_vault_domain(line) && ci + ll + 2 < sizeof(clean)) {
+            if (ci) clean[ci++] = '\n';
+            memcpy(clean + ci, line, ll);
+            ci += ll;
+            count++;
+        }
+        line = strtok_r(NULL, "\n", &saveptr);
+    }
+    free(text);
+    if (count == 0) {
+        printf("{\"success\":false,\"error\":\"no_valid_domains\"}\n");
+        return;
+    }
+    clean[ci++] = '\n';
+    const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
+    FILE *f = fopen(conf_path, "w");
+    if (!f) {
+        printf("{\"success\":false,\"error\":\"open_failed\"}\n");
+        return;
+    }
+    fwrite(clean, 1, ci, f);
+    fclose(f);
+    chmod(conf_path, 0644);
+    printf("{\"success\":true,\"domains\":%d}\n", count);
+}
+
 static void cmd_toggle_vault(const char *val) {
     ensure_directories();
     const char *flag_path = "/data/adb/hyperdl/vault.enabled";
@@ -1662,11 +1815,19 @@ int main(int argc, char *argv[]) {
         const char *format_id = NULL;
         const char *height = NULL;
         const char *audio_format = NULL;
+        int is_playlist = 0;
+        const char *pl_start = NULL;
+        const char *pl_end = NULL;
+        const char *sub_langs = NULL;
         char conf_af[16] = "mp3";
         for (int i = 4; i < argc; i++) {
             if (strncmp(argv[i], "--format-id=", 12) == 0) format_id = argv[i] + 12;
             else if (strncmp(argv[i], "--height=", 9) == 0) height = argv[i] + 9;
             else if (strncmp(argv[i], "--audio-format=", 15) == 0) audio_format = argv[i] + 15;
+            else if (strcmp(argv[i], "--playlist") == 0) is_playlist = 1;
+            else if (strncmp(argv[i], "--playlist-start=", 17) == 0) pl_start = argv[i] + 17;
+            else if (strncmp(argv[i], "--playlist-end=", 15) == 0) pl_end = argv[i] + 15;
+            else if (strncmp(argv[i], "--sub-langs=", 12) == 0) sub_langs = argv[i] + 12;
         }
         if (!audio_format) {
             FILE *afp = fopen("/data/adb/hyperdl/audio_format.conf", "r");
@@ -1677,7 +1838,7 @@ int main(int argc, char *argv[]) {
                 fclose(afp);
             }
         }
-        cmd_download(url, fmt, format_id, height, audio_format);
+        cmd_download(url, fmt, format_id, height, audio_format, is_playlist, pl_start, pl_end, sub_langs);
     } else if (strcmp(action, "set_audio_format") == 0) {
         cmd_set_audio_format(argc > 2 ? argv[2] : "mp3");
     } else if (strcmp(action, "pause") == 0) {
@@ -1690,8 +1851,6 @@ int main(int argc, char *argv[]) {
         cmd_probe_result();
     } else if (strcmp(action, "cancel_probe") == 0) {
         cmd_cancel_probe();
-    } else if (strcmp(action, "probe") == 0) {
-        cmd_probe_start(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "list") == 0) {
         cmd_list(argc > 2 ? argv[2] : NULL);
     } else if (strcmp(action, "delete") == 0) {
@@ -1718,6 +1877,14 @@ int main(int argc, char *argv[]) {
         cmd_clear_logs();
     } else if (strcmp(action, "toggle_autodl") == 0) {
         cmd_toggle_autodl(argc > 2 ? argv[2] : "0");
+    } else if (strcmp(action, "notify_mode") == 0) {
+        cmd_set_notify_mode(argc > 2 ? argv[2] : "normal");
+    } else if (strcmp(action, "get_notify_mode") == 0) {
+        cmd_get_notify_mode();
+    } else if (strcmp(action, "get_vault_domains") == 0) {
+        cmd_get_vault_domains();
+    } else if (strcmp(action, "save_vault_domains") == 0) {
+        cmd_save_vault_domains(argc > 2 ? argv[2] : "");
     } else if (strcmp(action, "get_autodl") == 0) {
         cmd_get_autodl();
     } else if (strcmp(action, "toggle_vault") == 0) {

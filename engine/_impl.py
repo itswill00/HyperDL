@@ -892,7 +892,7 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
 def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
         outdir = os.path.dirname(out_path) or "."
-        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False), is_playlist=item.get("is_playlist", False))
+        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False), is_playlist=item.get("is_playlist", False), format_id=item.get("format_id"), height=item.get("height"), audio_format=item.get("audio_format"))
 
     if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
         return download_hls(item["url"], out_path, title=title, headers=item.get("headers"), emit_complete=emit_complete)
@@ -953,7 +953,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
             if fb_item:
                 if fb_item.get("direct_ytdlp"):
                     outdir = os.path.dirname(out_path) or "."
-                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False), is_playlist=fb_item.get("is_playlist", False))
+                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False), is_playlist=fb_item.get("is_playlist", False), format_id=fb_item.get("format_id"), height=fb_item.get("height"), audio_format=fb_item.get("audio_format"))
                 return download_media_candidates(fb_item, out_path, title, emit_complete=emit_complete)
         except Exception as fe:
             last_err = fe
@@ -2526,7 +2526,7 @@ def _purge_stale_partials(outdir, since):
         pass
 
 
-def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False, audio_format=None):
+def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False, audio_format=None, playlist_start=None, playlist_end=None, sub_langs=None):
     ok, err_msg = check_storage_space(outdir, 100 * 1024 * 1024)
     if not ok:
         update_status("error", error=err_msg)
@@ -2565,6 +2565,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     if fmt == "audio":
         if target_audio_fmt == "flac":
             format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "flac", "--audio-quality", "0"]
+        elif target_audio_fmt == "m4a":
+            format_arg = ["-f", "ba/bestaudio[ext=m4a]/bestaudio/best", "-x", "--audio-format", "m4a", "--audio-quality", "0"]
+        elif target_audio_fmt == "opus":
+            format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "opus", "--audio-quality", "0"]
         else:
             format_arg = ["-f", "ba/bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0"]
     elif fmt in ("album", "photo", "image"):
@@ -2636,6 +2640,23 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         extra_dl_args = ["--no-part"]
 
     playlist_arg = ["--yes-playlist"] if is_playlist else ["--no-playlist"]
+    range_arg = []
+    if is_playlist:
+        try:
+            if playlist_start and int(playlist_start) > 0:
+                range_arg += ["--playlist-start", str(int(playlist_start))]
+        except (TypeError, ValueError):
+            pass
+        try:
+            if playlist_end and int(playlist_end) > 0:
+                range_arg += ["--playlist-end", str(int(playlist_end))]
+        except (TypeError, ValueError):
+            pass
+    sub_arg = []
+    if sub_langs and fmt == "video":
+        langs = re.sub(r"[^a-zA-Z,\-.*]", "", str(sub_langs)).strip(",")
+        if langs:
+            sub_arg = ["--write-subs", "--sub-langs", langs, "--sub-format", "srt/best"]
 
     is_yt = ("youtube.com" in low_u or "youtu.be" in low_u)
     if is_yt:
@@ -2652,7 +2673,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             ytdlp_bin,
             "--no-warnings",
             "--no-check-certificates",
-        ] + playlist_arg + [
+        ] + playlist_arg + range_arg + sub_arg + [
             "--no-mtime",
             "--buffer-size", "256k",
             "--extractor-retries", "3",
@@ -2799,6 +2820,51 @@ def _save_probe_cache(cache):
     except Exception:
         pass
 
+def _pick_thumbnail(data):
+    """Pick the single best thumbnail URL from a yt-dlp info dict.
+
+    Returns "" when none is usable. Only the URL string is kept, so the
+    probe cache never holds anything but a plain image link.
+    """
+    try:
+        thumbs = data.get("thumbnails") or []
+        best = None
+        best_area = 0
+        for t in thumbs:
+            u = (t or {}).get("url") or ""
+            if not u.startswith("http"):
+                continue
+            w = (t or {}).get("width") or 0
+            h = (t or {}).get("height") or 0
+            area = w * h
+            if area > best_area:
+                best_area = area
+                best = u
+        if best:
+            return best
+        direct = data.get("thumbnail") or ""
+        return direct if direct.startswith("http") else ""
+    except Exception:
+        return ""
+
+
+def _pick_subtitle_langs(data, limit=12):
+    """Collect usable subtitle language codes, manual captions first."""
+    try:
+        langs = []
+        for group in (data.get("subtitles") or {}, data.get("automatic_captions") or {}):
+            if not isinstance(group, dict):
+                continue
+            for lang in group:
+                if lang and lang not in langs:
+                    langs.append(lang)
+                if len(langs) >= limit:
+                    return langs
+        return langs
+    except Exception:
+        return []
+
+
 def _cache_get_probe(url, ttl=PROBE_CACHE_TTL):
     entry = _load_probe_cache().get(url)
     if not isinstance(entry, dict):
@@ -2809,12 +2875,21 @@ def _cache_get_probe(url, ttl=PROBE_CACHE_TTL):
     res = entry.get("resolutions")
     if not res:
         return None
-    return res
+    return {
+        "resolutions": res,
+        "thumbnail": entry.get("thumbnail") or "",
+        "subtitles": entry.get("subtitles") or [],
+    }
 
-def _cache_put_probe(url, resolutions):
+def _cache_put_probe(url, resolutions, thumbnail="", subtitles=None):
     cache = _load_probe_cache()
     now = time.time()
-    cache[url] = {"ts": now, "resolutions": resolutions}
+    cache[url] = {
+        "ts": now,
+        "resolutions": resolutions,
+        "thumbnail": thumbnail or "",
+        "subtitles": list(subtitles or []),
+    }
     for k, v in list(cache.items()):
         if now - v.get("ts", 0) > PROBE_CACHE_TTL:
             del cache[k]
@@ -2844,10 +2919,11 @@ def _write_probe_result(data):
             pass
 
 def probe_resolutions(url):
+    url = clean_media_url(url)
     cached = _cache_get_probe(url)
     if cached:
-        _write_probe_result({"status": "ready", "url": url, "resolutions": cached})
-        return cached
+        _write_probe_result({"status": "ready", "url": url, **cached})
+        return {"url": url, **cached}
 
     try:
         os.nice(19)
@@ -2860,8 +2936,6 @@ def probe_resolutions(url):
         os.chmod(PROBE_PID, 0o666)
     except Exception:
         pass
-
-    url = clean_media_url(url)
 
     ytdlp_bin = get_or_download_ytdlp()
     py_bin = get_python_binary()
@@ -2901,6 +2975,8 @@ def probe_resolutions(url):
 
     duration = data.get("duration") or 0
     formats = data.get("formats") or []
+    thumbnail = _pick_thumbnail(data)
+    sub_langs = _pick_subtitle_langs(data)
 
     best_audio_size = 0
     for f in formats:
@@ -2940,7 +3016,7 @@ def probe_resolutions(url):
 
     if not by_height:
         _write_probe_result({"status": "ready", "url": url, "resolutions": []})
-        return []
+        return {"url": url, "resolutions": [], "thumbnail": thumbnail, "subtitles": sub_langs}
 
     labels = {
         4320: "8K Ultra HD",
@@ -2971,9 +3047,11 @@ def probe_resolutions(url):
             "isRealStream": True
         })
 
-    _cache_put_probe(url, results)
-    _write_probe_result({"status": "ready", "url": url, "resolutions": results})
-    return results
+    _cache_put_probe(url, results, thumbnail, sub_langs)
+    payload = {"status": "ready", "url": url, "resolutions": results,
+               "thumbnail": thumbnail, "subtitles": sub_langs}
+    _write_probe_result(payload)
+    return payload
 
 def main():
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
@@ -2986,6 +3064,10 @@ def main():
     dl_parser.add_argument("--height", default=None, help="Max height for video")
     dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
     dl_parser.add_argument("--audio-format", default=None, choices=["mp3", "flac", "m4a", "opus"], help="Target audio format")
+    dl_parser.add_argument("--playlist", action="store_true", help="Treat the link as a playlist/series")
+    dl_parser.add_argument("--playlist-start", default=None, dest="playlist_start", help="First playlist item (1-based)")
+    dl_parser.add_argument("--playlist-end", default=None, dest="playlist_end", help="Last playlist item")
+    dl_parser.add_argument("--sub-langs", default=None, dest="sub_langs", help="Subtitle languages, e.g. id,en (video only)")
 
     probe_parser = subparsers.add_parser("probe")
     probe_parser.add_argument("url", help="Media link to probe")
@@ -3076,8 +3158,19 @@ def main():
         update_status("resolving", title="Connecting to platform...")
         low_url = url.lower()
 
-        if format_id or height:
-            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height, audio_format=target_audio_fmt)
+        want_playlist = bool(getattr(args, "playlist", False))
+        pl_start = getattr(args, "playlist_start", None)
+        pl_end = getattr(args, "playlist_end", None)
+        sub_langs = getattr(args, "sub_langs", None)
+        if want_playlist:
+            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height,
+                                       audio_format=target_audio_fmt, is_playlist=True,
+                                       playlist_start=pl_start, playlist_end=pl_end,
+                                       sub_langs=sub_langs)
+            return
+
+        if format_id or height or sub_langs:
+            download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height, audio_format=target_audio_fmt, sub_langs=sub_langs)
             return
 
         if "tiktok.com" in low_url or "douyin.com" in low_url:

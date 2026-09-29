@@ -4,9 +4,11 @@ import sys
 import zipfile
 import tempfile
 import sys as _sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "engine"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
-    from downloader import _repack_pyc
+    from engine._impl import _repack_pyc
+    if not callable(_repack_pyc):
+        _repack_pyc = None
 except Exception:
     _repack_pyc = None
 

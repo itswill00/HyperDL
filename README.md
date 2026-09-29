@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
-  <img src="https://img.shields.io/badge/Release-v1.3.47-black.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v1.3.48-black.svg" alt="Release">
 </p>
 
 <p align="center">
@@ -71,7 +71,7 @@
 
 ### Method 1: Flash the release zip (recommended)
 
-1. Download `HyperDL-v1.3.47.zip` from the [Releases page](https://github.com/itswill00/HyperDL/releases).
+1. Download `HyperDL-v1.3.48.zip` from the [Releases page](https://github.com/itswill00/HyperDL/releases).
 2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
 3. Go to **Modules** > **Install from storage** and pick the zip.
 4. Open the module WebUI from your root manager — no reboot needed.
@@ -95,12 +95,28 @@ This rebuilds the native bridge, rebundles the extractor and WebUI, syncs the ru
 
 | WebUI Tab | What it does |
 | :--- | :--- |
-| **Downloader** | Paste links, pick formats, track progress, manage the download list |
+| **Downloader** | Paste links, pick formats, queue links, track progress, manage the download list |
 | **Cookies** | View and manage the optional cookie session used for gated media |
 | **Terminal** | Run commands and inspect live output on-device |
 
 > [!TIP]
 > Copying a supported link while the clipboard daemon is active fills the input for you — no manual paste needed.
+
+### Queue
+
+The **Queue** button next to Download lines a link up instead of starting it. Queued links download one by one on their own, in order. Remove or clear entries any time before they start.
+
+### Failed downloads
+
+A failed download stays on screen with its error message. **Retry** reuses the same format and options; **Dismiss** clears it. The list survives restarts, so an interrupted session never loses track of what failed.
+
+### Playlists
+
+Flip the **Playlist** switch on a series or playlist link to fetch every item as its own file. Set an optional from/to range to grab only part of a long list.
+
+### Subtitles
+
+Video downloads offer subtitle tracks where the platform provides them: None, Indonesia, English, or both. The picker shows which languages a video actually has, and tracks save next to the video as separate subtitle files.
 
 ---
 
@@ -149,6 +165,7 @@ Download/HyperDL/.vault/Stream/
 
 - Toggle: WebUI action backed by `/data/adb/hyperdl/vault.enabled`.
 - Domain list: `/data/adb/hyperdl/vault_domains.conf` (safe to extend with your own entries — updates only append missing lines, never overwrite yours).
+- Editor: the vault tab shows the watched list with a count. Saving validates every line and skips bad ones instead of breaking routing.
 
 <details>
 <summary>How the routing works</summary>
@@ -338,7 +355,7 @@ HyperDL/
 
 Packaging outputs a single Full Zip to internal `releases/`:
 
-- `HyperDL-v1.3.47.zip` — canonical release package with the full embedded runtime.
+- `HyperDL-v1.3.48.zip` — canonical release package with the full embedded runtime.
 
 > [!IMPORTANT]
 > Every release is a **Full Zip**. There is no OTA/delta mechanism — never create or expect `HyperDL-OTA-*.zip` files.
@@ -422,6 +439,8 @@ No. Resolution and downloading happen on the device. The only network traffic is
 <summary><strong>How do updates work?</strong></summary>
 
 Full-Zip releases ship from this repository's [Releases page](https://github.com/itswill00/HyperDL/releases) feed (`update.json`). Flash the new zip over the old one — no data wipe needed. Older versions (up to v1.3.42) stay archived in the former HyperDL-Release repo.
+
+The console tab also has a HyperDL update row: it shows the latest version with its notes, so you can see what changed before flashing.
 
 </details>
 

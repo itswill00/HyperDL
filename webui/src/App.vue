@@ -13,7 +13,7 @@
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.47' }}
+            {{ sysInfo.version || 'v1.3.48' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -183,16 +183,88 @@
 
           </div>
 
-                    <div style="margin-top: 16px;">
+          <div v-if="selectedFormat === 'video'" style="margin-top: 12px;">
+            <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
+              Subtitles
+            </div>
+            <div class="chips-row">
+              <div class="chip-item" :class="{ active: subLangs === 'none' }" @click="subLangs = 'none'">
+                <span>None</span>
+              </div>
+              <div class="chip-item" :class="{ active: subLangs === 'id,en' }" @click="subLangs = 'id,en'">
+                <span>ID + EN</span>
+              </div>
+              <div class="chip-item" :class="{ active: subLangs === 'en' }" @click="subLangs = 'en'">
+                <span>English</span>
+              </div>
+              <div class="chip-item" :class="{ active: subLangs === 'id' }" @click="subLangs = 'id'">
+                <span>Indonesia</span>
+              </div>
+            </div>
+            <div v-if="probeSubs.length > 0" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
+              Available: {{ probeSubs.join(', ') }}
+            </div>
+          </div>
+
+          <div style="margin-top: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <div style="font-size: 11px; color: var(--on-surface-variant); font-weight: 500;">
+                Playlist
+              </div>
+              <label class="md3-switch" style="transform: scale(0.85); transform-origin: right center;">
+                <input type="checkbox" :checked="playlistMode" @change="playlistMode = !playlistMode" />
+                <span class="md3-switch-track">
+                  <span class="md3-switch-thumb"></span>
+                </span>
+              </label>
+            </div>
+            <div v-if="playlistMode" style="display: flex; gap: 8px;">
+              <div class="text-input-wrapper" style="flex: 1;">
+                <input
+                  type="number"
+                  class="text-input"
+                  v-model="plStart"
+                  placeholder="From (1)"
+                  min="1"
+                  style="text-align: center;"
+                />
+              </div>
+              <div class="text-input-wrapper" style="flex: 1;">
+                <input
+                  type="number"
+                  class="text-input"
+                  v-model="plEnd"
+                  placeholder="To (all)"
+                  min="1"
+                  style="text-align: center;"
+                />
+              </div>
+            </div>
+            <div v-if="playlistMode" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
+              Downloads every item in the range as separate files.
+            </div>
+          </div>
+
+                    <div style="margin-top: 16px; display: flex; gap: 8px;">
             <button
               class="btn btn-primary"
               :class="{ 'btn-offline': !isOnline }"
-              style="width: 100%; height: 44px; font-size: 14px;"
+              style="flex: 3; height: 44px; font-size: 14px;"
               :disabled="!url.trim() || isProcessing"
               @click="startDownload"
             >
               <Icons :name="!isOnline ? 'wifi-off' : isProcessing ? 'refresh' : 'download'" :size="16" />
               <span>{{ !isOnline ? 'Download (Offline)' : isProcessing ? 'Downloading...' : 'Download' }}</span>
+            </button>
+            <button
+              class="btn btn-secondary"
+              style="flex: 1; height: 44px; font-size: 13px;"
+              :disabled="!url.trim()"
+              @click="enqueueCurrent"
+              title="Add to queue"
+            >
+              <Icons name="clipboard" :size="14" />
+              <span>Queue</span>
             </button>
           </div>
         </section>
@@ -353,6 +425,58 @@
               <Icons name="folder" :size="14" />
               {{ openingFolder ? 'Opening...' : 'Open folder' }}
             </button>
+          </div>
+        </section>
+
+        <section v-if="queue.length > 0" class="md3-card" style="margin-top: 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Up next ({{ queue.length }})</span>
+            <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 10px; height: 22px;" @click="clearQueue">
+              Clear
+            </button>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div
+              v-for="(item, idx) in queue"
+              :key="item.url + idx"
+              style="display: flex; align-items: center; gap: 8px; min-width: 0;"
+            >
+              <span class="badge-pill" style="font-size: 10px; flex-shrink: 0;">{{ idx + 1 }}</span>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 12px; color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ formatTruncatedUrl(item.url) }}</div>
+                <div style="font-size: 10px; color: var(--on-surface-variant);">{{ item.fmt || 'video' }}</div>
+              </div>
+              <button class="btn btn-icon" style="background: transparent; border: none; width: 26px; height: 26px; flex-shrink: 0;" @click="removeQueued(item.url)" title="Remove">
+                ✕
+              </button>
+            </div>
+          </div>
+          <div style="font-size: 10px; color: var(--on-surface-variant); margin-top: 6px;">
+            Items download one by one, automatically.
+          </div>
+        </section>
+
+        <section v-if="failedAttempts.length > 0" class="md3-card" style="margin-top: 12px; border-color: rgba(255, 107, 107, 0.3);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Failed ({{ failedAttempts.length }})</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div
+              v-for="item in failedAttempts"
+              :key="item.url"
+              style="min-width: 0;"
+            >
+              <div style="font-size: 12px; color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ formatTruncatedUrl(item.url) }}</div>
+              <div style="font-size: 10px; color: var(--error); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ item.error }}</div>
+              <div style="display: flex; gap: 6px; margin-top: 4px;">
+                <button class="btn btn-primary" style="padding: 3px 10px; font-size: 11px; height: 24px;" @click="retryFailed(item)" :disabled="isProcessing">
+                  Retry
+                </button>
+                <button class="btn btn-secondary" style="padding: 3px 10px; font-size: 11px; height: 24px;" @click="dismissFailed(item.url)">
+                  Dismiss
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -571,6 +695,44 @@
                 <span class="md3-switch-thumb"></span>
               </span>
             </label>
+          </div>
+
+          <div class="md3-list-row">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+              <div class="icon-badge secondary">
+                <Icons name="info" :size="18" />
+              </div>
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Notifications</div>
+                <div style="font-size: 11px; color: var(--on-surface-variant);">{{ notifyMode === 'silent' ? 'Silent' : (notifyMode === 'verbose' ? 'Every progress tick' : 'Milestones only') }}</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              <button
+                class="btn"
+                :class="notifyMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
+                style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                @click="setNotifyMode('normal')"
+              >
+                Normal
+              </button>
+              <button
+                class="btn"
+                :class="notifyMode === 'verbose' ? 'btn-primary' : 'btn-secondary'"
+                style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                @click="setNotifyMode('verbose')"
+              >
+                Verbose
+              </button>
+              <button
+                class="btn"
+                :class="notifyMode === 'silent' ? 'btn-primary' : 'btn-secondary'"
+                style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                @click="setNotifyMode('silent')"
+              >
+                Silent
+              </button>
+            </div>
           </div>
 
           <div class="md3-list-row clickable" @click="openMediaFolder">
@@ -798,11 +960,49 @@
                 >
                   FLAC HD
                 </button>
+                <button
+                  class="btn"
+                  :class="audioFormat === 'm4a' ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  @click="setAudioFormat('m4a')"
+                >
+                  M4A
+                </button>
+                <button
+                  class="btn"
+                  :class="audioFormat === 'opus' ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 2px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  @click="setAudioFormat('opus')"
+                >
+                  Opus
+                </button>
               </div>
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.47' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.48' }}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
+              <span style="color: var(--on-surface-variant);">HyperDL update</span>
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; justify-content: flex-end;">
+                <span v-if="moduleUpdate.latest" style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ moduleUpdate.has_update ? moduleUpdate.latest + ' available' : moduleUpdate.latest }}</span>
+                <button
+                  class="btn"
+                  :class="moduleUpdate.has_update ? 'btn-primary' : 'btn-secondary'"
+                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600; flex-shrink: 0;"
+                  :disabled="moduleChecking"
+                  @click="handleModuleUpdateAction"
+                >
+                  <span v-if="moduleChecking" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
+                    <Icons name="refresh" :size="10" />
+                  </span>
+                  <span>{{ moduleChecking ? 'Checking...' : (moduleUpdate.latest ? (moduleUpdate.has_update ? 'View' : 'Checked') : 'Check update') }}</span>
+                </button>
+              </div>
+            </div>
+            <div v-if="moduleUpdate.has_update && moduleUpdate.notes" style="font-size: 11px; color: var(--on-surface-variant); padding: 6px 0; border-bottom: 1px solid var(--surface-container-high);">
+              {{ moduleUpdate.notes }}
+              <a href="https://github.com/itswill00/HyperDL/releases" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Get it here</a>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">yt-dlp binary</span>
@@ -965,6 +1165,30 @@
             Downloads from stream links will be stored here securely
           </div>
         </div>
+
+        <section class="md3-card" style="margin-top: 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <div>
+              <div style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Watched domains ({{ vaultDomainsCount }})</div>
+              <div style="font-size: 11px; color: var(--on-surface-variant);">Links from these sites go to the vault. One per line.</div>
+            </div>
+            <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px; height: 24px;" @click="loadVaultDomains" title="Reload list">
+              <Icons name="refresh" :size="12" />
+            </button>
+          </div>
+          <textarea
+            v-model="vaultDomainsText"
+            class="cookies-textarea"
+            style="min-height: 110px;"
+            placeholder="example.com"
+            spellcheck="false"
+          ></textarea>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <button class="btn btn-primary" style="flex: 1; height: 36px; font-size: 12px;" @click="saveVaultDomains">
+              Save list
+            </button>
+          </div>
+        </section>
       </div>
 
       <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 0 16px 0;">
@@ -1018,6 +1242,9 @@
         </div>
 
         <div v-else class="resolution-list">
+          <div v-if="probeThumb" style="margin-bottom: 8px; border-radius: 10px; overflow: hidden;">
+            <img :src="probeThumb" alt="" referrerpolicy="no-referrer" style="width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover;" loading="lazy" />
+          </div>
           <button
             v-for="r in resolutions"
             :key="r.height || r.format_id"
@@ -1191,6 +1418,96 @@ const resolutions = ref([])
 const showResolutionPicker = ref(false)
 const isProbingResolutions = ref(false)
 const pendingUrl = ref('')
+const probeThumb = ref('')
+const probeSubs = ref([])
+const subLangs = ref('none')
+const playlistMode = ref(false)
+const plStart = ref('')
+const plEnd = ref('')
+
+function loadQueue() {
+  try {
+    const raw = localStorage.getItem('hyperdl_queue')
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter(i => i && i.url) : []
+  } catch (e) { return [] }
+}
+const queue = ref(loadQueue())
+function persistQueue() {
+  try { localStorage.setItem('hyperdl_queue', JSON.stringify(queue.value.slice(0, 50))) } catch (e) {}
+}
+
+function loadFailed() {
+  try {
+    const raw = localStorage.getItem('hyperdl_failed')
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter(i => i && i.url).slice(0, 20) : []
+  } catch (e) { return [] }
+}
+const failedAttempts = ref(loadFailed())
+function persistFailed() {
+  try { localStorage.setItem('hyperdl_failed', JSON.stringify(failedAttempts.value.slice(0, 20))) } catch (e) {}
+}
+
+function recordFailed(url, fmt, error, extra) {
+  if (!url) return
+  failedAttempts.value = [
+    { url, fmt: fmt || 'video', error: String(error || 'Download failed').slice(0, 160), time: Date.now(), extra: extra || null },
+    ...failedAttempts.value.filter(i => i.url !== url)
+  ].slice(0, 20)
+  persistFailed()
+}
+
+function retryFailed(item) {
+  failedAttempts.value = failedAttempts.value.filter(i => i.url !== item.url)
+  persistFailed()
+  url.value = item.url
+  selectedFormat.value = item.fmt || 'video'
+  doDownload(item.url, item.fmt || 'video', item.extra || null)
+}
+
+function dismissFailed(targetUrl) {
+  failedAttempts.value = failedAttempts.value.filter(i => i.url !== targetUrl)
+  persistFailed()
+}
+
+function enqueueCurrent() {
+  const clean = extractUrl(url.value)
+  if (!clean) {
+    showToast('Paste a link first', 'warning')
+    return
+  }
+  url.value = clean
+  if (queue.value.some(i => i.url === clean && i.fmt === selectedFormat.value)) {
+    showToast('Already in queue', 'info')
+    return
+  }
+  queue.value.push({ url: clean, fmt: selectedFormat.value, time: Date.now() })
+  persistQueue()
+  showToast(`Queued (${queue.value.length})`, 'success')
+}
+
+function removeQueued(targetUrl) {
+  queue.value = queue.value.filter(i => i.url !== targetUrl)
+  persistQueue()
+}
+
+function clearQueue() {
+  queue.value = []
+  persistQueue()
+}
+
+function processQueue() {
+  if (isProcessing.value || queue.value.length === 0) return
+  if (task.value.status !== 'idle' && task.value.status !== 'completed' && task.value.status !== 'error') return
+  const next = queue.value.shift()
+  persistQueue()
+  if (!next) return
+  url.value = next.url
+  selectedFormat.value = next.fmt || 'video'
+  showToast(`Starting queued item (${queue.value.length} left)`, 'info')
+  doDownload(next.url, next.fmt || 'video', null)
+}
 const cookiesText = ref('')
 const cookiesActive = ref(false)
 const cookiesLines = ref(0)
@@ -1293,6 +1610,91 @@ async function handleYtdlpAction() {
   }
 }
 
+
+const moduleUpdate = ref({ latest: '', notes: '', zip_url: '', has_update: false })
+const moduleChecking = ref(false)
+
+async function handleModuleUpdateAction() {
+  moduleChecking.value = true
+  try {
+    const raw = await runBridge('check_update')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.latest_version) {
+        moduleUpdate.value = {
+          latest: res.latest_version,
+          notes: res.notes || '',
+          zip_url: res.zip_url || '',
+          has_update: !!res.has_update
+        }
+        showToast(res.has_update ? `HyperDL update available: ${res.latest_version}` : `HyperDL is up to date (${res.latest_version})`)
+      } else if (res.error) {
+        showToast(res.error, 'error')
+      }
+    } else {
+      showToast('Check failed: invalid response', 'error')
+    }
+  } catch (e) {
+    showToast('Failed to check HyperDL update', 'error')
+  } finally {
+    moduleChecking.value = false
+  }
+}
+
+const notifyMode = ref('normal')
+
+async function loadNotifyMode() {
+  try {
+    const raw = await runBridge('get_notify_mode')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.notify_mode) notifyMode.value = res.notify_mode
+    }
+  } catch (e) {}
+}
+
+async function setNotifyMode(mode) {
+  try {
+    await runBridge('notify_mode', mode)
+    notifyMode.value = mode
+    showToast(mode === 'silent' ? 'Notifications silenced' : (mode === 'verbose' ? 'Verbose progress on' : 'Normal notifications'), 'success')
+  } catch (e) {
+    showToast('Failed to update notification mode', 'error')
+  }
+}
+
+const vaultDomainsText = ref('')
+const vaultDomainsCount = ref(0)
+
+async function loadVaultDomains() {
+  try {
+    const raw = await runBridge('get_vault_domains')
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      const list = Array.isArray(res.domains) ? res.domains : []
+      vaultDomainsText.value = list.join('\n')
+      vaultDomainsCount.value = list.length
+    }
+  } catch (e) {}
+}
+
+async function saveVaultDomains() {
+  try {
+    const b64 = base64EncodeUtf8(vaultDomainsText.value)
+    const raw = await runBridge('save_vault_domains', b64)
+    if (raw && raw.startsWith('{')) {
+      const res = JSON.parse(raw)
+      if (res.success) {
+        vaultDomainsCount.value = res.domains
+        showToast(`Vault list saved (${res.domains} domains)`, 'success')
+      } else {
+        showToast(res.error === 'no_valid_domains' ? 'No valid domains found' : 'Save failed', 'error')
+      }
+    }
+  } catch (e) {
+    showToast('Failed to save vault list', 'error')
+  }
+}
 
 const logContent = ref('Loading console log...')
 
@@ -1465,6 +1867,7 @@ async function onVersionClick() {
         showToast('Vault Mode: Active', 'success')
         activeTab.value = 'vault'
         await fetchVaultHistory()
+        loadVaultDomains()
       } else {
         showToast('Vault Mode: Deactivated', 'info')
         if (activeTab.value === 'vault') {
@@ -1734,6 +2137,8 @@ async function startProbing(u) {
       if (parsed.status === 'ready') {
         stopProbing()
         isProbingResolutions.value = false
+        probeThumb.value = parsed.thumbnail || ''
+        probeSubs.value = Array.isArray(parsed.subtitles) ? parsed.subtitles : []
         if (parsed.resolutions && parsed.resolutions.length > 0) {
           resolutions.value = parsed.resolutions
         } else {
@@ -1904,6 +2309,16 @@ async function doDownload(u, fmt, extraArg, isResume = false) {
     if (fmt === 'audio' && audioFormat.value) {
       bridgeArgs.push(`--audio-format=${audioFormat.value}`)
     }
+    if (playlistMode.value) {
+      bridgeArgs.push('--playlist')
+      const s = parseInt(plStart.value, 10)
+      const e = parseInt(plEnd.value, 10)
+      if (s > 0) bridgeArgs.push(`--playlist-start=${s}`)
+      if (e > 0) bridgeArgs.push(`--playlist-end=${e}`)
+    }
+    if (fmt === 'video' && subLangs.value && subLangs.value !== 'none') {
+      bridgeArgs.push(`--sub-langs=${subLangs.value}`)
+    }
     await runBridge('download', ...bridgeArgs)
     startPolling()
   } catch (e) {
@@ -1911,6 +2326,7 @@ async function doDownload(u, fmt, extraArg, isResume = false) {
     task.value.error = String(e)
     isProcessing.value = false
     saveActiveTaskToStorage(task.value)
+    recordFailed(u, fmt, String(e), extraArg)
   }
 }
 
@@ -1952,6 +2368,7 @@ function startPolling() {
         showToast('Download complete', 'success')
         fetchHistory()
         fetchLogs()
+        processQueue()
       } else if (parsed.status === 'paused') {
         clearInterval(pollTimer)
         pollTimer = null
@@ -1966,12 +2383,15 @@ function startPolling() {
         saveActiveTaskToStorage(task.value)
         const isNet = isNetworkError(parsed.error)
         showToast(isNet ? 'Network disconnected: Ready to resume' : (parsed.error || 'Download failed'), 'error')
+        recordFailed(task.value.url, task.value.fmt, parsed.error, task.value.height ? `--height=${task.value.height}` : (task.value.format_id ? `--format-id=${task.value.format_id}` : null))
         fetchLogs()
+        processQueue()
       } else if (parsed.status === 'idle') {
         clearInterval(pollTimer)
         pollTimer = null
         isProcessing.value = false
         saveActiveTaskToStorage(null)
+        processQueue()
       } else if (parsed.status === 'resolving' && (Date.now() - pollStart > 50000)) {
         clearInterval(pollTimer)
         pollTimer = null
@@ -1980,7 +2400,9 @@ function startPolling() {
         task.value.error = 'Connection timed out while resolving media. Platform may be slow or blocking requests.'
         showToast('Download timed out', 'error')
         saveActiveTaskToStorage(task.value)
+        recordFailed(task.value.url, task.value.fmt, task.value.error, null)
         fetchLogs()
+        processQueue()
       }
     } catch (e) {
     } finally {
@@ -2729,6 +3151,8 @@ onMounted(() => {
   fetchStorageStats()
   checkClipboardSniffer()
   checkVaultStatus()
+  loadNotifyMode()
+  loadVaultDomains()
   nextTick(() => {
     switchTab(activeTab.value, false)
   })
