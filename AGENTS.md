@@ -53,12 +53,21 @@ is allowed to contain Indonesian.
    - `--release` no longer clones or pushes metadata to any other repo. It packages the local zip, then runs `gh release create` against the source repo. It refuses to publish when the working tree is dirty, when unpushed commits exist, when the tag already exists, or when `release_notes/vX.Y.Z.md` is missing.
 
 8. **Release Notes Standard (HyperDL Tag Description)**:
-   - Required one-line header: `HyperDL vX.Y.Z (b<versionCode>) — full-zip release. Changes since v<X.Y.Z>:` (use `Initial release.` for the first release).
-   - Group the body under capitalized category headings (e.g. `YouTube downloads`, `WebUI`, `Build & docs`). Each bullet stays one to two lines, uses the active voice, and MUST explain WHY for fixes.
-   - Never dump a per-commit changelog, never leave TODO or placeholder text, and keep technical notes understandable to a first-time user.
-   - Required closing line: `Update from your root manager or flash HyperDL-vX.Y.Z.zip.`
-   - The same one-sentence summary is reused as the `notes` field in `update.json`.
-   - Notes live in `release_notes/vX.Y.Z.md` and are versioned alongside the code.
+   - Notes live in `release_notes/vX.Y.Z.md` and are versioned alongside the code. Write them in **full GitHub-flavored Markdown**, because that is what renders on the release page.
+   - Structure, in order:
+     1. `# HyperDL vX.Y.Z` as the only H1.
+     2. A blockquote metadata line carrying versionCode, release type, and the previous version (e.g. `> **b13450** · full-zip release · changes since \`v1.3.42\``).
+     3. A one-paragraph summary of what this release delivers, written for someone deciding whether to update.
+     4. A `---` rule, then a `## Highlights` table (Area | What changed) for at-a-glance scanning.
+     5. One `##` section per category, using `##`/`###` headings, `-` bullets, inline code for errors, file names, and commands, and `**bold**` for the fix summary at the start of each bullet. Each bullet stays one to two lines, uses the active voice, and MUST explain WHY for fixes.
+     6. `---`, then an install section as a two-column table (Method | Steps).
+     7. A changelog link, then the required closing line: `Update from your root manager or flash \`HyperDL-vX.Y.Z.zip\`.`
+   - Rules:
+     - Never dump a per-commit changelog, never leave TODO or placeholder text, and keep technical notes understandable to a first-time user.
+     - Wrap error messages, paths, commands, and filenames in inline code.
+     - Use a `---` horizontal rule to separate major blocks; do not rely on blank lines alone.
+     - Exactly one H1 per release description.
+   - The one-sentence summary from the intro paragraph is reused verbatim as the `notes` field in `update.json`.
 
 9. **Vault (18+) Privacy Invariant**:
    - Isolated routing: `get_target_directory()` + `download_with_ytdlp_direct()` send URLs matching `vault_domains.conf` to `$OUTDIR/.vault/Stream` with `.nomedia` (hidden from Gallery).

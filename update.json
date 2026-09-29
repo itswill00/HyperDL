@@ -3,5 +3,5 @@
   "versionCode": 13450,
   "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.45/HyperDL-v1.3.45.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Fix YouTube HTTP 416 resume failures, stop mirroring release zips to shared storage, and rewrite the README with usage guides, configuration reference, and FAQ."
+  "notes": "Fixes YouTube downloads that failed with HTTP 416, stops release packaging from quietly filling up your phone's shared storage, and rebuilds the documentation around actual usage."
 }
