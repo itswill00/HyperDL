@@ -1,5 +1,9 @@
 # HyperDL Project Guidelines
 
+All project content — code, comments, docs, UI text, and this file — must be written in full English.
+Chat communication with the user stays casual Indonesian, but nothing committed to the repository
+is allowed to contain Indonesian.
+
 ## Core Invariants
 1. **Android 10+ WebView Safety**:
    - Never use `window.confirm()`, `window.alert()`, or `window.prompt()`. Always use custom in-app Vue modals.
@@ -15,52 +19,62 @@
    - Verify process liveness using `/proc/<pid>` and `errno == EPERM`. Never mutate active tasks to paused if PID is alive.
 
 3. **Python Extractor**:
-   - Keep all standard library imports (`subprocess`, `shutil`, `html as pyhtml`) at top-level module scope in `engine/downloader.py`.
+   - Keep all standard library imports (`subprocess`, `shutil`, `html as pyhtml`) at top-level module scope in `engine/_impl.py`.
    - Status writes to `STATUS_FILE` and `ACTIVE_TASK_FILE` must be atomic (`.tmp` + `os.replace`).
    - Video requests must never fall back to static image/thumbnail cover files (`og:image`).
    - Always use `(d.get("key") or {})` when traversing dynamic social media JSON to prevent `NoneType` crashes on `null` fields.
    - For HLS `.m3u8` streams, remux with FFmpeg using `-f mp4` and `.tmp.mp4` temporary files; do not pass concurrent chunk flags to yt-dlp on HLS.
+   - Guard against signed-URL resume drift: if a download fails with a range error (HTTP 416), purge the stale partial and retry once from the start rather than forcing resume.
 
 4. **Tone & Branding**:
    - Avoid robotic words. Specifically, do NOT use the word "engine" in user-facing texts, logs, or UI.
-   - Keep UI text in English and chat communication in casual Indonesian.
+   - Keep all UI text, release notes, and documentation in English.
 
 5. **Version Bump & Release Invariant**:
    - Every fix or update MUST bump version and versionCode across `module.prop`, `update.json`, `webui/package.json`, `webui/src/App.vue`, `src/main.c`, and `README.md`.
+   - `scripts/bump_version.py` is the single supported way to bump. Run it and verify the six files stayed in sync.
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.
    - Release zips live strictly in internal `releases/` (`HyperDL-vX.Y.Z.zip`). Never mirror to `/sdcard`.
-   - **Full-Zip Only**: Semua perbaikan (scraper `engine/`, WebUI `webui/`, bridge `src/main.c`) SELALU dirilis sebagai **Full Zip** (`HyperDL-vX.Y.Z.zip`). Fungsi OTA sudah dibuang sepenuhnya, jangan buat `HyperDL-OTA-*.zip` dalam kondisi apapun.
+   - **Full-Zip Only**: every change (extractor `engine/`, WebUI `webui/`, bridge `src/main.c`) is ALWAYS released as a **Full Zip** (`HyperDL-vX.Y.Z.zip`). OTA is gone for good; never produce `HyperDL-OTA-*.zip` under any circumstance.
 
 6. **Strict Release Gate (Mandatory User Confirmation)**:
-   - DILARANG KERAS membuat tag rilis GitHub (`gh release create`), push tag rilis, atau update release feed metadata publik sebelum:
-     1. Semua perbaikan sudah diuji secara lokal dan di-deploy ke modul HP (`./build.sh --deploy`).
-     2. Meminta user secara eksplisit untuk mencoba dan menguji sendiri fitur/fix tersebut di device atau WebUI mereka.
-     3. User memberikan konfirmasi tegas bahwa semuanya sudah benar-benar stabil, aman, dan bebas bug.
-   - HANYA setelah ada lampu hijau/konfirmasi eksplisit dari user, agen baru diizinkan mengeksekusi `./build.sh --release` atau mempublikasikan rilis baru.
+   - Creating a GitHub release tag (`gh release create`), pushing a release tag, or updating public release feed metadata is FORBIDDEN until all of the following hold:
+     1. Every change has been tested locally and deployed to the device (`./build.sh --deploy`).
+     2. The user has been explicitly asked to try the new feature or fix on their own device or WebUI.
+     3. The user has given firm confirmation that everything is stable, safe, and bug-free.
+   - ONLY after an explicit green light from the user may the agent run `./build.sh --release` or publish any release.
 
 7. **Single-Venue Releases (Source Repo = Release Repo)**:
-   - Efektif v1.3.45, repo `itswill00/HyperDL` adalah SATU-SATUNYA venue rilis. Kode sumber, git tag, GitHub Releases, biner flashable, dan metadata `update.json` semua hidup di repo ini.
-   - `./build.sh --release` membuat tag + GitHub Release di remote `origin` (`itswill00/HyperDL`). Tidak ada lagi repo rilis terpisah.
-   - `update.json` dan `module.prop:updateJson` WAJIB menunjuk ke raw URL repo sumber (`https://raw.githubusercontent.com/itswill00/HyperDL/main/update.json`) dan asset URL repo sumber (`https://github.com/itswill00/HyperDL/releases/download/...`).
-   - Repo lama `itswill00/HyperDL-Release` sifatnya arsip historis (rilis <= v1.3.42). DILARANG publish, tag, atau push apa pun ke sana.
-   - `--release` tidak lagi meng-clone/push metadata ke repo manapun; cukup package zip lokal lalu `gh release create` di repo sumber.
+   - Effective v1.3.45, `itswill00/HyperDL` is the ONLY release venue. Source code, git tags, GitHub Releases, flashable binaries, and `update.json` metadata all live in this repository.
+   - `./build.sh --release` creates the tag and GitHub Release on the `origin` remote (`itswill00/HyperDL`). There is no separate release repo anymore.
+   - `update.json` and `module.prop:updateJson` MUST point at the source repo raw URL (`https://raw.githubusercontent.com/itswill00/HyperDL/main/update.json`) and the source repo asset URL (`https://github.com/itswill00/HyperDL/releases/download/...`).
+   - The old `itswill00/HyperDL-Release` repo is a historical archive (releases up to v1.3.42). Publishing, tagging, or pushing anything there is FORBIDDEN.
+   - `--release` no longer clones or pushes metadata to any other repo. It packages the local zip, then runs `gh release create` against the source repo. It refuses to publish when the working tree is dirty, when unpushed commits exist, when the tag already exists, or when `release_notes/vX.Y.Z.md` is missing.
 
 8. **Release Notes Standard (HyperDL Tag Description)**:
-   - Header satu baris wajib: `HyperDL vX.Y.Z (b<versionCode>) — full-zip release. Changes since v<X.Y.Z>:` (rilis pertama: `Initial release.`).
-   - Body dikelompokkan per kategori kapital (mis. `YouTube downloads`, `WebUI`, `Build & docs`). Tiap butir satu-dua baris, kalimat aktif, dan wajib menyebut KENAPA untuk fix.
-   - Dilarang dump changelog per-commit, dilarang TODO/placeholder, dan catatan teknis harus ditulis dalam bahasa Inggris yang mudah dibaca user awam.
-   - Baris penutup wajib: `Update from your root manager or flash HyperDL-vX.Y.Z.zip.`
-   - Ringkasan singkat (1 kalimat) yang sama juga dipakai sebagai `notes` di `update.json`.
+   - Required one-line header: `HyperDL vX.Y.Z (b<versionCode>) — full-zip release. Changes since v<X.Y.Z>:` (use `Initial release.` for the first release).
+   - Group the body under capitalized category headings (e.g. `YouTube downloads`, `WebUI`, `Build & docs`). Each bullet stays one to two lines, uses the active voice, and MUST explain WHY for fixes.
+   - Never dump a per-commit changelog, never leave TODO or placeholder text, and keep technical notes understandable to a first-time user.
+   - Required closing line: `Update from your root manager or flash HyperDL-vX.Y.Z.zip.`
+   - The same one-sentence summary is reused as the `notes` field in `update.json`.
+   - Notes live in `release_notes/vX.Y.Z.md` and are versioned alongside the code.
 
 9. **Vault (18+) Privacy Invariant**:
-   - Routing terisolasi: `get_target_directory()` + `download_with_ytdlp_direct()` arahkan URL yang match `vault_domains.conf` ke `$OUTDIR/.vault/Stream` dengan `.nomedia` (hidden dari Gallery).
-   - Source of truth tunggal: `src/main.c:1460` `b64_domains` berisi 20 domain (12 base + 8 baru: beeg.com, spankbang.com, tube8.com, youjizz.com, 4tube.com, nuvid.com, sunporno.com, tnaflix.com) — semua backed extractor yt-dlp `bin/yt-dlp`.
-   - `cmd_toggle_vault` wajib idempotent merge: jika `vault_domains.conf` sudah ada, hanya append baris yang belum ada (preserve custom edits user), jangan overwrite penuh.
-   - DoH bypass (`src/sitecustomize.py`) dan clipboard daemon (`bin/hyperdl_daemon`) wajib baca `vault_domains.conf` yang sama untuk filter domain.
+   - Isolated routing: `get_target_directory()` + `download_with_ytdlp_direct()` send URLs matching `vault_domains.conf` to `$OUTDIR/.vault/Stream` with `.nomedia` (hidden from Gallery).
+   - Single source of truth: `src/main.c` `b64_domains` holds 20 domains (12 base + 8 new: beeg.com, spankbang.com, tube8.com, youjizz.com, 4tube.com, nuvid.com, sunporno.com, tnaflix.com) — all backed by the `bin/yt-dlp` extractor.
+   - `cmd_toggle_vault` must merge idempotently: if `vault_domains.conf` already exists, only append lines that are missing (preserve user edits) and never overwrite the whole file.
+   - The DoH bypass (`src/sitecustomize.py`) and the clipboard daemon (`bin/hyperdl_daemon`) must read the same `vault_domains.conf` for domain filtering.
 
 10. **Strict Standalone Module Isolation (Zero Termux Runtime Dependency)**:
-   - The Magisk / KernelSU / APatch module MUST be 100% standalone and isolated inside `/data/adb/modules/hyperdl/` and `/system/`.
-   - Termux is strictly the local build and compilation environment; runtime code (`src/main.c`, `engine/`, `bin/hyperdl_daemon`, and `webui/src/helpers/shell.js`) must NEVER reference `/data/data/com.termux/...`.
-   - Bundled ELF binaries (`python3`, dynamic extensions `.so`, `ffmpeg.bin`, `ffprobe.bin`) must have relative RUNPATHs (`$ORIGIN/../lib`, `$ORIGIN/../..`) set via `patchelf` during packaging.
-   - Python stdlib must be packaged as stripped `.pyc` bytecode inside a single compressed archive (`python314.zip`) without GUI, tests, or unused debug modules.
+    - The Magisk / KernelSU / APatch module MUST be 100% standalone and isolated inside `/data/adb/modules/hyperdl/` and `/system/`.
+    - Termux is strictly the local build and compilation environment; runtime code (`src/main.c`, `engine/`, `bin/hyperdl_daemon`, and `webui/src/helpers/shell.js`) must NEVER reference `/data/data/com.termux/...`.
+    - Bundled ELF binaries (`python3`, dynamic extensions `.so`, `ffmpeg.bin`, `ffprobe.bin`) must have relative RUNPATHs (`$ORIGIN/../lib`, `$ORIGIN/../..`) set via `patchelf` during packaging.
+    - Python stdlib must be packaged as stripped `.pyc` bytecode inside a single compressed archive (`python314.zip`) without GUI, tests, or unused debug modules.
+
+---
+
+## Communication
+
+- Repository content: **English only**, no exceptions. This includes code comments, commit messages, release notes, docs, and UI strings.
+- Chat replies: casual Indonesian, matching how the user writes.
