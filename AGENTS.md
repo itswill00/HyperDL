@@ -39,19 +39,27 @@
      3. User memberikan konfirmasi tegas bahwa semuanya sudah benar-benar stabil, aman, dan bebas bug.
    - HANYA setelah ada lampu hijau/konfirmasi eksplisit dari user, agen baru diizinkan mengeksekusi `./build.sh --release` atau mempublikasikan rilis baru.
 
-7. **Strict Repository Role Separation (Zero Tags on Source Repo)**:
-   - Repo `itswill00/HyperDL` murni HANYA untuk kode sumber (codebase only).
-   - DILARANG KERAS membuat git tag rilis lokal ataupun mem-push git tag rilis ke remote `itswill00/HyperDL`.
-   - DILARANG membuat GitHub Releases di `itswill00/HyperDL`.
-   - Seluruh tag rilis, GitHub Releases (`gh release create`), biner flashable, dan metadata `update.json` HANYA didistribusikan melalui repo publik `itswill00/HyperDL-Release`.
+7. **Single-Venue Releases (Source Repo = Release Repo)**:
+   - Efektif v1.3.45, repo `itswill00/HyperDL` adalah SATU-SATUNYA venue rilis. Kode sumber, git tag, GitHub Releases, biner flashable, dan metadata `update.json` semua hidup di repo ini.
+   - `./build.sh --release` membuat tag + GitHub Release di remote `origin` (`itswill00/HyperDL`). Tidak ada lagi repo rilis terpisah.
+   - `update.json` dan `module.prop:updateJson` WAJIB menunjuk ke raw URL repo sumber (`https://raw.githubusercontent.com/itswill00/HyperDL/main/update.json`) dan asset URL repo sumber (`https://github.com/itswill00/HyperDL/releases/download/...`).
+   - Repo lama `itswill00/HyperDL-Release` sifatnya arsip historis (rilis <= v1.3.42). DILARANG publish, tag, atau push apa pun ke sana.
+   - `--release` tidak lagi meng-clone/push metadata ke repo manapun; cukup package zip lokal lalu `gh release create` di repo sumber.
 
-8. **Vault (18+) Privacy Invariant**:
+8. **Release Notes Standard (HyperDL Tag Description)**:
+   - Header satu baris wajib: `HyperDL vX.Y.Z (b<versionCode>) — full-zip release. Changes since v<X.Y.Z>:` (rilis pertama: `Initial release.`).
+   - Body dikelompokkan per kategori kapital (mis. `YouTube downloads`, `WebUI`, `Build & docs`). Tiap butir satu-dua baris, kalimat aktif, dan wajib menyebut KENAPA untuk fix.
+   - Dilarang dump changelog per-commit, dilarang TODO/placeholder, dan catatan teknis harus ditulis dalam bahasa Inggris yang mudah dibaca user awam.
+   - Baris penutup wajib: `Update from your root manager or flash HyperDL-vX.Y.Z.zip.`
+   - Ringkasan singkat (1 kalimat) yang sama juga dipakai sebagai `notes` di `update.json`.
+
+9. **Vault (18+) Privacy Invariant**:
    - Routing terisolasi: `get_target_directory()` + `download_with_ytdlp_direct()` arahkan URL yang match `vault_domains.conf` ke `$OUTDIR/.vault/Stream` dengan `.nomedia` (hidden dari Gallery).
    - Source of truth tunggal: `src/main.c:1460` `b64_domains` berisi 20 domain (12 base + 8 baru: beeg.com, spankbang.com, tube8.com, youjizz.com, 4tube.com, nuvid.com, sunporno.com, tnaflix.com) — semua backed extractor yt-dlp `bin/yt-dlp`.
    - `cmd_toggle_vault` wajib idempotent merge: jika `vault_domains.conf` sudah ada, hanya append baris yang belum ada (preserve custom edits user), jangan overwrite penuh.
    - DoH bypass (`src/sitecustomize.py`) dan clipboard daemon (`bin/hyperdl_daemon`) wajib baca `vault_domains.conf` yang sama untuk filter domain.
 
-9. **Strict Standalone Module Isolation (Zero Termux Runtime Dependency)**:
+10. **Strict Standalone Module Isolation (Zero Termux Runtime Dependency)**:
    - The Magisk / KernelSU / APatch module MUST be 100% standalone and isolated inside `/data/adb/modules/hyperdl/` and `/system/`.
    - Termux is strictly the local build and compilation environment; runtime code (`src/main.c`, `engine/`, `bin/hyperdl_daemon`, and `webui/src/helpers/shell.js`) must NEVER reference `/data/data/com.termux/...`.
    - Bundled ELF binaries (`python3`, dynamic extensions `.so`, `ffmpeg.bin`, `ffprobe.bin`) must have relative RUNPATHs (`$ORIGIN/../lib`, `$ORIGIN/../..`) set via `patchelf` during packaging.

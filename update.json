@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.44",
-  "versionCode": 13440,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.44/HyperDL-v1.3.44.zip",
-  "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Drop /sdcard mirror: release zips live in internal releases/ only."
+  "version": "v1.3.45",
+  "versionCode": 13450,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.45/HyperDL-v1.3.45.zip",
+  "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
+  "notes": "Fix YouTube HTTP 416 resume failures, stop mirroring release zips to shared storage, and rewrite the README with usage guides, configuration reference, and FAQ."
 }

@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
-  <img src="https://img.shields.io/badge/Release-v1.3.44-black.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v1.3.45-black.svg" alt="Release">
 </p>
 
 <p align="center">
@@ -71,7 +71,7 @@
 
 ### Method 1: Flash the release zip (recommended)
 
-1. Download `HyperDL-v1.3.44.zip` from the [Releases page](https://github.com/itswill00/HyperDL-Release/releases).
+1. Download `HyperDL-v1.3.45.zip` from the [Releases page](https://github.com/itswill00/HyperDL/releases).
 2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
 3. Go to **Modules** > **Install from storage** and pick the zip.
 4. Open the module WebUI from your root manager — no reboot needed.
@@ -274,7 +274,7 @@ HyperDL/
 ├── customize.sh             # On-device installation script
 ├── service.sh               # Late-start service initialization
 ├── uninstall.sh             # Module removal and cache purge
-├── update.json              # Release-feed metadata (served from HyperDL-Release)
+├── update.json              # Release-feed metadata (served from this repo)
 ├── AGENTS.md                # Contributor invariants — read before changing code
 ├── bin/
 │   ├── libhyperdl.so        # Native 64-bit ELF bridge (built from src/main.c)
@@ -294,6 +294,8 @@ HyperDL/
 ├── src/
 │   ├── main.c               # Native C bridge source
 │   └── sitecustomize.py     # On-device Python bootstrap
+├── release_notes/
+│   └── vX.Y.Z.md            # GitHub Release description per version
 ├── tests/
 │   └── test_engine.py       # Unit tests (run with unittest)
 ├── webroot/
@@ -320,7 +322,7 @@ HyperDL/
 | `-b, --bump [type]` | Bump version (`patch` \| `minor` \| `major`, default: `patch`) |
 | `-d, --deploy` | Deploy to `/data/adb/modules/hyperdl` for live testing |
 | `-c, --clean` | Remove build artifacts |
-| `-r, --release` | Publish the Full Zip to HyperDL-Release |
+| `-r, --release` | Tag and publish the Full Zip to this repo |
 | `-h, --help` | Show help |
 
 ### Typical Workflows
@@ -329,14 +331,14 @@ HyperDL/
 ./build.sh --deploy          # rebuild + push live to the device
 ./build.sh --clean           # wipe dist, binaries, and caches
 ./build.sh                   # package releases/HyperDL-vX.Y.Z.zip
-./build.sh --release         # package + publish to HyperDL-Release
+./build.sh --release         # package, tag, and publish to this repo
 ```
 
 ### Build Targets
 
 Packaging outputs a single Full Zip to internal `releases/`:
 
-- `HyperDL-v1.3.44.zip` — canonical release package with the full embedded runtime.
+- `HyperDL-v1.3.45.zip` — canonical release package with the full embedded runtime.
 
 > [!IMPORTANT]
 > Every release is a **Full Zip**. There is no OTA/delta mechanism — never create or expect `HyperDL-OTA-*.zip` files.
@@ -354,7 +356,7 @@ python3 -m unittest discover -s tests -v
 <details>
 <summary><strong>Download fails with <code>HTTP Error 416</code></strong></summary>
 
-Fixed in v1.3.44: YouTube downloads no longer force resume against short-lived signed URLs, and any range error is automatically retried from the start after purging stale partials. Update the module and try again.
+Fixed in v1.3.45: YouTube downloads no longer force resume against short-lived signed URLs, and any range error is automatically retried from the start after purging stale partials. Update the module and try again.
 
 </details>
 
@@ -419,7 +421,7 @@ No. Resolution and downloading happen on the device. The only network traffic is
 <details>
 <summary><strong>How do updates work?</strong></summary>
 
-Full-Zip releases ship through the [HyperDL-Release](https://github.com/itswill00/HyperDL-Release) feed (`update.json`). Flash the new zip over the old one — no data wipe needed.
+Full-Zip releases ship from this repository's [Releases page](https://github.com/itswill00/HyperDL/releases) feed (`update.json`). Flash the new zip over the old one — no data wipe needed. Older versions (up to v1.3.42) stay archived in the former HyperDL-Release repo.
 
 </details>
 

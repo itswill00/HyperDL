@@ -108,7 +108,7 @@ def main():
                 uj = {}
         uj["version"] = new_ver
         uj["versionCode"] = new_code
-        uj["zipUrl"] = f"https://github.com/itswill00/HyperDL-Release/releases/download/{new_ver}/HyperDL-{new_ver}.zip"
+        uj["zipUrl"] = f"https://github.com/itswill00/HyperDL/releases/download/{new_ver}/HyperDL-{new_ver}.zip"
         if notes:
             uj["notes"] = notes
         with open(update_json_path, "w", encoding="utf-8") as f:
@@ -135,8 +135,12 @@ def main():
     readme_path = os.path.join(PROJECT_DIR, "README.md")
     update_file(readme_path, r'Release-v[\d\.]+-black\.svg', f'Release-{new_ver}-black.svg')
     update_file(readme_path, r'HyperDL-v[\d\.]+\.zip', f'HyperDL-{new_ver}.zip')
-    update_file(readme_path, r'HyperDL-v[\d\.]+-b\d+-Standalone\.zip', f'HyperDL-{new_ver}-b{new_code}-Standalone.zip')
     print(f"  [x] README.md -> {new_ver}")
+
+    notes_path = os.path.join(PROJECT_DIR, "release_notes", f"{new_ver}.md")
+    if not os.path.exists(notes_path):
+        print(f"  [!] release notes missing: {notes_path}")
+        print(f"      --release refuses to publish without it (see AGENTS.md release notes standard)")
 
     print(f"==================================================")
     print(f"All 6 files synchronized successfully to {new_ver} ({new_code})")

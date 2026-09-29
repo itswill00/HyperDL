@@ -34,7 +34,7 @@ while [ $# -gt 0 ]; do
             echo "  -b, --bump [type]  Bump version (patch|minor|major, default: patch)"
             echo "  -d, --deploy       Deploy to /data/adb/modules/hyperdl"
             echo "  -c, --clean        Clean build artifacts"
-            echo "  -r, --release      Publish to HyperDL-Release"
+            echo "  -r, --release      Tag and publish to the source repo"
             exit 0
             ;;
         *)
@@ -153,22 +153,35 @@ echo "-> packaging module (${ZIP_NAME})..."
 zip -qr9 "$OUT_DIR/$ZIP_NAME" module.prop customize.sh service.sh uninstall.sh bin runtime webroot -x "*.git*" "webui/*" "webroot/*.map" "*.pyc" "*__pycache__*"
 echo "build finished: $OUT_DIR/$ZIP_NAME"
 
-# 4. Release to GitHub
+# 4. Release to GitHub (source repo is the single release venue)
 if [ "$RELEASE" = "true" ]; then
     if ! command -v gh >/dev/null 2>&1; then echo "error: gh not installed"; exit 1; fi
-    REL_REPO="itswill00/HyperDL-Release"
-    REL_TMP="${PROJECT_DIR}/releases/.tmp_release"
-    rm -rf "$REL_TMP" && mkdir -p "$REL_TMP"
-    git clone --depth 1 "https://github.com/${REL_REPO}.git" "$REL_TMP"
-    cp -f "${PROJECT_DIR}/update.json" "$REL_TMP/update.json"
-    cat <<EOF > "$REL_TMP/README.md"
-# HyperDL Releases
-## Latest: ${VERSION} (b${VERSION_CODE})
-- **Download**: [\`${ZIP_NAME}\`](https://github.com/${REL_REPO}/releases/download/${VERSION}/${ZIP_NAME})
-EOF
-    (cd "$REL_TMP" && git config user.name "itswill00" && git config user.email "itswill00@users.noreply.github.com" && git add update.json README.md && git commit -m "release: ${VERSION} (b${VERSION_CODE})" || true && git push origin main)
-    rm -rf "$REL_TMP"
+    REL_REPO="itswill00/HyperDL"
+    NOTES_FILE="${PROJECT_DIR}/release_notes/${VERSION}.md"
+    if [ ! -f "$NOTES_FILE" ]; then
+        echo "error: release notes missing at $NOTES_FILE"
+        echo "       write the HyperDL-standard description first (see AGENTS.md)"
+        exit 1
+    fi
+
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "error: working tree is dirty, commit before releasing"
+        exit 1
+    fi
+    git fetch origin >/dev/null 2>&1 || true
+    if [ -n "$(git log --oneline "origin/main..HEAD")" ]; then
+        echo "error: unpushed commits, push to origin/main before releasing"
+        exit 1
+    fi
+    if git rev-parse "${VERSION}" >/dev/null 2>&1; then
+        echo "error: tag ${VERSION} already exists locally"
+        exit 1
+    fi
+
+    git tag -a "${VERSION}" -m "HyperDL ${VERSION} (b${VERSION_CODE})"
+    git push origin "refs/tags/${VERSION}"
     gh release delete "${VERSION}" --repo "$REL_REPO" -y 2>/dev/null || true
-    gh release create "${VERSION}" "$OUT_DIR/$ZIP_NAME" --repo "$REL_REPO" --title "HyperDL ${VERSION}" --notes "HyperDL ${VERSION} (b${VERSION_CODE})"
+    gh release create "${VERSION}" "$OUT_DIR/$ZIP_NAME" --repo "$REL_REPO" \
+        --title "HyperDL ${VERSION}" --notes-file "$NOTES_FILE"
     echo "Release published: https://github.com/${REL_REPO}/releases/tag/${VERSION}"
 fi

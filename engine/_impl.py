@@ -31,7 +31,7 @@ CONF_DIR = "/data/adb/hyperdl"
 ACTIVE_TASK_FILE = "/data/adb/hyperdl/active_task.json"
 DEFAULT_OUTDIR = "/storage/emulated/0/Download/HyperDL"
 COOKIES_PATH = "/data/adb/hyperdl/cookies.txt"
-UPDATE_METADATA_URL = "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/update.json"
+UPDATE_METADATA_URL = "https://raw.githubusercontent.com/itswill00/HyperDL/main/update.json"
 
 CURRENT_URL = ""
 CURRENT_FMT = "video"
