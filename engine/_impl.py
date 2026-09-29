@@ -2497,6 +2497,28 @@ def resolve_youtube(url, fmt="video"):
         "title": "YouTube Media"
     }
 
+def _is_range_error(err):
+    low = (err or "").lower()
+    return "416" in low and "range" in low
+
+
+def _purge_stale_partials(outdir, since):
+    try:
+        cutoff = since - 600
+        for root, _, fnames in os.walk(outdir):
+            for fn in fnames:
+                if not fn.endswith((".part", ".ytdl", ".temp")):
+                    continue
+                full_p = os.path.join(root, fn)
+                try:
+                    if os.path.getmtime(full_p) >= cutoff:
+                        os.remove(full_p)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False, audio_format=None):
     ok, err_msg = check_storage_space(outdir, 100 * 1024 * 1024)
     if not ok:
@@ -2596,8 +2618,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
 
     extra_dl_args = []
     low_u = (url or "").lower()
+    # YouTube links ride on short-lived signed URLs, so a resumed Range
+    # request often lands past the fresh file size and dies with HTTP 416.
+    # Stick to default .part handling here and recover explicitly below.
     if "youtube.com" in low_u or "youtu.be" in low_u:
-        extra_dl_args = ["--continue", "--no-part"]
+        extra_dl_args = []
     elif not (".m3u8" in url or "manifest" in url or "/hls/" in url):
         extra_dl_args = ["--continue", "--concurrent-fragments", "4", "--http-chunk-size", "10M"]
     else:
@@ -2610,7 +2635,11 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         cookie_attempts = [[], cookie_arg] if cookie_arg else [[]]
     else:
         cookie_attempts = [cookie_arg, []] if cookie_arg else [[]]
-    for attempt_idx, active_cookies in enumerate(cookie_attempts):
+    range_retry_done = False
+    recovery_args = []
+    attempt_idx = 0
+    while attempt_idx < len(cookie_attempts):
+        active_cookies = cookie_attempts[attempt_idx]
         cmd = [
             py_bin,
             ytdlp_bin,
@@ -2624,7 +2653,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             "--newline",
             "--progress-template", "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(info.title)s|%(progress._eta_str)s",
             "-o", out_tpl,
-        ] + extra_dl_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
+        ] + extra_dl_args + recovery_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
 
         env = get_runtime_env()
         t_proc_start = time.time()
@@ -2698,9 +2727,16 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         t_err.join(timeout=1.5)
         if proc.returncode != 0:
             err = "".join(stderr_lines).strip()
+            if _is_range_error(err) and not range_retry_done:
+                range_retry_done = True
+                recovery_args = ["--no-continue"]
+                _purge_stale_partials(outdir, t_proc_start)
+                update_status("downloading", percent=0, title="Retrying download from start...")
+                continue
             if active_cookies and attempt_idx == 0:
                 print(f"yt-dlp failed with cookies, retrying without cookies: {err[-120:]}", file=sys.stderr)
                 update_status("downloading", percent=0, title="Retrying download without cookies...")
+                attempt_idx += 1
                 continue
             raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
         break

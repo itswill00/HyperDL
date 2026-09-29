@@ -10,6 +10,8 @@ from engine._impl import (
     humanize_error,
     decode_base64_padded,
     check_storage_space,
+    _is_range_error,
+    _purge_stale_partials,
 )
 
 
@@ -146,6 +148,37 @@ class TestCheckStorageSpace(unittest.TestCase):
         ok, msg = check_storage_space("/nonexistent/xyz/definitely", 1024)
         self.assertTrue(ok)
         self.assertEqual(msg, "")
+
+
+class TestRangeErrorRecovery(unittest.TestCase):
+    def test_detects_reported_416_message(self):
+        err = "yt-dlp failed: ERROR: unable to download video data: HTTP Error 416: Requested range not satisfiable"
+        self.assertTrue(_is_range_error(err))
+
+    def test_ignores_other_http_errors(self):
+        self.assertFalse(_is_range_error("HTTP Error 403: Forbidden"))
+        self.assertFalse(_is_range_error("HTTP Error 500: Internal Server Error"))
+
+    def test_ignores_empty(self):
+        self.assertFalse(_is_range_error(""))
+        self.assertFalse(_is_range_error(None))
+
+    def test_purge_removes_only_fresh_partials(self):
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            fresh_part = os.path.join(tmp, "video.webm.part")
+            old_part = os.path.join(tmp, "other.webm.part")
+            final_file = os.path.join(tmp, "done.mp4")
+            for p in (fresh_part, old_part, final_file):
+                with open(p, "w") as f:
+                    f.write("x" * 1024)
+            old_mtime = time.time() - 3600
+            os.utime(old_part, (old_mtime, old_mtime))
+            _purge_stale_partials(tmp, time.time())
+            self.assertFalse(os.path.exists(fresh_part))
+            self.assertTrue(os.path.exists(old_part))
+            self.assertTrue(os.path.exists(final_file))
 
 
 if __name__ == "__main__":

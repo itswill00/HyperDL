@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.42",
-  "versionCode": 13420,
-  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.42/HyperDL-v1.3.42.zip",
+  "version": "v1.3.43",
+  "versionCode": 13430,
+  "zipUrl": "https://github.com/itswill00/HyperDL-Release/releases/download/v1.3.43/HyperDL-v1.3.43.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL-Release/main/README.md",
-  "notes": "Cookies fully optional: smart auth errors distinguish missing vs expired session per platform, Cookies tab reframed as optional."
+  "notes": "Fix YouTube HTTP 416 resume failure: drop forced resume flags, retry range errors from start."
 }
