@@ -14,10 +14,19 @@ while [ $MAX_WAIT -gt 0 ]; do
     MAX_WAIT=$((MAX_WAIT - 1))
 done
 
-mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null || true
-chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+# Work profiles and secondary users do not own /storage/emulated/0, so probe
+# for a writable location before giving up.
+if ! mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null || [ ! -w /storage/emulated/0/Download/HyperDL ]; then
+    mkdir -p /data/media/0/Download/HyperDL 2>/dev/null || true
+    chmod 0777 /data/media/0/Download/HyperDL 2>/dev/null || true
+else
+    chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+fi
+
+# CONF_DIR holds the cookie session, so it stays owner-only.
 mkdir -p /data/adb/hyperdl 2>/dev/null || true
-chmod 0777 /data/adb/hyperdl 2>/dev/null || true
+chmod 0700 /data/adb/hyperdl 2>/dev/null || true
+[ -f /data/adb/hyperdl/cookies.txt ] && chmod 0600 /data/adb/hyperdl/cookies.txt 2>/dev/null || true
 
 CLIP_JAR=""
 for j in "$MODDIR/bin/clip.jar" "$MODDIR/system/bin/clip.jar"; do
@@ -31,10 +40,13 @@ if [ -n "$CLIP_JAR" ] && [ ! -f /data/adb/hyperdl/clip.jar ]; then
     chmod 644 /data/adb/hyperdl/clip.jar 2>/dev/null || true
 fi
 
-if [ -d /storage/emulated/0/Download/HyperDL/.vault ]; then
-    touch /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
-    chmod 0666 /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
-fi
+# Keep the gallery-hidden marker in place on whichever storage we resolved.
+for od in /storage/emulated/0/Download/HyperDL /data/media/0/Download/HyperDL; do
+    if [ -d "$od/.vault" ]; then
+        touch "$od/.vault/.nomedia" 2>/dev/null || true
+        chmod 0666 "$od/.vault/.nomedia" 2>/dev/null || true
+    fi
+done
 
 rm -f /data/local/tmp/hyperdl.pid /data/local/tmp/hyperdl_clip.pid 2>/dev/null || true
 

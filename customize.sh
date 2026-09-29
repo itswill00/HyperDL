@@ -27,8 +27,18 @@ ui_print "- Extracting files..."
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >/dev/null 2>&1
 
 ui_print "- Preparing directories..."
-mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null || true
-chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+# Work profiles and secondary users do not own /storage/emulated/0. Fall back to
+# /data/media/0 so downloads still work outside the primary user.
+if ! mkdir -p /storage/emulated/0/Download/HyperDL 2>/dev/null || [ ! -w /storage/emulated/0/Download/HyperDL ]; then
+    ui_print "! /storage/emulated/0 is not writable, using /data/media/0 instead."
+    mkdir -p /data/media/0/Download/HyperDL 2>/dev/null || true
+    chmod 0777 /data/media/0/Download/HyperDL 2>/dev/null || true
+else
+    chmod 0777 /storage/emulated/0/Download/HyperDL 2>/dev/null || true
+fi
+
+# CONF_DIR holds the cookie session, so it stays owner-only. The bridge always
+# runs as root, so nothing legitimate loses access.
 mkdir -p /data/adb/hyperdl 2>/dev/null || true
 chmod 0700 /data/adb/hyperdl 2>/dev/null || true
 [ -f /data/adb/hyperdl/cookies.txt ] && chmod 0600 /data/adb/hyperdl/cookies.txt 2>/dev/null || true
@@ -40,10 +50,13 @@ if [ -f "$MODPATH/bin/clip.jar" ]; then
     chmod 644 /data/adb/hyperdl/clip.jar 2>/dev/null || true
 fi
 
-if [ -d /storage/emulated/0/Download/HyperDL/.vault ]; then
-    touch /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
-    chmod 0666 /storage/emulated/0/Download/HyperDL/.vault/.nomedia 2>/dev/null || true
-fi
+# Keep the gallery-hidden marker in place on whichever storage we resolved.
+for od in /storage/emulated/0/Download/HyperDL /data/media/0/Download/HyperDL; do
+    if [ -d "$od/.vault" ]; then
+        touch "$od/.vault/.nomedia" 2>/dev/null || true
+        chmod 0666 "$od/.vault/.nomedia" 2>/dev/null || true
+    fi
+done
 
 ui_print "- Setting file permissions and SELinux contexts..."
 set_perm_recursive "$MODPATH" 0 0 0755 0644

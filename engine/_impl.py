@@ -59,6 +59,8 @@ except Exception:
     pass
 
 def get_effective_outdir(preferred=DEFAULT_OUTDIR):
+    # Work profiles and secondary users do not own /storage/emulated/0, so
+    # probe each candidate for a real write instead of assuming user 0.
     candidates = [
         preferred,
         "/storage/emulated/0/Download/HyperDL",

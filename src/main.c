@@ -25,7 +25,33 @@
 #define ACTIVE_TASK_FILE   "/data/adb/hyperdl/active_task.json"
 #define COOKIES_FILE       "/data/adb/hyperdl/cookies.txt"
 #define AUTODL_FILE        "/data/adb/hyperdl/autodl.enabled"
-#define OUTDIR             "/storage/emulated/0/Download/HyperDL"
+#define OUTDIR_FALLBACK    "/storage/emulated/0/Download/HyperDL"
+
+/* Secondary and work-profile users do not own /storage/emulated/0, so the
+ * output directory is resolved once at startup and cached. The first candidate
+ * we can actually create and write to wins, matching the Python side's
+ * get_effective_outdir(). */
+static char g_outdir[512] = {0};
+
+static const char *outdir(void) {
+    if (g_outdir[0]) return g_outdir;
+    static const char *candidates[] = {
+        OUTDIR_FALLBACK,
+        "/data/media/0/Download/HyperDL",
+        "/sdcard/Download/HyperDL",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        mkdir(candidates[i], 0777);
+        if (access(candidates[i], W_OK) != 0) continue;
+        struct stat st;
+        if (stat(candidates[i], &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        snprintf(g_outdir, sizeof(g_outdir), "%s", candidates[i]);
+        return g_outdir;
+    }
+    snprintf(g_outdir, sizeof(g_outdir), "%s", OUTDIR_FALLBACK);
+    return g_outdir;
+}
 
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -129,10 +155,14 @@ static void setup_python_env(const char *python_bin) {
 }
 
 static void ensure_directories(void) {
-    mkdir(OUTDIR, 0777);
-    chmod(OUTDIR, 0777);
-    mkdir(CONF_DIR, 0777);
-    chmod(CONF_DIR, 0777);
+    const char *od = outdir();
+    mkdir(od, 0777);
+    chmod(od, 0777);
+    /* Cookies live in here, so keep the directory root-only instead of the
+     * world-writable default. The bridge always runs as root, so nothing
+     * legitimate loses access. */
+    mkdir(CONF_DIR, 0700);
+    chmod(CONF_DIR, 0700);
     mkdir("/data/local/tmp", 0777);
     chmod("/data/local/tmp", 0777);
 }
@@ -480,7 +510,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         exec_args[ai++] = "--format";
         exec_args[ai++] = fmt && *fmt ? (char *)fmt : "video";
         exec_args[ai++] = "--outdir";
-        exec_args[ai++] = OUTDIR;
+        exec_args[ai++] = (char *)outdir();
         if (fid_arg[0]) exec_args[ai++] = fid_arg;
         if (ht_arg[0]) exec_args[ai++] = ht_arg;
         if (af_arg[0]) exec_args[ai++] = af_arg;
@@ -684,10 +714,10 @@ static void cmd_list(const char *sub) {
     int first = 1;
     if (sub && strcmp(sub, "vault") == 0) {
         char vault_path[512];
-        snprintf(vault_path, sizeof(vault_path), "%s/.vault", OUTDIR);
+        snprintf(vault_path, sizeof(vault_path), "%s/.vault", outdir());
         scan_dir_recursive(vault_path, "Vault", &first, 0);
     } else {
-        scan_dir_recursive(OUTDIR, "", &first, 0);
+        scan_dir_recursive(outdir(), "", &first, 0);
     }
     printf("\n]\n");
 }
@@ -733,12 +763,12 @@ static void cmd_storage_info(void) {
     long long junk_count = 0;
     long long junk_bytes = 0;
 
-    count_storage_recursive(OUTDIR, &media_count, &media_bytes, &junk_count, &junk_bytes, 0);
+    count_storage_recursive(outdir(), &media_count, &media_bytes, &junk_count, &junk_bytes, 0);
 
     struct statvfs sv;
     unsigned long long free_bytes = 0;
     unsigned long long total_bytes = 0;
-    if (statvfs(OUTDIR, &sv) == 0) {
+    if (statvfs(outdir(), &sv) == 0) {
         free_bytes = (unsigned long long)sv.f_bavail * sv.f_frsize;
         total_bytes = (unsigned long long)sv.f_blocks * sv.f_frsize;
     } else if (statvfs("/data", &sv) == 0) {
@@ -801,7 +831,7 @@ static void cmd_clean_junk(void) {
     int deleted = 0;
     long long freed_bytes = 0;
 
-    clean_junk_recursive(OUTDIR, &deleted, &freed_bytes, 0);
+    clean_junk_recursive(outdir(), &deleted, &freed_bytes, 0);
 
     char freed_sz[32];
     format_file_size(freed_bytes, freed_sz, sizeof(freed_sz));
@@ -885,12 +915,25 @@ static void cmd_preview(const char *path) {
     free(b64);
 }
 
+/* Deletion is only ever meant to touch files HyperDL itself produced, so every
+ * path must sit strictly inside the output directory. Requiring the trailing
+ * separator blocks prefix tricks such as ".../HyperDL_evil/x.mp4". */
+static int path_is_managed(const char *path) {
+    if (!path || path[0] != '/') return 0;
+    if (strstr(path, "/../") || strstr(path, "/./")) return 0;
+    const char *od = outdir();
+    size_t n = strlen(od);
+    if (strncmp(path, od, n) != 0) return 0;
+    return path[n] == '/';
+}
+
 static void prune_empty_parents(const char *file_path) {
-    if (!file_path || strncmp(file_path, OUTDIR, strlen(OUTDIR)) != 0) return;
+    if (!path_is_managed(file_path)) return;
+    const char *od = outdir();
     char path_buf[1024];
     snprintf(path_buf, sizeof(path_buf), "%s", file_path);
     char *parent = dirname(path_buf);
-    while (parent && strcmp(parent, OUTDIR) != 0 && strcmp(parent, "/") != 0 && strlen(parent) > strlen(OUTDIR)) {
+    while (parent && strcmp(parent, od) != 0 && strcmp(parent, "/") != 0 && strlen(parent) > strlen(od)) {
         if (rmdir(parent) != 0) {
             break;
         }
@@ -917,9 +960,14 @@ static void cmd_delete(int count, char **paths) {
         return;
     }
     int deleted = 0;
+    int rejected = 0;
     for (int i = 0; i < count; i++) {
         const char *path = paths[i];
         if (!path || !*path) continue;
+        if (!path_is_managed(path)) {
+            rejected++;
+            continue;
+        }
         char side_del[1124];
         snprintf(side_del, sizeof(side_del), "%s.url.txt", path);
         unlink(side_del);
@@ -938,6 +986,8 @@ static void cmd_delete(int count, char **paths) {
     }
     if (deleted > 0) {
         printf("{\"success\":true,\"deleted\":%d}\n", deleted);
+    } else if (rejected > 0) {
+        printf("{\"success\":false,\"error\":\"path_outside_output_dir\"}\n");
     } else {
         printf("{\"success\":false,\"error\":\"%s\"}\n", strerror(errno));
     }
@@ -1120,7 +1170,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.45";
+    char mod_version[32] = "v1.3.46";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/adb/modules_update/hyperdl/module.prop", "r");
     if (mp) {
@@ -1155,7 +1205,7 @@ static void cmd_info(void) {
                      (access("/system/bin/ffmpeg", X_OK) == 0);
 
     printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s,\"audio_format\":\"%s\"}\n",
-           mod_version, storage_free, OUTDIR, python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false", audio_fmt);
+           mod_version, storage_free, outdir(), python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false", audio_fmt);
 }
 
 static void cmd_set_audio_format(const char *fmt) {
@@ -1168,7 +1218,7 @@ static void cmd_set_audio_format(const char *fmt) {
     if (afp) {
         fprintf(afp, "%s\n", fmt);
         fclose(afp);
-        chmod("/data/adb/hyperdl/audio_format.conf", 0666);
+        chmod("/data/adb/hyperdl/audio_format.conf", 0644);
         printf("{\"success\":true,\"audio_format\":\"%s\"}\n", fmt);
     } else {
         printf("{\"success\":false,\"error\":\"file_write_failed\"}\n");
@@ -1243,7 +1293,8 @@ static void cmd_save_cookies(const char *b64_data) {
 
     fwrite(decoded, 1, out_len, f);
     fclose(f);
-    chmod(COOKIES_FILE, 0666);
+    /* A cookie file is a live login session, so it stays owner-only. */
+    chmod(COOKIES_FILE, 0600);
 
     int lines = 0;
     for (size_t i = 0; i < out_len; i++) {
@@ -1425,14 +1476,14 @@ static void cmd_toggle_vault(const char *val) {
     }
 
     if (target) {
-        int fd = open(flag_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        int fd = open(flag_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) close(fd);
-        chmod(flag_path, 0666);
+        chmod(flag_path, 0644);
 
         char vault_dir[512];
         char nomedia[512];
-        snprintf(vault_dir, sizeof(vault_dir), "%s/.vault", OUTDIR);
-        snprintf(nomedia, sizeof(nomedia), "%s/.vault/.nomedia", OUTDIR);
+        snprintf(vault_dir, sizeof(vault_dir), "%s/.vault", outdir());
+        snprintf(nomedia, sizeof(nomedia), "%s/.vault/.nomedia", outdir());
         mkdir(vault_dir, 0777);
         chmod(vault_dir, 0777);
 
@@ -1449,7 +1500,7 @@ static void cmd_toggle_vault(const char *val) {
                 FILE *existing = fopen(conf_path, "r");
                 if (!existing) {
                     FILE *cf = fopen(conf_path, "w");
-                    if (cf) { fwrite(dec, 1, out_len, cf); fclose(cf); chmod(conf_path, 0666); }
+                    if (cf) { fwrite(dec, 1, out_len, cf); fclose(cf); chmod(conf_path, 0644); }
                 } else {
                     char existing_buf[8192] = {0};
                     size_t existing_len = fread(existing_buf, 1, sizeof(existing_buf)-1, existing);
@@ -1477,7 +1528,7 @@ static void cmd_toggle_vault(const char *val) {
                         if (af) {
                             if (existing_len && existing_buf[existing_len-1] != '\n') fputc('\n', af);
                             fputs(to_append, af); fputc('\n', af);
-                            fclose(af); chmod(conf_path, 0666);
+                            fclose(af); chmod(conf_path, 0644);
                         }
                     }
                 }

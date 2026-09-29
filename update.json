@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.45",
-  "versionCode": 13450,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.45/HyperDL-v1.3.45.zip",
+  "version": "v1.3.46",
+  "versionCode": 13460,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.46/HyperDL-v1.3.46.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Fixes YouTube downloads that failed with HTTP 416, stops release packaging from quietly filling up your phone's shared storage, and rebuilds the documentation around actual usage."
+  "notes": "Hardens the native bridge: deletion now rejects any path outside the output folder, cookies are locked to owner-only, and downloads work on work profiles and secondary users."
 }
