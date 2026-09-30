@@ -2128,7 +2128,7 @@ def get_module_local_prop():
         "/data/adb/modules/hyperdl/module.prop",
         "/data/adb/modules_update/hyperdl/module.prop",
     ]
-    props = {"version": "v1.3.50", "versionCode": "13500"}
+    props = {"version": "v1.3.51", "versionCode": "13510"}
     for p in candidates:
         if os.path.exists(p):
             try:
@@ -2145,11 +2145,11 @@ def get_module_local_prop():
 
 def check_module_update():
     local_props = get_module_local_prop()
-    cur_ver = local_props.get("version", "v1.3.50")
+    cur_ver = local_props.get("version", "v1.3.51")
     try:
-        cur_code = int(local_props.get("versionCode", "13500"))
+        cur_code = int(local_props.get("versionCode", "13510"))
     except ValueError:
-        cur_code = 13500
+        cur_code = 13510
 
     res = {
         "current_version": cur_ver,

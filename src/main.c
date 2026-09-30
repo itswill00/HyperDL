@@ -1316,7 +1316,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.50";
+    char mod_version[32] = "v1.3.51";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/adb/modules_update/hyperdl/module.prop", "r");
     if (mp) {

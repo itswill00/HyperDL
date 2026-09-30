@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.50",
-  "versionCode": 13500,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.50/HyperDL-v1.3.50.zip",
+  "version": "v1.3.51",
+  "versionCode": 13510,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.51/HyperDL-v1.3.51.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
   "notes": "Makes the console activity log readable at a glance with color-coded rows, level filters, and a follow toggle, plus a slimmer header and slimmer clipboard banner."
 }
