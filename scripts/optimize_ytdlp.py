@@ -3,7 +3,6 @@ import os
 import sys
 import zipfile
 import tempfile
-import sys as _sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from engine._impl import _repack_pyc

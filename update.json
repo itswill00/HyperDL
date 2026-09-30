@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.48",
-  "versionCode": 13480,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.48/HyperDL-v1.3.48.zip",
+  "version": "v1.3.50",
+  "versionCode": 13500,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.50/HyperDL-v1.3.50.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Queue multiple links, retry failed downloads in place, playlist ranges, subtitles, faster update checks, and a safer vault list editor."
+  "notes": "Makes the console activity log readable at a glance with color-coded rows, level filters, and a follow toggle, plus a slimmer header and slimmer clipboard banner."
 }

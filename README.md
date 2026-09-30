@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/Root-KernelSU%20%7C%20APatch%20%7C%20Magisk-black.svg" alt="Root">
   <img src="https://img.shields.io/badge/Architecture-ARM64-black.svg" alt="Architecture">
   <img src="https://img.shields.io/badge/UI-Material_3_Monochrome-black.svg" alt="UI">
-  <img src="https://img.shields.io/badge/Release-v1.3.48-black.svg" alt="Release">
+  <img src="https://img.shields.io/badge/Release-v1.3.50-black.svg" alt="Release">
 </p>
 
 <p align="center">
@@ -71,7 +71,7 @@
 
 ### Method 1: Flash the release zip (recommended)
 
-1. Download `HyperDL-v1.3.48.zip` from the [Releases page](https://github.com/itswill00/HyperDL/releases).
+1. Download `HyperDL-v1.3.50.zip` from the [Releases page](https://github.com/itswill00/HyperDL/releases).
 2. Open your root manager (**KernelSU**, **APatch**, or **Magisk**).
 3. Go to **Modules** > **Install from storage** and pick the zip.
 4. Open the module WebUI from your root manager — no reboot needed.
@@ -116,7 +116,7 @@ Flip the **Playlist** switch on a series or playlist link to fetch every item as
 
 ### Subtitles
 
-Video downloads offer subtitle tracks where the platform provides them: None, Indonesia, English, or both. The picker shows which languages a video actually has, and tracks save next to the video as separate subtitle files.
+Video downloads offer subtitle tracks where the platform provides them: None, Indonesian, English, or both. The picker shows which languages a video actually has, and tracks save next to the video as separate subtitle files.
 
 ---
 
@@ -355,7 +355,7 @@ HyperDL/
 
 Packaging outputs a single Full Zip to internal `releases/`:
 
-- `HyperDL-v1.3.48.zip` — canonical release package with the full embedded runtime.
+- `HyperDL-v1.3.50.zip` — canonical release package with the full embedded runtime.
 
 > [!IMPORTANT]
 > Every release is a **Full Zip**. There is no OTA/delta mechanism — never create or expect `HyperDL-OTA-*.zip` files.

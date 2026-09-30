@@ -141,9 +141,10 @@ case "$1" in
 
               BRIDGE="$(find_bridge)"
               if [ -n "$BRIDGE" ]; then
-                _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$CLEAN_URL\",\"fmt\":\"video\"}"
+                _esc_url="$(printf '%s' "$CLEAN_URL" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+                _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$_esc_url\",\"fmt\":\"video\"}"
                 for _f in /data/local/tmp/hyperdl_status.json /data/adb/hyperdl/active_task.json; do
-                  printf '%s' "$_js" > "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
+                  printf '%s' "$_js" > "$_f.tmp" 2>/dev/null && chmod 666 "$_f.tmp" 2>/dev/null && mv -f "$_f.tmp" "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
                 done
                 "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
               fi

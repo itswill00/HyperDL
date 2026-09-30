@@ -54,6 +54,7 @@ static const char *outdir(void) {
 }
 
 static int path_is_managed(const char *path);
+static void json_escape(const char *src, char *dst, size_t dst_size);
 
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -156,6 +157,84 @@ static void setup_python_env(const char *python_bin) {
     }
 }
 
+static void atomic_write_text(const char *path, const char *text) {
+    char tmp[1024];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (!f) return;
+    fputs(text, f);
+    fclose(f);
+    chmod(tmp, 0666);
+    rename(tmp, path);
+    chmod(path, 0666);
+}
+
+static void run_detached(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid != 0) return;
+    setsid();
+    int dev_null = open("/dev/null", O_RDWR);
+    if (dev_null >= 0) {
+        dup2(dev_null, STDIN_FILENO);
+        dup2(dev_null, STDOUT_FILENO);
+        dup2(dev_null, STDERR_FILENO);
+        if (dev_null > 2) close(dev_null);
+    }
+    execvp(argv[0], argv);
+    _exit(0);
+}
+
+static size_t capture_argv_output(char *const argv[], char *out, size_t out_size) {
+    int fds[2];
+    if (pipe(fds) != 0) return 0;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return 0;
+    }
+    if (pid == 0) {
+        close(fds[0]);
+        dup2(fds[1], STDOUT_FILENO);
+        int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDIN_FILENO);
+            dup2(dev_null, STDERR_FILENO);
+            if (dev_null > 2) close(dev_null);
+        }
+        close(fds[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    close(fds[1]);
+    size_t total = 0;
+    while (total + 1 < out_size) {
+        ssize_t r = read(fds[0], out + total, out_size - 1 - total);
+        if (r <= 0) break;
+        total += (size_t)r;
+    }
+    close(fds[0]);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    out[total] = '\0';
+    return total;
+}
+
+static void percent_encode_path(const char *src, char *dst, size_t dst_size) {
+    size_t ei = 0;
+    for (size_t i = 0; src && src[i] && ei + 4 < dst_size; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == '-') {
+            dst[ei++] = (char)c;
+        } else {
+            snprintf(&dst[ei], 4, "%%%02X", c);
+            ei += 3;
+        }
+    }
+    dst[ei] = '\0';
+}
+
 static void ensure_directories(void) {
     const char *od = outdir();
     mkdir(od, 0777);
@@ -254,10 +333,8 @@ static void cmd_status(void) {
                         memcpy(sp, "\"status\":\"paused\"   ", 20);
                     }
                 }
-                FILE *waf = fopen(ACTIVE_TASK_FILE, "w");
-                if (waf) { fputs(abuf, waf); fclose(waf); chmod(ACTIVE_TASK_FILE, 0666); }
-                FILE *wsf = fopen(STATUS_FILE, "w");
-                if (wsf) { fputs(abuf, wsf); fclose(wsf); chmod(STATUS_FILE, 0666); }
+                atomic_write_text(ACTIVE_TASK_FILE, abuf);
+                atomic_write_text(STATUS_FILE, abuf);
             }
             printf("%s\n", abuf);
             return;
@@ -342,7 +419,7 @@ static void cmd_probe_start(const char *url) {
     }
 
     if (pid == 0) {
-        nice(19);
+        nice(10);
         setsid();
 
         int dev_null = open("/dev/null", O_RDWR);
@@ -423,30 +500,23 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
 
     const char *python_bin = find_python();
     if (!python_bin) {
-        FILE *sf = fopen(STATUS_FILE, "w");
-        if (sf) {
-            fputs("{\"status\":\"error\",\"error\":\"Python 3 runtime not found on system\"}\n", sf);
-            fclose(sf);
-        }
+        atomic_write_text(STATUS_FILE, "{\"status\":\"error\",\"error\":\"Python 3 runtime not found on system\"}\n");
         printf("{\"error\":\"python_not_found\"}\n");
         return;
     }
 
     const char *bundle_path = get_bundle_path();
 
-    FILE *sf = fopen(STATUS_FILE, "w");
-    if (sf) {
-        fprintf(sf, "{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\",\"url\":\"%s\",\"fmt\":\"%s\"}\n",
-                url ? url : "", fmt ? fmt : "video");
-        fclose(sf);
-        chmod(STATUS_FILE, 0666);
-    }
-    FILE *af = fopen(ACTIVE_TASK_FILE, "w");
-    if (af) {
-        fprintf(af, "{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\",\"url\":\"%s\",\"fmt\":\"%s\"}\n",
-                url ? url : "", fmt ? fmt : "video");
-        fclose(af);
-        chmod(ACTIVE_TASK_FILE, 0666);
+    {
+        char esc_url[1024], esc_fmt[64];
+        json_escape(url ? url : "", esc_url, sizeof(esc_url));
+        json_escape(fmt ? fmt : "video", esc_fmt, sizeof(esc_fmt));
+        char resolving[2048];
+        snprintf(resolving, sizeof(resolving),
+                 "{\"status\":\"resolving\",\"percent\":0,\"title\":\"Connecting to platform...\",\"url\":\"%s\",\"fmt\":\"%s\"}\n",
+                 esc_url, esc_fmt);
+        atomic_write_text(STATUS_FILE, resolving);
+        atomic_write_text(ACTIVE_TASK_FILE, resolving);
     }
     FILE *lcf = fopen("/data/local/tmp/hyperdl_last_clip.txt", "w");
     if (lcf) {
@@ -717,8 +787,12 @@ static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int
             if (!*first) printf(",\n");
             *first = 0;
 
+            char esc_name[1024], esc_path[1024], esc_folder[512];
+            json_escape(entry->d_name, esc_name, sizeof(esc_name));
+            json_escape(full_path, esc_path, sizeof(esc_path));
+            json_escape(rel_prefix ? rel_prefix : "", esc_folder, sizeof(esc_folder));
             printf("  {\"name\":\"%s\",\"folder\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld,\"source_url_b64\":\"%s\"}",
-                   entry->d_name, rel_prefix ? rel_prefix : "", size_str, ext, full_path, (long)st.st_mtime, (long long)st.st_size, url_b64);
+                   esc_name, esc_folder, size_str, ext, esc_path, (long)st.st_mtime, (long long)st.st_size, url_b64);
         }
     }
     closedir(d);
@@ -974,6 +1048,23 @@ static void safe_sql_escape(const char *src, char *dst, size_t dst_size) {
     dst[j] = '\0';
 }
 
+static void json_escape(const char *src, char *dst, size_t dst_size) {
+    size_t j = 0;
+    for (size_t i = 0; src && src[i] && j + 2 < dst_size; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c == '"' || c == '\\') {
+            if (j + 2 >= dst_size) break;
+            dst[j++] = '\\';
+            dst[j++] = (char)c;
+        } else if (c < 0x20) {
+            continue;
+        } else {
+            dst[j++] = (char)c;
+        }
+    }
+    dst[j] = '\0';
+}
+
 static void cmd_delete(int count, char **paths) {
     if (count <= 0) {
         printf("{\"success\":false,\"error\":\"missing_path\"}\n");
@@ -995,12 +1086,26 @@ static void cmd_delete(int count, char **paths) {
             deleted++;
             char safe_data[1024];
             safe_sql_escape(path, safe_data, sizeof(safe_data));
-            char scan_cmd[2048];
-            snprintf(scan_cmd, sizeof(scan_cmd),
-                     "(content delete --uri content://media/external/file --where \"_data='%s'\" >/dev/null 2>&1; "
-                     "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1) &",
-                     safe_data, path);
-            system(scan_cmd);
+            char where[1120];
+            snprintf(where, sizeof(where), "_data='%s'", safe_data);
+            char *del_argv[] = {
+                "content", "delete",
+                "--uri", "content://media/external/file",
+                "--where", where,
+                NULL
+            };
+            run_detached(del_argv);
+            char enc[1024];
+            percent_encode_path(path, enc, sizeof(enc));
+            char scan_uri[1120];
+            snprintf(scan_uri, sizeof(scan_uri), "file://%s", enc);
+            char *scan_argv[] = {
+                "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                "-d", scan_uri,
+                NULL
+            };
+            run_detached(scan_argv);
             prune_empty_parents(path);
         }
     }
@@ -1015,7 +1120,15 @@ static void cmd_delete(int count, char **paths) {
 
 static void cmd_open_folder(void) {
     ensure_directories();
-    system("(am start -a android.intent.action.VIEW -d \"content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1 || am start -a android.intent.action.VIEW -d \"file:///storage/emulated/0/Download/HyperDL\" -t \"resource/folder\" -f 0x10000000 >/dev/null 2>&1) &");
+    char *folder_argv[] = {
+        "am", "start",
+        "-a", "android.intent.action.VIEW",
+        "-d", "content://com.android.externalstorage.documents/document/primary%3ADownload%2FHyperDL",
+        "-t", "resource/folder",
+        "-f", "0x10000000",
+        NULL
+    };
+    run_detached(folder_argv);
     printf("{\"success\":true}\n");
 }
 
@@ -1129,55 +1242,64 @@ static void cmd_open(const char *path) {
     long long media_id = query_sqlite_media_id(path);
 
     char enc_path[1024];
-    size_t ei = 0;
-    for (size_t i = 0; path[i] && ei < sizeof(enc_path) - 4; i++) {
-        unsigned char c = (unsigned char)path[i];
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') || c == '/' || c == '.' || c == '_' || c == '-') {
-            enc_path[ei++] = (char)c;
-        } else {
-            snprintf(&enc_path[ei], 4, "%%%02X", c);
-            ei += 3;
-        }
-    }
-    enc_path[ei] = '\0';
+    percent_encode_path(path, enc_path, sizeof(enc_path));
 
     if (media_id <= 0) {
         char sql_path[1024];
         safe_sql_escape(path, sql_path, sizeof(sql_path));
-
-        char query_cmd[1200];
-        snprintf(query_cmd, sizeof(query_cmd),
-                 "content query --uri content://media/external/file --projection _id --where \"_data='%s'\" 2>/dev/null",
-                 sql_path);
-
-        FILE *qp = popen(query_cmd, "r");
-        if (qp) {
-            char qbuf[512];
-            while (fgets(qbuf, sizeof(qbuf), qp)) {
-                char *p = strstr(qbuf, "_id=");
-                if (p) {
-                    media_id = strtoll(p + 4, NULL, 10);
-                    if (media_id > 0) break;
-                }
+        char where[1120];
+        snprintf(where, sizeof(where), "_data='%s'", sql_path);
+        char *query_argv[] = {
+            "content", "query",
+            "--uri", "content://media/external/file",
+            "--projection", "_id",
+            "--where", where,
+            NULL
+        };
+        char qbuf[512] = {0};
+        if (capture_argv_output(query_argv, qbuf, sizeof(qbuf)) > 0) {
+            char *p = strstr(qbuf, "_id=");
+            if (p) {
+                long long qid = strtoll(p + 4, NULL, 10);
+                if (qid > 0) media_id = qid;
             }
-            pclose(qp);
         }
     }
 
-    char start_cmd[1400];
     if (media_id > 0) {
-        snprintf(start_cmd, sizeof(start_cmd),
-                 "am start -a android.intent.action.VIEW -d \"content://media/external/file/%lld\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1 &",
-                 media_id, mime);
-        system(start_cmd);
+        char id_uri[96];
+        snprintf(id_uri, sizeof(id_uri), "content://media/external/file/%lld", media_id);
+        char *view_argv[] = {
+            "am", "start",
+            "-a", "android.intent.action.VIEW",
+            "-d", id_uri,
+            "-t", (char *)mime,
+            "--grant-read-uri-permission",
+            "-f", "0x10000000",
+            NULL
+        };
+        run_detached(view_argv);
         printf("{\"success\":true,\"mode\":\"content\",\"id\":%lld}\n", media_id);
     } else {
-        snprintf(start_cmd, sizeof(start_cmd),
-                 "(am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d \"file://%s\" >/dev/null 2>&1; "
-                 "am start -a android.intent.action.VIEW -d \"file://%s\" -t \"%s\" --grant-read-uri-permission -f 0x10000000 >/dev/null 2>&1) &",
-                 enc_path, enc_path, mime);
-        system(start_cmd);
+        char file_uri[1120];
+        snprintf(file_uri, sizeof(file_uri), "file://%s", enc_path);
+        char *scan_argv[] = {
+            "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", file_uri,
+            NULL
+        };
+        run_detached(scan_argv);
+        char *view_argv[] = {
+            "am", "start",
+            "-a", "android.intent.action.VIEW",
+            "-d", file_uri,
+            "-t", (char *)mime,
+            "--grant-read-uri-permission",
+            "-f", "0x10000000",
+            NULL
+        };
+        run_detached(view_argv);
         printf("{\"success\":true,\"mode\":\"file\"}\n");
     }
 }
@@ -1194,7 +1316,7 @@ static void cmd_info(void) {
         }
     }
 
-    char mod_version[32] = "v1.3.48";
+    char mod_version[32] = "v1.3.50";
     FILE *mp = fopen("/data/adb/modules/hyperdl/module.prop", "r");
     if (!mp) mp = fopen("/data/adb/modules_update/hyperdl/module.prop", "r");
     if (mp) {
@@ -1427,17 +1549,46 @@ static void cmd_get_clipboard(void) {
         return;
     }
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "ANDROID_ROOT=/system ANDROID_DATA=/data CLASSPATH=\"%s\" app_process /system/bin Clip 2>/dev/null", jar);
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
+    int fds[2];
+    if (pipe(fds) != 0) {
         printf("{\"clipboard\":\"\"}\n");
         return;
     }
-
+    pid_t cpid = fork();
+    if (cpid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        printf("{\"clipboard\":\"\"}\n");
+        return;
+    }
+    if (cpid == 0) {
+        close(fds[0]);
+        dup2(fds[1], STDOUT_FILENO);
+        int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDIN_FILENO);
+            dup2(dev_null, STDERR_FILENO);
+            if (dev_null > 2) close(dev_null);
+        }
+        close(fds[1]);
+        setenv("ANDROID_ROOT", "/system", 1);
+        setenv("ANDROID_DATA", "/data", 1);
+        setenv("CLASSPATH", jar, 1);
+        execl("/system/bin/app_process", "app_process", "/system/bin", "Clip", (char *)NULL);
+        _exit(127);
+    }
+    close(fds[1]);
     char buf[4096] = {0};
-    size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-    pclose(fp);
+    size_t n = 0;
+    while (n < sizeof(buf) - 1) {
+        ssize_t r = read(fds[0], buf + n, sizeof(buf) - 1 - n);
+        if (r <= 0) break;
+        n += (size_t)r;
+    }
+    close(fds[0]);
+    int st = 0;
+    waitpid(cpid, &st, 0);
+    buf[n] = '\0';
 
     while (n > 0 && (buf[n - 1] == '\r' || buf[n - 1] == '\n')) {
         buf[--n] = '\0';
@@ -1474,7 +1625,9 @@ static void cmd_get_autodl(void) {
         if (pf) {
             pid_t pid = 0;
             if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
-                if (kill(pid, 0) == 0) {
+                char proc_path[64];
+                snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
+                if ((kill(pid, 0) == 0 || errno == EPERM) && access(proc_path, F_OK) == 0) {
                     running = 1;
                 }
             }
@@ -1616,6 +1769,20 @@ static void cmd_save_vault_domains(const char *b64_data) {
     printf("{\"success\":true,\"domains\":%d}\n", count);
 }
 
+static int conf_has_domain(const char *buf, const char *domain) {
+    size_t dlen = strlen(domain);
+    if (!dlen) return 0;
+    const char *p = buf;
+    while ((p = strstr(p, domain)) != NULL) {
+        int start_ok = (p == buf || p[-1] == '\n' || p[-1] == '\r');
+        char after = p[dlen];
+        int end_ok = (after == '\0' || after == '\n' || after == '\r');
+        if (start_ok && end_ok) return 1;
+        p += dlen;
+    }
+    return 0;
+}
+
 static void cmd_toggle_vault(const char *val) {
     ensure_directories();
     const char *flag_path = "/data/adb/hyperdl/vault.enabled";
@@ -1669,7 +1836,7 @@ static void cmd_toggle_vault(const char *val) {
                         while (*line==' '||*line=='\t'||*line=='\r') line++;
                         size_t ll = strlen(line);
                         while (ll && (line[ll-1]==' '||line[ll-1]=='\t'||line[ll-1]=='\r')) line[--ll]='\0';
-                        if (*line && !strstr(existing_buf, line)) {
+                        if (*line && !conf_has_domain(existing_buf, line)) {
                             if (to_append[0]) strcat(to_append, "\n");
                             strcat(to_append, line);
                             need = 1;
@@ -1730,23 +1897,11 @@ static void cmd_pause(void) {
             }
         }
 
-        FILE *sf = fopen(STATUS_FILE, "w");
-        if (sf) { fputs(buf, sf); fclose(sf); chmod(STATUS_FILE, 0666); }
-        FILE *af = fopen(ACTIVE_TASK_FILE, "w");
-        if (af) { fputs(buf, af); fclose(af); chmod(ACTIVE_TASK_FILE, 0666); }
+        atomic_write_text(STATUS_FILE, buf);
+        atomic_write_text(ACTIVE_TASK_FILE, buf);
     } else {
-        FILE *sf = fopen(STATUS_FILE, "w");
-        if (sf) {
-            fputs("{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n", sf);
-            fclose(sf);
-            chmod(STATUS_FILE, 0666);
-        }
-        FILE *af = fopen(ACTIVE_TASK_FILE, "w");
-        if (af) {
-            fputs("{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n", af);
-            fclose(af);
-            chmod(ACTIVE_TASK_FILE, 0666);
-        }
+        atomic_write_text(STATUS_FILE, "{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n");
+        atomic_write_text(ACTIVE_TASK_FILE, "{\"status\":\"paused\",\"percent\":0,\"title\":\"Download paused\"}\n");
     }
     printf("{\"success\":true,\"paused\":true}\n");
 }
@@ -1768,18 +1923,8 @@ static void cmd_cancel(void) {
         fclose(pf);
         unlink(PID_FILE);
     }
-    FILE *sf = fopen(STATUS_FILE, "w");
-    if (sf) {
-        fputs("{\"status\":\"idle\",\"percent\":0,\"title\":\"\",\"speed\":\"\",\"downloaded\":\"\",\"total\":\"\",\"file_path\":\"\",\"error\":\"\"}\n", sf);
-        fclose(sf);
-        chmod(STATUS_FILE, 0666);
-    }
-    FILE *af = fopen(ACTIVE_TASK_FILE, "w");
-    if (af) {
-        fputs("{\"status\":\"idle\",\"percent\":0}\n", af);
-        fclose(af);
-        chmod(ACTIVE_TASK_FILE, 0666);
-    }
+    atomic_write_text(STATUS_FILE, "{\"status\":\"idle\",\"percent\":0,\"title\":\"\",\"speed\":\"\",\"downloaded\":\"\",\"total\":\"\",\"file_path\":\"\",\"error\":\"\"}\n");
+    atomic_write_text(ACTIVE_TASK_FILE, "{\"status\":\"idle\",\"percent\":0}\n");
 
     pid_t npid = fork();
     if (npid == 0) {

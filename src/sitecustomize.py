@@ -1,8 +1,6 @@
 import os
 import sys
 import socket
-import json
-import urllib.request
 
 _orig_getaddrinfo = socket.getaddrinfo
 _doh_cache = {}
@@ -15,6 +13,8 @@ def _is_ip(host):
         return False
 
 def _doh_query(host):
+    import json
+    import urllib.request
     if not host or _is_ip(host):
         return None
     if host in _doh_cache:

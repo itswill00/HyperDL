@@ -38,7 +38,6 @@ export function execCommand(cmd, timeoutMs = 60000) {
       .then(res => res.text())
       .then(resolve)
       .catch(() => {
-        console.warn('Running without root bridge (dev mock mode):', cmd)
         resolve('')
       })
     }
@@ -71,7 +70,8 @@ const BRIDGES = [
   '/system/bin/libhyperdl.so'
 ]
 function bridgeCmd(action, arg = '') {
-  const parts = BRIDGES.map(b => `[ -x ${b} ] && exec ${b} ${action}${arg ? ' ' + arg : ''}`).join(' || ')
+  const safeAction = action === 'open' || action === 'open_folder' ? action : 'status'
+  const parts = BRIDGES.map(b => `[ -x ${b} ] && exec ${b} ${safeAction}${arg ? ' ' + arg : ''}`).join(' || ')
   return `(${parts})`
 }
 
@@ -79,11 +79,11 @@ export async function openMediaFile(filePath) {
   if (!filePath) return
   const safePath = "'" + String(filePath).replace(/'/g, "'\\''") + "'"
   try { return await execCommand(bridgeCmd('open', safePath), 10000) }
-  catch (e) { console.error('Failed to open media:', e) }
+  catch (e) { return '' }
 }
 
 export async function openFolder() {
   try { return await execCommand(bridgeCmd('open_folder'), 10000) }
-  catch (e) { console.error('Failed to open folder:', e) }
+  catch (e) { return '' }
 }
 

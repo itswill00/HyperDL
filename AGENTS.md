@@ -33,7 +33,8 @@ is allowed to contain Indonesian.
    - Keep all UI text, release notes, and documentation in English.
 
 5. **Version Bump & Release Invariant**:
-   - Every fix or update MUST bump version and versionCode across `module.prop`, `update.json`, `webui/package.json`, `webui/src/App.vue`, `src/main.c`, and `README.md`.
+   - Never bump version on your own. Only bump when the user explicitly asks for it.
+   - When asked to bump, update version and versionCode across `module.prop`, `update.json`, `webui/package.json`, `webui/src/App.vue`, `src/main.c`, and `README.md`.
    - `scripts/bump_version.py` is the single supported way to bump. Run it and verify the six files stayed in sync.
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.

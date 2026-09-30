@@ -183,12 +183,10 @@ class TestProbeCache(unittest.TestCase):
         self.assertLessEqual(len(cache), 200)
         self.assertIn("https://youtu.be/v259", cache)
         self.assertNotIn("https://youtu.be/v0", cache)
-        del base
 
     def test_corrupt_cache_file_fails_open(self):
         with open(self.impl._probe_cache_path(), "w") as f:
             f.write("{not valid json")
-        del f
         self.assertEqual(self.impl._load_probe_cache(), {})
         self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/abc"))
 

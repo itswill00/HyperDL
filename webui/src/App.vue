@@ -7,13 +7,13 @@
         <div class="page-header-sub">Media downloader</div>
       </div>
       <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-        <span class="badge-pill offline" v-if="!isOnline">
+        <span class="badge-pill offline soft-fade-in" v-if="!isOnline">
           <Icons name="wifi-off" :size="11" />
           Offline
         </span>
         <div v-else style="display: flex; align-items: center; gap: 6px;">
           <span class="badge-pill active" @click="onVersionClick" style="cursor: pointer; user-select: none;">
-            {{ sysInfo.version || 'v1.3.48' }}
+            {{ sysInfo.version || 'v1.3.50' }}
             <Icons v-if="isVaultActive" name="lock" :size="11" style="margin-left: 4px; color: #a1a1aa;" />
           </span>
         </div>
@@ -48,7 +48,7 @@
         </button>
         <button
           v-if="isVaultActive"
-          class="tab-btn"
+          class="tab-btn soft-fade-in"
           :class="{ active: activeTab === 'vault' }"
           @click="switchTab('vault')"
         >
@@ -75,7 +75,7 @@
             </span>
           </div>
 
-          <div v-if="!isOnline" class="offline-notice-box">
+          <div v-if="!isOnline" class="offline-notice-box rise-in">
             <Icons name="wifi-off" :size="14" style="color: var(--error); flex-shrink: 0;" />
             <div style="flex: 1;">
               <strong style="color: var(--on-surface);">No internet connection:</strong>
@@ -95,29 +95,33 @@
               @paste="onPasteInput"
               @keydown.enter.prevent="startDownload"
             />
-            <button
-              v-if="url"
-              class="btn btn-icon"
-              style="background: transparent; border: none; width: 28px; height: 28px; flex-shrink: 0;"
-              @click="url = ''"
-              title="Clear"
-            >
-              ✕
-            </button>
-            <button
-              v-else
-              class="btn btn-secondary paste-btn"
-              style="padding: 6px 10px; font-size: 11px; margin-left: 4px; flex-shrink: 0; white-space: nowrap; border-radius: 8px;"
-              @click="pasteClipboard"
-            >
-              <Icons name="clipboard" :size="13" />
-              Paste
-            </button>
+            <transition name="action-rise" mode="out-in">
+              <button
+                v-if="url"
+                key="clear"
+                class="btn btn-icon"
+                style="background: transparent; border: none; width: 28px; height: 28px; flex-shrink: 0;"
+                @click="url = ''"
+                title="Clear"
+              >
+                ✕
+              </button>
+              <button
+                v-else
+                key="paste"
+                class="btn btn-secondary paste-btn"
+                style="padding: 6px 10px; font-size: 11px; margin-left: 4px; flex-shrink: 0; white-space: nowrap; border-radius: 8px;"
+                @click="pasteClipboard"
+              >
+                <Icons name="clipboard" :size="13" />
+                Paste
+              </button>
+            </transition>
           </div>
 
           <div v-if="detectedClipUrl" class="clip-sniffer-banner">
             <div class="clip-sniffer-icon">
-              <Icons name="clipboard" :size="15" />
+              <Icons name="clipboard" :size="13" />
             </div>
             <div class="clip-sniffer-content">
               <div class="clip-sniffer-title">Media link detected</div>
@@ -125,28 +129,28 @@
             </div>
             <div class="clip-sniffer-actions">
               <button class="btn btn-primary clip-action-btn" @click="applyClipUrl(true)" title="Download">
-                <Icons name="download" :size="11" />
+                <Icons name="download" :size="10" />
                 <span>Go</span>
               </button>
               <button class="btn btn-secondary clip-action-btn" @click="applyClipUrl(true, 'audio')" title="Download audio">
-                <Icons name="music" :size="11" />
+                <Icons name="music" :size="10" />
                 <span>Audio</span>
               </button>
               <button class="btn btn-secondary clip-action-btn" @click="applyClipUrl(false)">
                 <span>Paste</span>
               </button>
               <button class="btn btn-icon clip-dismiss-btn" @click="dismissClipUrl" title="Dismiss">
-                <Icons name="close" :size="13" />
+                <Icons name="close" :size="12" />
               </button>
             </div>
           </div>
 
-          <div v-if="detectedPlatform.id === 'instagram'" class="platform-notice-box">
+          <div v-if="detectedPlatform.id === 'instagram'" class="platform-notice-box rise-in">
             <Icons name="info" :size="14" style="color: var(--secondary); margin-top: 1px;" />
             <div style="flex: 1;">
               <span style="font-weight: 600; color: var(--on-surface);">Meta Anti-Bot:</span>
               Most Instagram posts work without cookies. If a download fails, session cookies in the
-              <a href="javascript:void(0)" @click="switchTab('cookies')" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Cookies tab</a> may help.
+              <button @click="switchTab('cookies')" style="color: var(--primary); text-decoration: underline; font-weight: 600; background: none; border: none; padding: 0; cursor: pointer; font-size: inherit;">Cookies tab</button> may help.
             </div>
           </div>
 
@@ -183,7 +187,7 @@
 
           </div>
 
-          <div v-if="selectedFormat === 'video'" style="margin-top: 12px;">
+          <div v-if="selectedFormat === 'video'" class="rise-in" style="margin-top: 12px;">
             <div style="font-size: 11px; color: var(--on-surface-variant); margin-bottom: 6px; font-weight: 500;">
               Subtitles
             </div>
@@ -198,10 +202,10 @@
                 <span>English</span>
               </div>
               <div class="chip-item" :class="{ active: subLangs === 'id' }" @click="subLangs = 'id'">
-                <span>Indonesia</span>
+                <span>Indonesian</span>
               </div>
             </div>
-            <div v-if="probeSubs.length > 0" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
+            <div v-if="probeSubs.length > 0" class="soft-fade-in" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
               Available: {{ probeSubs.join(', ') }}
             </div>
           </div>
@@ -218,7 +222,7 @@
                 </span>
               </label>
             </div>
-            <div v-if="playlistMode" style="display: flex; gap: 8px;">
+            <div v-if="playlistMode" class="rise-in" style="display: flex; gap: 8px;">
               <div class="text-input-wrapper" style="flex: 1;">
                 <input
                   type="number"
@@ -240,12 +244,13 @@
                 />
               </div>
             </div>
-            <div v-if="playlistMode" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
+            <div v-if="playlistMode" class="soft-fade-in" style="font-size: 10px; color: var(--on-surface-variant); margin-top: 4px;">
               Downloads every item in the range as separate files.
             </div>
           </div>
 
-                    <div style="margin-top: 16px; display: flex; gap: 8px;">
+                    <transition name="action-rise">
+                      <div v-if="url.trim() || isProcessing" style="margin-top: 16px; display: flex; gap: 8px;">
             <button
               class="btn btn-primary"
               :class="{ 'btn-offline': !isOnline }"
@@ -266,7 +271,8 @@
               <Icons name="clipboard" :size="14" />
               <span>Queue</span>
             </button>
-          </div>
+                      </div>
+                    </transition>
         </section>
 
                 <section v-if="task.status !== 'idle'" class="md3-card task-card-active" :style="{ borderColor: task.status === 'paused' ? 'var(--secondary)' : 'var(--primary)' }">
@@ -291,7 +297,7 @@
 
               <template v-if="task.status === 'resolving' || task.status === 'downloading'">
                 <button
-                  class="btn btn-secondary"
+                  class="btn btn-secondary rise-in"
                   style="padding: 3px 8px; font-size: 11px; height: 26px; gap: 4px;"
                   @click="pauseDownload()"
                   title="Pause download"
@@ -300,7 +306,7 @@
                   <span>Pause</span>
                 </button>
                 <button
-                  class="btn btn-secondary"
+                  class="btn btn-secondary rise-in"
                   style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
                   @click="cancelDownload"
                   title="Cancel download"
@@ -312,7 +318,7 @@
 
               <template v-else-if="task.status === 'paused'">
                 <button
-                  class="btn btn-primary"
+                  class="btn btn-primary rise-in"
                   style="padding: 3px 10px; font-size: 11px; height: 26px; gap: 4px;"
                   @click="resumeDownload"
                   title="Resume download"
@@ -321,7 +327,7 @@
                   <span>Resume</span>
                 </button>
                 <button
-                  class="btn btn-secondary"
+                  class="btn btn-secondary rise-in"
                   style="padding: 3px 8px; font-size: 11px; color: var(--error); border-color: rgba(255, 107, 107, 0.3); height: 26px; gap: 4px;"
                   @click="cancelDownload"
                   title="Cancel download"
@@ -356,7 +362,7 @@
             <span>{{ formatSpeedInfo(task) }}</span>
           </div>
 
-          <div v-if="task.status === 'paused'" style="margin-top: 10px; font-size: 12px; background: rgba(255, 183, 77, 0.12); border: 1px solid rgba(255, 183, 77, 0.3); padding: 9px 12px; border-radius: 8px; color: #ffb74d;">
+          <div v-if="task.status === 'paused'" class="rise-in" style="margin-top: 10px; font-size: 12px; background: rgba(255, 183, 77, 0.12); border: 1px solid rgba(255, 183, 77, 0.3); padding: 9px 12px; border-radius: 8px; color: #ffb74d;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
               <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
                 <Icons name="pause" :size="13" />
@@ -375,7 +381,7 @@
             </div>
           </div>
 
-          <div v-if="task.status === 'error'" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
+          <div v-if="task.status === 'error'" class="rise-in" style="margin-top: 10px; color: var(--error); font-size: 12px; background: var(--error-container); padding: 10px 12px; border-radius: 8px;">
             <div style="display: flex; align-items: flex-start; gap: 8px;">
               <Icons :name="isNetworkError(task.error) ? 'wifi-off' : 'info'" :size="15" style="color: var(--error); flex-shrink: 0; margin-top: 1px;" />
               <div style="font-weight: 500; word-break: break-word; flex: 1;">{{ formatErrorMessage(task.error) }}</div>
@@ -416,7 +422,7 @@
             </div>
           </div>
 
-                    <div v-if="task.status === 'completed'" style="display: flex; gap: 8px; margin-top: 12px;">
+                    <div v-if="task.status === 'completed'" class="rise-in" style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-primary" :disabled="openingPath === task.file_path" style="flex: 1; padding: 8px 12px; font-size: 12px;" @click="openMedia(task.file_path)">
               <Icons name="play" :size="14" />
               {{ openingPath === task.file_path ? 'Opening...' : 'Open media' }}
@@ -428,7 +434,7 @@
           </div>
         </section>
 
-        <section v-if="queue.length > 0" class="md3-card" style="margin-top: 12px;">
+        <section v-if="queue.length > 0" class="md3-card rise-in" style="margin-top: 12px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Up next ({{ queue.length }})</span>
             <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 10px; height: 22px;" @click="clearQueue">
@@ -439,6 +445,7 @@
             <div
               v-for="(item, idx) in queue"
               :key="item.url + idx"
+              class="stagger-in"
               style="display: flex; align-items: center; gap: 8px; min-width: 0;"
             >
               <span class="badge-pill" style="font-size: 10px; flex-shrink: 0;">{{ idx + 1 }}</span>
@@ -456,7 +463,7 @@
           </div>
         </section>
 
-        <section v-if="failedAttempts.length > 0" class="md3-card" style="margin-top: 12px; border-color: rgba(255, 107, 107, 0.3);">
+        <section v-if="failedAttempts.length > 0" class="md3-card rise-in" style="margin-top: 12px; border-color: rgba(255, 107, 107, 0.3);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
             <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">Failed ({{ failedAttempts.length }})</span>
           </div>
@@ -464,6 +471,7 @@
             <div
               v-for="item in failedAttempts"
               :key="item.url"
+              class="stagger-in"
               style="min-width: 0;"
             >
               <div style="font-size: 12px; color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ formatTruncatedUrl(item.url) }}</div>
@@ -484,7 +492,7 @@
 
         <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 18px; margin-bottom: 8px; min-height: 32px;">
           <template v-if="selectedFiles.size > 0">
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="rise-in" style="display: flex; align-items: center; gap: 8px;">
               <button class="icon-btn" style="width: 28px; height: 28px;" @click="clearSelection" title="Cancel selection">
                 <Icons name="close" :size="15" />
               </button>
@@ -492,7 +500,7 @@
                 {{ selectedFiles.size }} selected
               </span>
             </div>
-            <div style="display: flex; gap: 6px; align-items: center;">
+            <div class="rise-in" style="display: flex; gap: 6px; align-items: center;">
               <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" @click="toggleSelectAll">
                 {{ isAllSelected ? 'Deselect all' : 'Select all' }}
               </button>
@@ -506,7 +514,7 @@
           <template v-else>
             <div class="section-title" style="margin: 0;">Recent downloads ({{ historyList.length }})</div>
             <div style="display: flex; gap: 6px; align-items: center;">
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" v-if="historyList.length > 0" @click="toggleSelectAll">
+              <button class="btn btn-secondary soft-fade-in" style="padding: 4px 8px; font-size: 11px;" v-if="historyList.length > 0" @click="toggleSelectAll">
                 Select
               </button>
               <button
@@ -525,7 +533,7 @@
           </template>
         </div>
 
-        <div class="recent-controls-card" v-if="historyList.length > 0">
+        <div class="recent-controls-card rise-in" v-if="historyList.length > 0">
           <div class="search-input-box">
             <Icons name="search" :size="14" style="color: var(--on-surface-variant); flex-shrink: 0;" />
             <input
@@ -614,9 +622,9 @@
           <div
             v-for="item in filteredHistoryList"
             :key="item.path"
-            class="md3-list-row"
+            class="md3-list-row stagger-in"
             :class="{ 'row-selected': selectedFiles.has(item.path) }"
-            style="display: flex; align-items: center; gap: 10px;"
+            style="display: flex; align-items: center; gap: 8px;"
           >
             <label class="custom-checkbox" @click.stop>
               <input
@@ -631,16 +639,16 @@
               </span>
             </label>
 
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="handleItemClick(item)">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; cursor: pointer;" @click="handleItemClick(item)">
               <div class="icon-badge secondary">
-                <Icons :name="getExtIcon(item.ext)" :size="16" />
+                <Icons :name="getExtIcon(item.ext)" :size="15" />
               </div>
               <div style="min-width: 0; flex: 1;">
                 <div style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px;">
                   <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">{{ cleanDisplayName(item.name) }}</span>
                   <span v-if="albumMap.get(item.path)" style="flex-shrink: 0; font-size: 9px; font-weight: 700; color: var(--on-surface-variant); border: 1px solid var(--outline-variant); border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums;">{{ albumMap.get(item.path) }}</span>
                 </div>
-                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 1px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                   <span v-if="item.folder" style="color: var(--primary); font-weight: 500;">{{ item.folder }} · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                   <span v-if="decodeSourceUrl(item)" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%;display:inline-block;vertical-align:bottom;margin-left:6px;opacity:.7;">· {{ decodeSourceUrl(item) }}</span>
                 </div>
@@ -664,7 +672,7 @@
           </div>
         </div>
 
-        <div v-else-if="historyList.length > 0 && filteredHistoryList.length === 0" class="md3-card" style="text-align: center; padding: 20px 16px;">
+        <div v-else-if="historyList.length > 0 && filteredHistoryList.length === 0" class="md3-card soft-fade-in" style="text-align: center; padding: 20px 16px;">
           <div style="font-size: 12px; color: var(--on-surface-variant); margin-bottom: 8px;">
             No media matching "{{ searchQuery }}" in this filter
           </div>
@@ -673,7 +681,7 @@
           </button>
         </div>
 
-        <div v-else class="md3-card" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
+        <div v-else class="md3-card soft-fade-in" style="text-align: center; padding: 24px 16px; opacity: 0.6;">
           <Icons name="folder" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
         </div>
 
@@ -749,7 +757,7 @@
           </div>
         </div>
 
-        <div class="storage-card" v-if="storageStats.free_size || storageStats.media_count > 0">
+        <div class="storage-card soft-fade-in" v-if="storageStats.free_size || storageStats.media_count > 0">
           <div class="storage-header">
             <div style="display: flex; align-items: center; gap: 8px;">
               <div class="icon-badge secondary" style="width: 28px; height: 28px;">
@@ -834,7 +842,7 @@
           </div>
 
                     <div style="display: flex; gap: 8px; margin-top: 12px;">
-            <button class="btn btn-primary" style="flex: 1; padding: 10px;" @click="saveCookies">
+            <button class="btn btn-primary" style="flex: 1; padding: 10px;" @click="saveCookies" :disabled="!cookiesText.trim()">
               <Icons name="check" :size="14" />
               Save cookies
             </button>
@@ -844,7 +852,7 @@
             </button>
             <button
               v-if="cookiesActive"
-              class="btn btn-secondary"
+              class="btn btn-secondary soft-fade-in"
               style="padding: 10px 14px; color: var(--error);"
               @click="clearCookies"
             >
@@ -980,7 +988,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">Module version</span>
-              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.48' }}</span>
+              <span style="font-family: inherit; font-variant-numeric: tabular-nums; color: var(--on-surface);">{{ sysInfo.version || 'v1.3.50' }}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--surface-container-high); padding-bottom: 6px;">
               <span style="color: var(--on-surface-variant);">HyperDL update</span>
@@ -989,18 +997,18 @@
                 <button
                   class="btn"
                   :class="moduleUpdate.has_update ? 'btn-primary' : 'btn-secondary'"
-                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600; flex-shrink: 0;"
+                  style="padding: 3px 8px; font-size: 10px; height: 22px; min-width: 86px; justify-content: center; border-radius: 6px; font-weight: 600; flex-shrink: 0;"
                   :disabled="moduleChecking"
                   @click="handleModuleUpdateAction"
                 >
                   <span v-if="moduleChecking" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
                     <Icons name="refresh" :size="10" />
                   </span>
-                  <span>{{ moduleChecking ? 'Checking...' : (moduleUpdate.latest ? (moduleUpdate.has_update ? 'View' : 'Checked') : 'Check update') }}</span>
+                  <span :key="moduleChecking ? 'checking' : (moduleUpdate.latest ? (moduleUpdate.has_update ? 'view' : 'checked') : 'check')" class="swap-fade-in">{{ moduleChecking ? 'Checking...' : (moduleUpdate.latest ? (moduleUpdate.has_update ? 'View' : 'Checked') : 'Check update') }}</span>
                 </button>
               </div>
             </div>
-            <div v-if="moduleUpdate.has_update && moduleUpdate.notes" style="font-size: 11px; color: var(--on-surface-variant); padding: 6px 0; border-bottom: 1px solid var(--surface-container-high);">
+            <div v-if="moduleUpdate.has_update && moduleUpdate.notes" class="soft-fade-in" style="font-size: 11px; color: var(--on-surface-variant); padding: 6px 0; border-bottom: 1px solid var(--surface-container-high);">
               {{ moduleUpdate.notes }}
               <a href="https://github.com/itswill00/HyperDL/releases" target="_blank" rel="noopener noreferrer" style="color: var(--primary); text-decoration: underline; font-weight: 600;">Get it here</a>
             </div>
@@ -1011,14 +1019,14 @@
                 <button
                   class="btn"
                   :class="ytdlpInfo.has_update ? 'btn-primary' : 'btn-secondary'"
-                  style="padding: 3px 8px; font-size: 10px; height: 22px; border-radius: 6px; font-weight: 600;"
+                  style="padding: 3px 8px; font-size: 10px; height: 22px; min-width: 86px; justify-content: center; border-radius: 6px; font-weight: 600;"
                   :disabled="ytdlpChecking || ytdlpUpdating"
                   @click="handleYtdlpAction"
                 >
                   <span v-if="ytdlpChecking || ytdlpUpdating" class="spin-loader" style="width: 10px; height: 10px; margin-right: 4px;">
                     <Icons name="refresh" :size="10" />
                   </span>
-                  <span>{{ ytdlpButtonLabel }}</span>
+                  <span :key="ytdlpButtonLabel" class="swap-fade-in">{{ ytdlpButtonLabel }}</span>
                 </button>
               </div>
             </div>
@@ -1085,7 +1093,33 @@
         </div>
 
         <div class="terminal-card" ref="terminalCard">
-          <pre class="terminal-text">{{ logContent }}</pre>
+          <div class="log-filter-row">
+            <div class="chips-row" style="margin: 0;">
+              <div class="chip-item" :class="{ active: logFilter === 'all' }" @click="logFilter = 'all'">
+                <span>All</span>
+              </div>
+              <div class="chip-item" :class="{ active: logFilter === 'errors' }" @click="logFilter = 'errors'">
+                <span>Errors</span>
+              </div>
+              <div class="chip-item" :class="{ active: logFilter === 'warnings' }" @click="logFilter = 'warnings'">
+                <span>Warnings</span>
+              </div>
+              <div class="chip-item" :class="{ active: logFilter === 'info' }" @click="logFilter = 'info'">
+                <span>Info</span>
+              </div>
+            </div>
+            <label class="log-autoscroll">
+              <input type="checkbox" v-model="logAutoScroll" />
+              <span>Follow</span>
+            </label>
+          </div>
+          <div v-if="filteredLogRows.length === 0" class="log-empty soft-fade-in">No matching entries. Try another filter or refresh.</div>
+          <div v-else class="log-rows">
+            <div v-for="row in filteredLogRows" :key="row.id" class="log-row" :class="'log-' + row.level">
+              <span class="log-dot"></span>
+              <span class="log-text">{{ row.text }}</span>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -1127,21 +1161,21 @@
           <div
             v-for="item in vaultList"
             :key="item.path"
-            class="md3-list-row"
-            style="display: flex; align-items: center; gap: 10px;"
+            class="md3-list-row stagger-in"
+            style="display: flex; align-items: center; gap: 8px;"
           >
-            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
+            <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; cursor: pointer;" @click="openMedia(item.path)">
               <div class="icon-badge secondary">
-                <Icons :name="getExtIcon(item.ext)" :size="16" />
+                <Icons :name="getExtIcon(item.ext)" :size="15" />
               </div>
               <div style="min-width: 0; flex: 1;">
                 <div
-                  style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: filter 0.2s ease;"
+                  style="font-size: 12px; font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: filter 0.45s ease;"
                   :style="isVaultBlurred ? 'filter: blur(5px); user-select: none;' : ''"
                 >
                   {{ item.name }}
                 </div>
-                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                <div style="font-size: 10px; color: var(--on-surface-variant); font-family: inherit; font-variant-numeric: tabular-nums; margin-top: 1px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                   <span style="color: var(--primary); font-weight: 500;">Vault/Stream · </span>{{ item.size }} · {{ (item.ext || '').toLowerCase() }}
                 </div>
               </div>
@@ -1158,7 +1192,7 @@
           </div>
         </div>
 
-        <div v-else class="md3-card" style="text-align: center; padding: 28px 16px; opacity: 0.7;">
+        <div v-else class="md3-card soft-fade-in" style="text-align: center; padding: 28px 16px; opacity: 0.7;">
           <Icons name="lock" :size="28" style="color: var(--on-surface-variant); margin-bottom: 8px;" />
           <div style="font-size: 12px; font-weight: 600; color: var(--on-surface);">Vault is empty</div>
           <div style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">
@@ -1221,7 +1255,7 @@
       </div>
     </transition>
 
-    <div v-if="showResolutionPicker" class="sheet-overlay" @click.self="closeResolutionPicker">
+    <div v-if="showResolutionPicker" class="sheet-overlay" :class="{ closing: sheetClosing }" @click.self="closeResolutionPicker">
       <div class="sheet-panel">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -1233,7 +1267,7 @@
           </button>
         </div>
 
-        <div v-if="isProbingResolutions" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 16px; gap: 10px;">
+        <div v-if="isProbingResolutions" class="rise-in" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 16px; gap: 10px;">
           <div class="spin-loader" style="width: 26px; height: 26px; color: var(--primary);">
             <Icons name="refresh" :size="24" />
           </div>
@@ -1241,15 +1275,15 @@
           <div style="font-size: 11px; color: var(--on-surface-variant);">Checking available streams & sizes</div>
         </div>
 
-        <div v-else class="resolution-list">
-          <div v-if="probeThumb" style="margin-bottom: 8px; border-radius: 10px; overflow: hidden;">
+        <div v-else class="resolution-list soft-fade-in">
+          <div v-if="probeThumb" class="soft-fade-in" style="margin-bottom: 8px; border-radius: 10px; overflow: hidden;">
             <img :src="probeThumb" alt="" referrerpolicy="no-referrer" style="width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover;" loading="lazy" />
           </div>
           <button
             v-for="r in resolutions"
             :key="r.height || r.format_id"
             type="button"
-            class="resolution-row"
+            class="resolution-row stagger-in"
             @click.stop="downloadWithResolution(r)"
           >
             <span class="res-label">
@@ -1272,7 +1306,7 @@
       </div>
     </div>
 
-    <div v-if="confirmDialog.show" class="dialog-backdrop" @click.self="resolveConfirm(false)">
+    <div v-if="confirmDialog.show" class="dialog-backdrop" :class="{ closing: dialogClosing }" @click.self="resolveConfirm(false)">
       <div class="dialog-card">
         <div class="dialog-title">{{ confirmDialog.title }}</div>
         <div class="dialog-message">{{ confirmDialog.message }}</div>
@@ -1294,7 +1328,7 @@
 
 
 
-    <div v-if="previewModal.show" class="preview-backdrop" @click.self="closePreview">
+    <div v-if="previewModal.show" class="preview-backdrop" :class="{ closing: previewClosing }" @click.self="closePreview">
       <div class="preview-card">
         <div class="preview-top-bar">
           <div class="preview-title-box">
@@ -1312,13 +1346,13 @@
         </div>
 
         <div class="preview-body" @touchstart="onPreviewTouchStart" @touchend="onPreviewTouchEnd">
-          <div v-if="previewLoading && !previewData" class="preview-center-box">
+          <div v-if="previewLoading && !previewData" class="preview-center-box soft-fade-in">
             <div class="spinner"></div>
             <div style="font-size: 12px; color: var(--on-surface-variant); margin-top: 10px;">Loading preview...</div>
           </div>
 
-          <div v-else-if="previewModal.isImage && previewData" class="preview-image-container">
-            <img :src="previewData" class="preview-image" :alt="previewModal.item?.name" />
+          <div v-else-if="previewModal.isImage && previewData" class="preview-image-container soft-fade-in">
+            <img :key="String(currentImageIndex)" :src="previewData" class="preview-image soft-fade-in" :alt="previewModal.item?.name" />
             <div v-if="previewNavLoading" style="position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 10px; color: var(--on-surface-variant); background: rgba(0,0,0,0.6); border-radius: 999px;">Loading...</div>
             
             <button
@@ -1341,7 +1375,7 @@
             </button>
           </div>
 
-          <div v-else class="preview-center-box">
+          <div v-else class="preview-center-box soft-fade-in">
             <div class="icon-badge secondary" style="width: 48px; height: 48px; margin-bottom: 12px;">
               <Icons name="image" :size="24" />
             </div>
@@ -1697,6 +1731,72 @@ async function saveVaultDomains() {
 }
 
 const logContent = ref('Loading console log...')
+const logFilter = ref('all')
+const logAutoScroll = ref(true)
+const sheetClosing = ref(false)
+const dialogClosing = ref(false)
+const previewClosing = ref(false)
+let sheetCloseTimer = null
+let dialogCloseTimer = null
+let previewCloseTimer = null
+
+function classifyLogLine(raw) {
+  const line = (raw || '').trim()
+  if (!line) return null
+  try {
+    const data = JSON.parse(line)
+    if (data && typeof data.status === 'string') {
+      const title = (data.title || '').trim()
+      const pct = typeof data.percent === 'number' ? data.percent : null
+      if (data.status === 'downloading' && pct !== null) {
+        return { level: 'info', text: title ? `Downloading ${pct}% — ${title}` : `Downloading ${pct}%` }
+      }
+      if (data.status === 'resolving' || data.status === 'probing') {
+        return { level: 'info', text: title ? `Working — ${title}` : 'Working...' }
+      }
+      if (data.status === 'completed') {
+        return { level: 'success', text: title ? `Done — ${title}` : 'Download complete' }
+      }
+      if (data.status === 'error') {
+        return { level: 'error', text: data.error ? `Failed — ${data.error}` : (title ? `Failed — ${title}` : 'Download failed') }
+      }
+      if (data.status === 'paused') {
+        return { level: 'warnings', text: title ? `Paused — ${title}` : 'Download paused' }
+      }
+      return { level: 'info', text: title || data.status }
+    }
+  } catch (e) {}
+  const low = line.toLowerCase()
+  if (low.includes('traceback') || low.includes('exception') || low.includes('error') || low.includes('failed') || low.includes('denied') || low.includes('forbidden')) {
+    return { level: 'error', text: line }
+  }
+  if (low.includes('warn') || low.includes('note:') || low.includes('retry') || low.includes('timeout') || low.includes('unavailable') || low.includes('expired')) {
+    return { level: 'warnings', text: line }
+  }
+  if (low.includes('complete') || low.includes('success') || low.includes('saved') || low.includes('done')) {
+    return { level: 'success', text: line }
+  }
+  return { level: 'info', text: line }
+}
+
+const filteredLogRows = computed(() => {
+  const src = logContent.value || ''
+  if (src === 'Loading console log...' || src === 'No log entries recorded yet.' || src === 'Failed to load console logs.') {
+    return []
+  }
+  const rows = []
+  const lines = src.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = classifyLogLine(lines[i])
+    if (!parsed) continue
+    if (logFilter.value !== 'all' && parsed.level !== logFilter.value) {
+      if (!(logFilter.value === 'info' && parsed.level === 'success')) continue
+    }
+    rows.push({ id: i, level: parsed.level, text: parsed.text })
+    if (rows.length >= 200) break
+  }
+  return rows.slice(-120)
+})
 
 const confirmDialog = ref({
   show: false,
@@ -1709,6 +1809,7 @@ const confirmDialog = ref({
 
 function showConfirm({ title = 'Confirm', message = '', confirmText = 'Confirm', isDestructive = true }) {
   return new Promise((resolve) => {
+    dialogClosing.value = false
     confirmDialog.value = {
       show: true,
       title,
@@ -1722,11 +1823,18 @@ function showConfirm({ title = 'Confirm', message = '', confirmText = 'Confirm',
 
 function resolveConfirm(result) {
   const cb = confirmDialog.value.resolve
-  confirmDialog.value.show = false
   confirmDialog.value.resolve = null
-  if (cb) {
-    cb(result)
+  if (!confirmDialog.value.show) {
+    if (cb) cb(result)
+    return
   }
+  dialogClosing.value = true
+  if (cb) cb(result)
+  clearTimeout(dialogCloseTimer)
+  dialogCloseTimer = setTimeout(() => {
+    confirmDialog.value.show = false
+    dialogClosing.value = false
+  }, 260)
 }
 
 let toastTimer = null
@@ -1965,6 +2073,11 @@ function handleOffline() {
   showToast('Network connection unstable', 'warning')
 }
 
+function handleFocus() {
+  checkClipboardSniffer()
+  checkActiveTask()
+}
+
 function testConnectivity() {
   if (typeof navigator !== 'undefined' && navigator.onLine) {
     isOnline.value = true
@@ -1990,6 +2103,7 @@ function onPasteInput() {
   setTimeout(() => {
     if (url.value) {
       url.value = extractUrl(url.value)
+      prefetchProbe(url.value)
     }
   }, 50)
 }
@@ -2000,6 +2114,7 @@ function onUrlInput() {
     if (clean && clean !== url.value) {
       url.value = clean
     }
+    prefetchProbe(url.value)
   }
 }
 
@@ -2048,19 +2163,6 @@ async function pasteClipboard() {
       if (urlInput.value) {
         urlInput.value.focus()
         urlInput.value.select()
-        const ok = document.execCommand('paste')
-        if (ok && urlInput.value.value) {
-          text = urlInput.value.value
-        }
-      }
-    } catch (e) {}
-  }
-
-  if (!text) {
-    try {
-      if (urlInput.value) {
-        urlInput.value.focus()
-        urlInput.value.select()
         await execCommand('input keyevent 279', 2000)
         await new Promise(resolve => setTimeout(resolve, 150))
         if (urlInput.value.value) {
@@ -2085,6 +2187,7 @@ async function pasteClipboard() {
   if (text && text.trim()) {
     url.value = extractUrl(text)
     showToast('Link pasted', 'success')
+    prefetchProbe(url.value)
     return
   }
 
@@ -2095,6 +2198,28 @@ async function pasteClipboard() {
 }
 
 let probePollTimer = null
+const prefetchedUrl = ref('')
+const prefetchTime = ref(0)
+
+function prefetchProbe(u) {
+  if (!u || showResolutionPicker.value) return
+  let clean = ''
+  try {
+    clean = extractUrl(u)
+  } catch (e) {
+    return
+  }
+  if (!clean || selectedFormat.value !== 'video') return
+  try {
+    if (!needsResolutionPicker(clean)) return
+  } catch (e) {
+    return
+  }
+  if (prefetchedUrl.value === clean && (Date.now() - prefetchTime.value) < 120000) return
+  prefetchedUrl.value = clean
+  prefetchTime.value = Date.now()
+  runBridge('probe_start', clean).catch(() => {})
+}
 
 function stopProbing() {
   if (probePollTimer) {
@@ -2103,11 +2228,21 @@ function stopProbing() {
   }
 }
 
-function closeResolutionPicker() {
-  showResolutionPicker.value = false
+function dismissSheet() {
+  if (!showResolutionPicker.value || sheetClosing.value) return
+  sheetClosing.value = true
   isProbingResolutions.value = false
   stopProbing()
   runBridge('cancel_probe').catch(() => {})
+  clearTimeout(sheetCloseTimer)
+  sheetCloseTimer = setTimeout(() => {
+    showResolutionPicker.value = false
+    sheetClosing.value = false
+  }, 280)
+}
+
+function closeResolutionPicker() {
+  dismissSheet()
 }
 
 async function startProbing(u) {
@@ -2115,9 +2250,14 @@ async function startProbing(u) {
   isProbingResolutions.value = true
   resolutions.value = []
 
-  try {
-    await runBridge('probe_start', u)
-  } catch (e) {}
+  const warm = prefetchedUrl.value === u && (Date.now() - prefetchTime.value) < 120000
+  if (!warm) {
+    prefetchedUrl.value = u
+    prefetchTime.value = Date.now()
+    try {
+      await runBridge('probe_start', u)
+    } catch (e) {}
+  }
 
   const probeStart = Date.now()
   probePollTimer = setInterval(async () => {
@@ -2133,6 +2273,7 @@ async function startProbing(u) {
         parsed = JSON.parse(raw)
       } catch (e) {}
       if (!parsed) return
+      if (parsed.url && parsed.url !== u) return
 
       if (parsed.status === 'ready') {
         stopProbing()
@@ -2170,6 +2311,7 @@ async function startDownload() {
 
   if (selectedFormat.value === 'video' && needsResolutionPicker(u)) {
     pendingUrl.value = u
+    sheetClosing.value = false
     showResolutionPicker.value = true
     startProbing(u)
     return
@@ -2180,10 +2322,7 @@ async function startDownload() {
 
 async function downloadWithResolution(r) {
   const targetUrl = pendingUrl.value
-  showResolutionPicker.value = false
-  isProbingResolutions.value = false
-  stopProbing()
-  runBridge('cancel_probe').catch(() => {})
+  dismissSheet()
 
   let extraArg = null
   if (r && r.height) {
@@ -2493,11 +2632,12 @@ async function copySourceLink(item) {
     showToast('Link copied', 'success')
   } catch (e) {
     try { await runBridge('get_clipboard') } catch (_e) {}
+    // Legacy WebView without async clipboard still needs this fallback.
     const ta = document.createElement('textarea')
     ta.value = u
     document.body.appendChild(ta)
     ta.select()
-    document.execCommand('copy')
+    try { document.execCommand('copy') } catch (_c) {}
     document.body.removeChild(ta)
     showToast('Link copied', 'success')
   }
@@ -2689,6 +2829,7 @@ function applyClipUrl(autoStart = false, format = null) {
     if (format) {
       selectedFormat.value = format
     }
+    prefetchProbe(url.value)
     detectedClipUrl.value = ''
     if (autoStart) {
       nextTick(() => {
@@ -2761,6 +2902,7 @@ async function openPreview(item, opts = {}) {
   }
 
   const keepCurrent = !!opts.keepCurrent && previewModal.value.show
+  previewClosing.value = false
   previewModal.value = {
     show: true,
     item,
@@ -2807,12 +2949,18 @@ async function openPreview(item, opts = {}) {
 }
 
 function closePreview() {
-  previewModal.value.show = false
-  previewModal.value.item = null
-  previewData.value = ''
-  previewError.value = ''
+  if (!previewModal.value.show || previewClosing.value) return
+  previewClosing.value = true
   previewNavLoading.value = false
-  previewCache.value.clear()
+  clearTimeout(previewCloseTimer)
+  previewCloseTimer = setTimeout(() => {
+    previewModal.value.show = false
+    previewModal.value.item = null
+    previewData.value = ''
+    previewError.value = ''
+    previewCache.value.clear()
+    previewClosing.value = false
+  }, 280)
 }
 
 function navigatePreview(direction) {
@@ -3026,11 +3174,13 @@ async function fetchLogs() {
   try {
     const logs = await runBridge('get_logs')
     logContent.value = logs || 'No log entries recorded yet.'
-    nextTick(() => {
-      if (terminalCard.value) {
-        terminalCard.value.scrollTop = terminalCard.value.scrollHeight
-      }
-    })
+    if (logAutoScroll.value) {
+      nextTick(() => {
+        if (terminalCard.value) {
+          terminalCard.value.scrollTop = terminalCard.value.scrollHeight
+        }
+      })
+    }
   } catch (e) {
     logContent.value = 'Failed to load console logs.'
   }
@@ -3138,7 +3288,7 @@ onMounted(() => {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     window.addEventListener('resize', handleViewportResize)
-    window.addEventListener('focus', () => { checkClipboardSniffer(); checkActiveTask() })
+    window.addEventListener('focus', handleFocus)
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibilityChange)
@@ -3163,7 +3313,7 @@ onUnmounted(() => {
     window.removeEventListener('online', handleOnline)
     window.removeEventListener('offline', handleOffline)
     window.removeEventListener('resize', handleViewportResize)
-    window.removeEventListener('focus', checkClipboardSniffer)
+    window.removeEventListener('focus', handleFocus)
   }
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -3190,6 +3340,172 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes soft-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.75s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.soft-fade-in {
+  animation: soft-fade 1s ease-out backwards;
+}
+
+.action-rise-enter-active {
+  transition: opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1), transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.action-rise-enter-from {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.action-rise-leave-active {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.action-rise-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+}
+
+.stagger-in {
+  animation: rise-in 0.75s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.md3-list-group > .stagger-in:nth-child(2) {
+  animation-delay: 0.06s;
+}
+
+.md3-list-group > .stagger-in:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.md3-list-group > .stagger-in:nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+.md3-list-group > .stagger-in:nth-child(5) {
+  animation-delay: 0.24s;
+}
+
+.md3-list-group > .stagger-in:nth-child(n+6) {
+  animation-delay: 0.3s;
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(48px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-down {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(48px);
+  }
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+}
+
+.sheet-overlay {
+  animation: overlay-in 0.5s ease-out;
+}
+
+.sheet-overlay.closing {
+  animation: overlay-out 0.3s ease-in forwards;
+}
+
+.sheet-panel {
+  animation: sheet-up 0.75s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.sheet-overlay.closing .sheet-panel {
+  animation: sheet-down 0.3s ease-in forwards;
+}
+
+.dialog-backdrop {
+  animation: overlay-in 0.5s ease-out;
+}
+
+.dialog-backdrop.closing {
+  animation: overlay-out 0.3s ease-in forwards;
+}
+
+.dialog-backdrop.closing .dialog-card {
+  animation: dialog-out 0.3s ease-in forwards;
+}
+
+.preview-backdrop {
+  animation: overlay-in 0.5s ease-out;
+}
+
+.preview-backdrop.closing {
+  animation: overlay-out 0.3s ease-in forwards;
+}
+
+.preview-backdrop.closing .preview-card {
+  animation: dialog-out 0.3s ease-in forwards;
+}
+
+.swap-fade-in {
+  display: inline-block;
+  animation: soft-fade 0.3s ease-out backwards;
+}
+
 .platform-notice-box {
   display: flex;
   align-items: flex-start;
@@ -3203,13 +3519,6 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--on-surface-variant);
   line-height: 1.5;
-}
-
-.format-desc-hint {
-  font-size: 11px;
-  color: var(--on-surface-variant);
-  margin-top: 6px;
-  padding-left: 2px;
 }
 
 .tabs-control {
@@ -3264,6 +3573,7 @@ onUnmounted(() => {
   padding: 10px;
   resize: vertical;
   outline: none;
+  transition: border-color 0.2s ease, filter 0.45s ease;
 }
 
 .cookies-textarea:focus {
@@ -3314,15 +3624,106 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.terminal-text {
-  font-family: inherit;
-  font-variant-numeric: tabular-nums;
+.log-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.log-autoscroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--on-surface-variant);
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.log-autoscroll input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+}
+
+.log-empty {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  padding: 12px 4px;
+  line-height: 1.5;
+}
+
+.log-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.log-row.log-error {
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.log-row.log-warnings {
+  background: rgba(255, 196, 0, 0.07);
+}
+
+.log-row.log-success {
+  background: rgba(99, 219, 142, 0.07);
+}
+
+.log-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  margin-top: 5px;
+  flex-shrink: 0;
+  background: var(--on-surface-variant);
+}
+
+.log-error .log-dot {
+  background: #ff6b6b;
+}
+
+.log-warnings .log-dot {
+  background: #ffc400;
+}
+
+.log-success .log-dot {
+  background: #63db8e;
+}
+
+.log-info .log-dot {
+  background: var(--primary);
+}
+
+.log-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--on-surface);
   white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-  line-height: 1.4;
+  word-break: break-word;
+}
+
+.log-error .log-text {
+  color: #ff9d9d;
+}
+
+.log-warnings .log-text {
+  color: var(--on-surface);
 }
 
 .toast-fade-enter-active,
@@ -3400,22 +3801,6 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.skeleton-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 4px 0 8px 0;
-}
-
-.skeleton-row {
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(90deg, var(--surface-container-low) 25%, var(--surface-container-high) 50%, var(--surface-container-low) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border: 1px solid var(--outline-variant);
 }
 
 @keyframes shimmer {
@@ -3503,10 +3888,6 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.probe-empty-area {
-  padding: 12px 0 6px 0;
-}
-
 .progress-fill.indeterminate {
   background: linear-gradient(90deg, var(--surface-container-high) 0%, var(--primary) 50%, var(--surface-container-high) 100%);
   background-size: 200% 100%;
@@ -3546,7 +3927,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   color: var(--on-primary);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .custom-checkbox input:checked ~ .checkbox-box {
@@ -3649,12 +4030,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 10px;
+  gap: 6px 8px;
   background: var(--surface-container-high);
   border: 1px solid var(--primary);
-  border-radius: 12px;
-  padding: 8px 12px;
-  margin-top: 10px;
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-top: 8px;
   animation: banner-slide-down 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
 }
@@ -3703,36 +4084,38 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 600;
   color: var(--primary);
+  line-height: 1.2;
 }
 
 .clip-sniffer-url {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: inherit;
-  margin-top: 2px;
+  margin-top: 1px;
+  line-height: 1.3;
 }
 
 .clip-sniffer-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
   margin-left: auto;
 }
 
 .clip-action-btn {
-  padding: 4px 8px;
-  font-size: 11px;
-  border-radius: 8px;
-  gap: 4px;
+  padding: 3px 7px;
+  font-size: 10px;
+  border-radius: 7px;
+  gap: 3px;
 }
 
 .clip-dismiss-btn {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   background: transparent;
   border: none;
   color: var(--on-surface-variant);
@@ -3801,10 +4184,13 @@ onUnmounted(() => {
   border: 1px solid var(--surface-container-high);
   border-radius: 12px;
   padding: 6px 12px;
+  overflow: hidden;
 }
 
 .search-input {
   flex: 1;
+  min-width: 0;
+  width: 100%;
   background: transparent;
   border: none;
   color: var(--on-surface);
@@ -3964,26 +4350,6 @@ onUnmounted(() => {
   display: block;
 }
 
-.preview-media-container {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-}
-
-.preview-video {
-  max-width: 100%;
-  max-height: 60vh;
-  border-radius: 8px;
-}
-
-.preview-audio-box {
-  width: 100%;
-  padding: 24px 16px;
-  text-align: center;
-}
-
 .preview-nav-btn {
   position: absolute;
   top: 50%;
@@ -4036,7 +4402,7 @@ onUnmounted(() => {
   border-radius: 10px;
   background: var(--surface-container-low);
   border: 1px solid var(--surface-container-high);
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .cookie-health-item.active {

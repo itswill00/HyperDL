@@ -45,7 +45,7 @@ case "$0" in
     */*) DIR="${{0%/*}}" ;;
     *) DIR="$(command -v "$0" 2>/dev/null)"; DIR="${{DIR%/*}}" ;;
 esac
-export LD_LIBRARY_PATH="/system/lib64:/system/lib"
+export LD_LIBRARY_PATH="$DIR/../lib:/system/lib64:/system/lib"
 if [ -n "$DIR" ] && [ -x "$DIR/{tool}.bin" ]; then
     exec "$DIR/{tool}.bin" "$@"
 fi

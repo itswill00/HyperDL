@@ -10,20 +10,6 @@ export const STANDARD_RESOLUTIONS = [
   { height: 360, format_id: '360', label: '360p Data Saver', badge: 'SD', desc: 'Data Saver', ext: 'mp4' }
 ]
 
-export const SUPPORTED_PLATFORMS = [
-  { id: 'tiktok', name: 'TikTok' },
-  { id: 'instagram', name: 'Instagram' },
-  { id: 'x', name: 'X' },
-  { id: 'youtube', name: 'YouTube' },
-  { id: 'facebook', name: 'Facebook' },
-  { id: 'reddit', name: 'Reddit' },
-  { id: 'pinterest', name: 'Pinterest' },
-  { id: 'bluesky', name: 'Bluesky' },
-  { id: 'threads', name: 'Threads' },
-  { id: 'bilibili', name: 'Bilibili' },
-  { id: 'streamable', name: 'Streamable' }
-]
-
 export function isNetworkError(err) {
   if (!err) return false
   const str = String(err).toLowerCase()

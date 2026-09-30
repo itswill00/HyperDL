@@ -5,17 +5,13 @@ import sys
 import re
 import json
 import time
-import uuid
 import base64
 import hashlib
-import argparse
 import subprocess
 import shutil
 import threading
 import socket
-import ssl
 import signal
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import html as pyhtml
 import urllib.request
 import urllib.parse
@@ -581,11 +577,28 @@ def scan_media_file(file_path):
         pass
     try:
         quoted = urllib.parse.quote(file_path)
-        cmd = (
-            f'(am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://{quoted}" >/dev/null 2>&1; '
-            f'content insert --uri content://media/external/file --bind _data:s:"{file_path}" >/dev/null 2>&1) &'
-        )
-        os.system(cmd)
+        # Shell-free scan so remote filenames can never break out into a root shell.
+        scan_args = [
+            "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", f"file://{quoted}",
+        ]
+        insert_args = [
+            "content", "insert",
+            "--uri", "content://media/external/file",
+            "--bind", f"_data:s:{file_path}",
+        ]
+        for args in (scan_args, insert_args):
+            try:
+                subprocess.Popen(
+                    args,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except Exception:
+                continue
     except Exception:
         pass
 
@@ -731,16 +744,19 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             resp = urllib.request.urlopen(req, timeout=40)
         except urllib.error.HTTPError as e:
             if e.code == 416 and existing_bytes > 0:
-                os.replace(part_path, out_path)
+                # Signed URL moved on, so the stale partial is junk. Drop it
+                # and retry once from the start instead of blessing it complete.
+                # A fresh failure here propagates outward as a real error.
                 try:
-                    os.chmod(out_path, 0o666)
+                    os.remove(part_path)
                 except Exception:
                     pass
-                scan_media_file(out_path)
-                if emit_complete:
-                    update_status("completed", percent=100, title=title, file_path=out_path)
-                return out_path
-            if "Range" in hdrs:
+                existing_bytes = 0
+                if "Range" in hdrs:
+                    del hdrs["Range"]
+                req = urllib.request.Request(url, headers=hdrs)
+                resp = urllib.request.urlopen(req, timeout=40)
+            elif "Range" in hdrs:
                 del hdrs["Range"]
                 if os.path.exists(part_path):
                     try:
@@ -1063,9 +1079,12 @@ def resolve_tiktok(url, fmt="video"):
 
     if not cookie_hdr:
         try:
+            update_status("resolving", title="Contacting fast resolver...")
             return fetch_tikwm(clean_url, fmt)
         except Exception as e:
             print(f"Fast TikWM path note: {e}, attempting direct scrape...", file=sys.stderr)
+
+    update_status("resolving", title="Reading TikTok page...")
 
     hdrs = {
         "User-Agent": USER_AGENT,
@@ -1092,9 +1111,9 @@ def resolve_tiktok(url, fmt="video"):
         m = re.search(r'<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html, re.S)
         if m:
             data = json.loads(m.group(1))
-            scope = data.get("__DEFAULT_SCOPE__", {})
-            detail = scope.get("webapp.video-detail", {})
-            item = detail.get("itemInfo", {}).get("itemStruct", {})
+            scope = (data.get("__DEFAULT_SCOPE__") or {})
+            detail = (scope.get("webapp.video-detail") or {})
+            item = ((detail.get("itemInfo") or {}).get("itemStruct") or {})
 
             if item:
                 title = item.get("desc") or "TikTok Video"
@@ -1105,7 +1124,7 @@ def resolve_tiktok(url, fmt="video"):
                 if image_post and image_post.get("images"):
                     images = []
                     for img in image_post.get("images", []):
-                        url_list = img.get("imageURL", {}).get("urlList") or img.get("displayImage", {}).get("urlList")
+                        url_list = (img.get("imageURL") or {}).get("urlList") or (img.get("displayImage") or {}).get("urlList")
                         if url_list:
                             images.append(url_list[0])
                     if images:
@@ -1182,9 +1201,11 @@ def resolve_tiktok(url, fmt="video"):
         print(f"Direct TikTok scrape note: {e}, using mirror resolver...", file=sys.stderr)
 
     try:
+        update_status("resolving", title="Trying mirror resolver...")
         return fetch_tikwm(clean_url, fmt)
     except Exception as te:
         print(f"TikWM mirror fallback note: {te}", file=sys.stderr)
+        update_status("resolving", title="Preparing fallback player...")
         return {
             "direct_ytdlp": True,
             "url": clean_url if clean_url != url else url,
@@ -1223,6 +1244,7 @@ def resolve_instagram(url, fmt="video"):
 
     if fmt == "video":
         try:
+            update_status("resolving", title="Checking Instagram preview...")
             crawler_hdrs = {
                 "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -1258,6 +1280,7 @@ def resolve_instagram(url, fmt="video"):
             pass
 
     try:
+        update_status("resolving", title="Extracting Instagram media...")
         ytdlp_bin = get_or_download_ytdlp()
         if ytdlp_bin and ytdlp_bin not in sys.path:
             sys.path.insert(0, ytdlp_bin)
@@ -1271,9 +1294,22 @@ def resolve_instagram(url, fmt="video"):
         if os.path.exists(COOKIES_PATH):
             ydl_opts["cookiefile"] = COOKIES_PATH
 
-        with YoutubeDL(ydl_opts) as ydl:
-            ie = ydl.get_info_extractor("Instagram")
-            info = ie.extract(clean_url)
+        ydl = YoutubeDL(ydl_opts)
+        ie = ydl.get_info_extractor("Instagram")
+        info_box = {}
+
+        def _extract_ig():
+            try:
+                info_box["info"] = ie.extract(clean_url)
+            except Exception as ex:
+                info_box["error"] = ex
+
+        extractor_thread = threading.Thread(target=_extract_ig, daemon=True)
+        extractor_thread.start()
+        extractor_thread.join(timeout=25)
+        if extractor_thread.is_alive() or "info" not in info_box:
+            raise TimeoutError("Instagram extractor timed out, using fallback player")
+        info = info_box["info"]
 
         raw_title = info.get("title") or f"Instagram_{shortcode}"
         title = sanitize_filename(re.sub(r'[\r\n\t]+', ' ', raw_title).strip()) or f"Instagram_{shortcode}"
@@ -1411,6 +1447,7 @@ def resolve_instagram(url, fmt="video"):
     except Exception as e:
         print(f"Instagram yt_dlp extractor note: {e}", file=sys.stderr)
 
+    update_status("resolving", title="Preparing fallback player...")
     return {
         "direct_ytdlp": True,
         "url": clean_url,
@@ -1441,6 +1478,7 @@ def resolve_facebook(url, fmt="video"):
         hdrs["Cookie"] = cookie_hdr
 
     try:
+        update_status("resolving", title="Reading Facebook page...")
         req = urllib.request.Request(clean_url, headers=hdrs)
         with urllib.request.urlopen(req, timeout=6) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
@@ -1499,6 +1537,7 @@ def resolve_facebook(url, fmt="video"):
     except Exception as e:
         print(f"Facebook direct scrape note: {e}", file=sys.stderr)
 
+    update_status("resolving", title="Preparing fallback player...")
     return {
         "direct_ytdlp": True,
         "url": clean_url,
@@ -1547,7 +1586,7 @@ def resolve_pinterest(url, fmt="video"):
             req = urllib.request.Request(api_url, headers=headers)
             with urllib.request.urlopen(req, timeout=5) as resp:
                 d = json.loads(resp.read().decode("utf-8"))
-            pin = d.get("resource_response", {}).get("data") or {}
+            pin = ((d.get("resource_response") or {}).get("data") or {})
             raw_title = pin.get("title") or pin.get("grid_title") or pin.get("description") or f"Pinterest_{pin_id}"
             title = re.sub(r'[\r\n\t]+', ' ', raw_title).strip() or f"Pinterest_{pin_id}"
 
@@ -1579,7 +1618,7 @@ def resolve_pinterest(url, fmt="video"):
                     for block in page.get("blocks", []):
                         img_obj = block.get("image") or {}
                         if isinstance(img_obj, dict):
-                            i_url = (img_obj.get("images", {}).get("orig", {}) or {}).get("url")
+                            i_url = (((img_obj.get("images") or {}).get("orig") or {}).get("url"))
                             if i_url:
                                 story_imgs.append(i_url)
                 if story_imgs:
@@ -1666,6 +1705,7 @@ def resolve_reddit(url, fmt="video"):
         return None
 
     try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(fetch_reddit_candidate, cu) for cu in candidates_urls]
             for f in as_completed(futures):
@@ -1754,6 +1794,7 @@ def resolve_twitter(url, fmt="video"):
 
     if csrf and auth_token and cookie_hdr:
         try:
+            update_status("resolving", title="Contacting X API...")
             bearer = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
             api_endpoint = "https://x.com/i/api/graphql/2ICDjqPd81tulZcYrtpTuQ/TweetResultByRestId"
             variables = {"tweetId": status_id, "withCommunity": False, "includePromotedContent": False, "withVoice": False}
@@ -1788,8 +1829,8 @@ def resolve_twitter(url, fmt="video"):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             result = ((data.get("data") or {}).get("tweetResult") or {}).get("result") or {}
-            legacy = (result.get("tweet", {}).get("legacy") if isinstance(result.get("tweet"), dict) else result.get("legacy")) or {}
-            media_list = legacy.get("extended_entities", {}).get("media") or legacy.get("entities", {}).get("media") or []
+            legacy = ((result.get("tweet") or {}).get("legacy") if isinstance(result.get("tweet"), dict) else result.get("legacy")) or {}
+            media_list = (legacy.get("extended_entities") or {}).get("media") or (legacy.get("entities") or {}).get("media") or []
             if media_list:
                 title = legacy.get("full_text") or f"Tweet_{status_id}"
                 fb_lambda = lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "channel": author, "id": status_id, "platform": "Twitter"}
@@ -1799,7 +1840,7 @@ def resolve_twitter(url, fmt="video"):
                     mtype = str(media.get("type") or "").lower()
                     if mtype in ("video", "animated_gif"):
                         has_video_in_media = True
-                        variants = media.get("video_info", {}).get("variants", [])
+                        variants = (media.get("video_info") or {}).get("variants", [])
                         mp4s = [v for v in variants if v.get("content_type") == "video/mp4" and v.get("url")]
                         if mp4s:
                             mp4s.sort(key=lambda x: int(x.get("bitrate") or 0), reverse=True)
@@ -1831,6 +1872,8 @@ def resolve_twitter(url, fmt="video"):
             return ep, json.loads(resp.read().decode("utf-8"))
 
     results = []
+    update_status("resolving", title="Trying mirror endpoints...")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(query_guest_ep, ep): ep for ep in guest_endpoints}
         for f in as_completed(futures):
@@ -1946,7 +1989,9 @@ def resolve_twitter(url, fmt="video"):
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
 def _repack_pyc(src_zip, dst_zip):
-    import tempfile, compileall, zipfile
+    import tempfile
+    import compileall
+    import zipfile
     with tempfile.TemporaryDirectory() as tmpdir:
         with zipfile.ZipFile(src_zip, "r") as z:
             z.extractall(tmpdir)
@@ -1976,7 +2021,6 @@ def get_or_download_ytdlp():
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
 
-    import shutil
     p = shutil.which("yt-dlp")
     if p:
         return p
@@ -2035,6 +2079,7 @@ def check_ytdlp_version_api():
     }
 
 def perform_ytdlp_update():
+    import tempfile
     target_paths = [
         "/data/adb/modules/hyperdl/bin/yt-dlp",
         "/data/adb/modules/hyperdl/system/bin/yt-dlp",
@@ -2043,7 +2088,6 @@ def perform_ytdlp_update():
         os.path.join(CONF_DIR, "bin", "yt-dlp"),
     ]
 
-    import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_dl = os.path.join(tmpdir, "raw_ytdlp")
         req = urllib.request.Request(YTDLP_DOWNLOAD_URL, headers={"User-Agent": USER_AGENT})
@@ -2084,7 +2128,7 @@ def get_module_local_prop():
         "/data/adb/modules/hyperdl/module.prop",
         "/data/adb/modules_update/hyperdl/module.prop",
     ]
-    props = {"version": "v1.3.19", "versionCode": "13190"}
+    props = {"version": "v1.3.50", "versionCode": "13500"}
     for p in candidates:
         if os.path.exists(p):
             try:
@@ -2101,11 +2145,11 @@ def get_module_local_prop():
 
 def check_module_update():
     local_props = get_module_local_prop()
-    cur_ver = local_props.get("version", "v1.3.19")
+    cur_ver = local_props.get("version", "v1.3.50")
     try:
-        cur_code = int(local_props.get("versionCode", "13190"))
+        cur_code = int(local_props.get("versionCode", "13500"))
     except ValueError:
-        cur_code = 13190
+        cur_code = 13500
 
     res = {
         "current_version": cur_ver,
@@ -2576,7 +2620,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     elif format_id and not height:
         format_arg = ["-f", format_id]
     elif height:
-        h = int(height)
+        try:
+            h = int(height)
+        except (TypeError, ValueError):
+            raise RuntimeError(f"Unsupported height value: {height}")
         if ffmpeg_bin:
             format_arg = [
                 "-f",
@@ -2965,13 +3012,13 @@ def probe_resolutions(url):
 
     if res.returncode != 0 or not res.stdout.strip():
         _write_probe_result({"status": "ready", "url": url, "resolutions": []})
-        return []
+        return {"url": url, "resolutions": [], "thumbnail": "", "subtitles": []}
 
     try:
         data = json.loads(res.stdout)
     except Exception:
         _write_probe_result({"status": "ready", "url": url, "resolutions": []})
-        return []
+        return {"url": url, "resolutions": [], "thumbnail": "", "subtitles": []}
 
     duration = data.get("duration") or 0
     formats = data.get("formats") or []
@@ -3054,6 +3101,7 @@ def probe_resolutions(url):
     return payload
 
 def main():
+    import argparse
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
     subparsers = parser.add_subparsers(dest="action")
 
@@ -3081,7 +3129,10 @@ def main():
     if args.action == "probe":
         try:
             res = probe_resolutions(args.url)
-            print(json.dumps({"status": "ready", "url": args.url, "resolutions": res}), flush=True)
+            if isinstance(res, dict):
+                print(json.dumps({"status": "ready", **res}), flush=True)
+            else:
+                print(json.dumps({"status": "ready", "url": args.url, "resolutions": res}), flush=True)
         except Exception as e:
             _write_probe_result({"status": "error", "error": humanize_error(e), "resolutions": []})
             print(json.dumps({"status": "error", "error": humanize_error(e), "resolutions": []}), flush=True)

@@ -93,7 +93,7 @@ fi
 # yt-dlp check
 if [ ! -f "bin/yt-dlp" ]; then
     echo "-> fetching yt-dlp..."
-    curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o bin/yt-dlp
+    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o bin/yt-dlp
     chmod 755 bin/yt-dlp
     [ -f "scripts/optimize_ytdlp.py" ] && python3 scripts/optimize_ytdlp.py bin/yt-dlp
 fi
