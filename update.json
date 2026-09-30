@@ -3,5 +3,5 @@
   "versionCode": 13510,
   "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.51/HyperDL-v1.3.51.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Makes the console activity log readable at a glance with color-coded rows, level filters, and a follow toggle, plus a slimmer header and slimmer clipboard banner."
+  "notes": "Locks down every root shell path, makes resolving visibly faster with live step feedback and background prefetching, overhauls the console log and motion design, and clears a second full audit with zero findings left open."
 }
