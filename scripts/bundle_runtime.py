@@ -12,6 +12,67 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TARGET_DIR = os.path.join(PROJECT_DIR, "runtime")
 TERMUX_USR = "/data/data/com.termux/files/usr"
 
+# Shared libraries every Android 10+ device provides in /system/lib64. The
+# Termux copies of libandroid/libmediandk are namespace shims that only work
+# inside Termux, so the module must resolve these names from the system.
+SYSTEM_LIBS = {
+    "libc.so", "libm.so", "libdl.so", "liblog.so",
+    "libandroid.so", "libmediandk.so",
+}
+
+
+def _elf_strings(path, tag):
+    out = subprocess.run(["readelf", "-d", path], capture_output=True, text=True)
+    if out.returncode != 0:
+        print(f"error: readelf failed on {path}", file=sys.stderr)
+        sys.exit(1)
+    found = []
+    for line in out.stdout.splitlines():
+        if tag in line and "[" in line:
+            found.append(line.split("[")[1].split("]")[0])
+    return found
+
+
+def bundle_ffmpeg_libs(bin_dir, lib_dir):
+    """Copy the full shared-library closure of ffmpeg/ffprobe into lib_dir.
+
+    The media tools are Termux dynamic binaries. Without their libav* closure
+    they only run on phones that have Termux installed, which is exactly the
+    failure seen on clean devices. Anything not found in the Termux lib dir
+    and not in SYSTEM_LIBS aborts the build loudly instead of shipping a
+    module that dies at runtime.
+    """
+    print("bundling ffmpeg shared-library closure...")
+    queue = [os.path.join(bin_dir, "ffmpeg.bin"), os.path.join(bin_dir, "ffprobe.bin")]
+    visited = set()
+    bundled = 0
+    while queue:
+        current = queue.pop()
+        real = os.path.realpath(current)
+        if real in visited:
+            continue
+        visited.add(real)
+        for name in _elf_strings(real, "(NEEDED)"):
+            if name in SYSTEM_LIBS:
+                continue
+            if name in visited:
+                continue
+            src = os.path.join(f"{TERMUX_USR}/lib", name)
+            if not os.path.exists(src):
+                print(f"error: {name} needed by {current} is neither bundled nor a system lib",
+                      file=sys.stderr)
+                sys.exit(1)
+            sonames = _elf_strings(os.path.realpath(src), "(SONAME)")
+            dst_name = sonames[0] if sonames else name
+            dst = os.path.join(lib_dir, dst_name)
+            if not os.path.exists(dst):
+                shutil.copyfile(os.path.realpath(src), dst, follow_symlinks=True)
+                os.chmod(dst, 0o755)
+                bundled += 1
+            visited.add(name)
+            queue.append(os.path.realpath(src))
+    print(f"bundled {bundled} ffmpeg support libraries")
+
 def main():
     if not os.path.exists(f"{TERMUX_USR}/bin/python3"):
         print("error: Termux python3 not found", file=sys.stderr)
@@ -48,7 +109,7 @@ case "$0" in
     */*) DIR="${{0%/*}}" ;;
     *) DIR="$(command -v "$0" 2>/dev/null)"; DIR="${{DIR%/*}}" ;;
 esac
-export LD_LIBRARY_PATH="$DIR/../lib:/system/lib64:/system/lib"
+export LD_LIBRARY_PATH="/system/lib64:/system/lib:$DIR/../lib"
 if [ -n "$DIR" ] && [ -x "$DIR/{tool}.bin" ]; then
     exec "$DIR/{tool}.bin" "$@"
 fi
@@ -82,6 +143,8 @@ exec "$DIR/{tool}.bin" "$@"
             else:
                 shutil.copy2(src, dst)
             os.chmod(dst, 0o755)
+
+    bundle_ffmpeg_libs(bin_dir, lib_dir)
 
     ca_candidates = [
         f"{TERMUX_USR}/etc/tls/cert.pem",
@@ -162,6 +225,12 @@ exec "$DIR/{tool}.bin" "$@"
         for f in glob.glob(f"{lib_dir}/*.so*"):
             if not os.path.islink(f):
                 subprocess.run([patchelf_bin, "--set-rpath", "$ORIGIN", f], check=False)
+        for tool_bin in (os.path.join(bin_dir, "ffmpeg.bin"), os.path.join(bin_dir, "ffprobe.bin")):
+            if os.path.exists(tool_bin):
+                subprocess.run([patchelf_bin, "--set-rpath", "$ORIGIN/../lib", tool_bin], check=False)
+    else:
+        print("error: patchelf not found, cannot guarantee standalone isolation", file=sys.stderr)
+        sys.exit(1)
 
     env = {
         "PATH": f"{bin_dir}:/system/bin",
@@ -175,6 +244,19 @@ exec "$DIR/{tool}.bin" "$@"
     if res.returncode != 0:
         print(f"Runtime self-test failed: {res.stderr}", file=sys.stderr)
         sys.exit(1)
+
+    # Prove the media tools run without any Termux path: a bare system
+    # environment is exactly what a clean device (no Termux) looks like. The
+    # wrappers are tested (not the raw binaries) because that is the real
+    # deployment path, including its library ordering.
+    bare_env = {"PATH": "/system/bin", "LD_LIBRARY_PATH": "/system/lib64:/system/lib"}
+    for tool in ("ffmpeg", "ffprobe"):
+        tool_path = os.path.join(bin_dir, tool)
+        res = subprocess.run([tool_path, "-version"], env=bare_env, capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"Standalone {tool} check failed: {res.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+    print("Standalone ffmpeg/ffprobe verification passed.")
 
     total_bytes = sum(os.path.getsize(os.path.join(r, f)) for r, d, files in os.walk(TARGET_DIR) for f in files)
     print(f"Standalone Python runtime bundled ({total_bytes / (1024*1024):.1f} MB in {TARGET_DIR})")

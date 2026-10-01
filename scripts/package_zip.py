@@ -92,6 +92,11 @@ def main():
     if missing:
         print(f"error: package is incomplete, missing: {', '.join(missing)}", file=sys.stderr)
         return 1
+    # The media tools are useless without their shared-library closure, so a
+    # zip carrying the binaries but no libav* is a broken build, not a release.
+    if "runtime/bin/ffmpeg.bin" in names and not any("libavformat.so" in n for n in names):
+        print("error: package carries ffmpeg without its libav shared libraries", file=sys.stderr)
+        return 1
 
     print(f"verified: {len(required)} required entries present")
     return 0

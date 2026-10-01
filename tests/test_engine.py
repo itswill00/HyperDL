@@ -147,14 +147,14 @@ class TestHumanizeError(unittest.TestCase):
 
 
 class TestFfmpegDetection(unittest.TestCase):
-    def test_env_prefers_runtime_lib(self):
+    def test_env_prefers_system_lib(self):
         import engine._impl as impl
         orig = impl._resolve_runtime_dir
         try:
             impl._resolve_runtime_dir = lambda: "/data/adb/modules/hyperdl/runtime"
             env = get_ffmpeg_env()
-            self.assertTrue(env["LD_LIBRARY_PATH"].startswith("/data/adb/modules/hyperdl/runtime/lib"))
-            self.assertIn("/system/lib64", env["LD_LIBRARY_PATH"])
+            self.assertTrue(env["LD_LIBRARY_PATH"].startswith("/system/lib64"))
+            self.assertIn("/data/adb/modules/hyperdl/runtime/lib", env["LD_LIBRARY_PATH"])
             self.assertIn("/data/adb/modules/hyperdl/runtime/bin", env["PATH"])
         finally:
             impl._resolve_runtime_dir = orig

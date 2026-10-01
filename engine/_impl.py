@@ -2231,10 +2231,11 @@ def get_ffmpeg_env():
     rd = _resolve_runtime_dir()
     if not rd:
         rd = "/data/adb/modules/hyperdl/runtime"
-    # The bundled media tools live next to their shared libraries, so the
-    # runtime lib dir has to come first. System paths stay as fallback for
-    # devices that ship their own binaries.
-    env["LD_LIBRARY_PATH"] = f"{rd}/lib:/system/lib64:/system/lib"
+    # System paths come first so platform libraries (e.g. liblzma needed by
+    # libunwindstack) always resolve to the system copy. The bundled dir stays
+    # as fallback for libraries only the module provides (libav* and friends).
+    # Bundled-first ordering is known to break linking on stock devices.
+    env["LD_LIBRARY_PATH"] = f"/system/lib64:/system/lib:{rd}/lib"
     env["PATH"] = f"{rd}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
     return env
 
