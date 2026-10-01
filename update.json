@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.51",
-  "versionCode": 13510,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.51/HyperDL-v1.3.51.zip",
+  "version": "v1.3.52",
+  "versionCode": 13520,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.52/HyperDL-v1.3.52.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Locks down every root shell path, makes resolving visibly faster with live step feedback and background prefetching, overhauls the console log and motion design, and clears a second full audit with zero findings left open."
+  "notes": "Bundles the full FFmpeg shared-library closure so audio downloads work on phones without Termux, detects broken media tools honestly, and fails fast with clear errors instead of cryptic logs."
 }
