@@ -83,7 +83,9 @@ def main():
 
     required = ["module.prop", "customize.sh", "service.sh", "uninstall.sh",
                 "webroot/index.html", "bin/libhyperdl.so", "bin/hyperdl.bundle",
-                "bin/hyperdl_daemon", "bin/yt-dlp", "runtime/bin/python3"]
+                "bin/hyperdl_daemon", "bin/yt-dlp", "runtime/bin/python3",
+                "runtime/bin/ffmpeg", "runtime/bin/ffmpeg.bin",
+                "runtime/bin/ffprobe", "runtime/bin/ffprobe.bin"]
     with zipfile.ZipFile(out_zip) as z:
         names = set(z.namelist())
     missing = [r for r in required if r not in names]

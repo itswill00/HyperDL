@@ -53,6 +53,53 @@ static const char *outdir(void) {
     return g_outdir;
 }
 
+/* The media tools are Termux dynamic binaries, so an executable bit alone
+ * says nothing. They only run when their backing shared libraries resolve:
+ * either bundled next to them or provided by a local Termux install. */
+static int dir_has_prefix(const char *dir, const char *prefix) {
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    size_t n = strlen(prefix);
+    struct dirent *e;
+    int found = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, prefix, n) == 0) { found = 1; break; }
+    }
+    closedir(d);
+    return found;
+}
+
+static int runtime_libs_present(const char *runtime_dir) {
+    char libdir[512];
+    snprintf(libdir, sizeof(libdir), "%s/lib", runtime_dir);
+    if (dir_has_prefix(libdir, "libavformat.so")) return 1;
+    if (dir_has_prefix("/data/data/com.termux/files/usr/lib", "libavformat.so")) return 1;
+    return 0;
+}
+
+static int has_working_ffmpeg(void) {
+    static const char *roots[] = {
+        "/data/adb/modules/hyperdl",
+        "/data/adb/modules_update/hyperdl",
+        NULL
+    };
+    for (int i = 0; roots[i]; i++) {
+        char wrap_f[512], bin_f[512], wrap_p[512], bin_p[512], rd[512];
+        snprintf(wrap_f, sizeof(wrap_f), "%s/runtime/bin/ffmpeg", roots[i]);
+        snprintf(bin_f, sizeof(bin_f), "%s/runtime/bin/ffmpeg.bin", roots[i]);
+        snprintf(wrap_p, sizeof(wrap_p), "%s/runtime/bin/ffprobe", roots[i]);
+        snprintf(bin_p, sizeof(bin_p), "%s/runtime/bin/ffprobe.bin", roots[i]);
+        snprintf(rd, sizeof(rd), "%s/runtime", roots[i]);
+        if (access(wrap_f, X_OK) == 0 && access(bin_f, X_OK) == 0 &&
+            access(wrap_p, X_OK) == 0 && access(bin_p, X_OK) == 0 &&
+            runtime_libs_present(rd))
+            return 1;
+    }
+    if (access("/system/bin/ffmpeg", X_OK) == 0 &&
+        access("/system/bin/ffprobe", X_OK) == 0)
+        return 1;
+    return 0;
+}
 static int path_is_managed(const char *path);
 static void json_escape(const char *src, char *dst, size_t dst_size);
 
@@ -1346,9 +1393,7 @@ static void cmd_info(void) {
 
     const char *python_bin = find_python();
     int has_cookies = (access(COOKIES_FILE, F_OK) == 0);
-    int has_ffmpeg = (access("/data/adb/modules/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg", X_OK) == 0) ||
-                     (access("/system/bin/ffmpeg", X_OK) == 0);
+    int has_ffmpeg = has_working_ffmpeg();
 
     printf("{\"version\":\"%s\",\"storage_free\":\"%s\",\"outdir\":\"%s\",\"python\":\"%s\",\"has_cookies\":%s,\"has_ffmpeg\":%s,\"audio_format\":\"%s\"}\n",
            mod_version, storage_free, outdir(), python_bin ? python_bin : "None", has_cookies ? "true" : "false", has_ffmpeg ? "true" : "false", audio_fmt);

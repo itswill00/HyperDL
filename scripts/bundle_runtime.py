@@ -40,6 +40,9 @@ def main():
                 shutil.copy(tool_src, tool_bin)
                 os.chmod(tool_bin, 0o755)
                 print(f"Bundled {tool} into {tool_bin}")
+            else:
+                print(f"warning: Termux {tool} not found at {tool_src}, "
+                      f"wrapper will fall back to system {tool}", file=sys.stderr)
         wrapper_sh = f'''#!/system/bin/sh
 case "$0" in
     */*) DIR="${{0%/*}}" ;;
@@ -57,7 +60,7 @@ done
 if [ -x /system/bin/{tool} ]; then
     exec /system/bin/{tool} "$@"
 fi
-exec {tool}.bin "$@"
+exec "$DIR/{tool}.bin" "$@"
 '''
         with open(tool_wrap, "w") as wf:
             wf.write(wrapper_sh)

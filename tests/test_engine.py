@@ -15,6 +15,9 @@ from engine._impl import (
     check_storage_space,
     _is_range_error,
     _purge_stale_partials,
+    get_ffmpeg_env,
+    get_ffmpeg_binary,
+    get_ffprobe_binary,
 )
 
 
@@ -130,6 +133,64 @@ class TestHumanizeError(unittest.TestCase):
 
     def test_passthrough_unknown(self):
         self.assertEqual(humanize_error("weird failure"), "weird failure")
+
+    def test_ffmpeg_ytdlp_message_maps_to_install_hint(self):
+        err = "ERROR: ffmpeg and ffprobe not found - please install or provide the path using --ffmpeg-location"
+        self.assertIn("verify module installation", humanize_error(err))
+
+    def test_ffprobe_missing_maps_to_install_hint(self):
+        self.assertIn("verify module installation", humanize_error("ffprobe not found in PATH"))
+
+    def test_postprocessing_failure_maps_to_install_hint(self):
+        err = "ERROR: Postprocessing: ffprobe and ffmpeg not found. Install ffmpeg."
+        self.assertIn("verify module installation", humanize_error(err))
+
+
+class TestFfmpegDetection(unittest.TestCase):
+    def test_env_prefers_runtime_lib(self):
+        import engine._impl as impl
+        orig = impl._resolve_runtime_dir
+        try:
+            impl._resolve_runtime_dir = lambda: "/data/adb/modules/hyperdl/runtime"
+            env = get_ffmpeg_env()
+            self.assertTrue(env["LD_LIBRARY_PATH"].startswith("/data/adb/modules/hyperdl/runtime/lib"))
+            self.assertIn("/system/lib64", env["LD_LIBRARY_PATH"])
+            self.assertIn("/data/adb/modules/hyperdl/runtime/bin", env["PATH"])
+        finally:
+            impl._resolve_runtime_dir = orig
+
+    def test_ffprobe_probe_fails_open_when_absent(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl.os.path, "isfile", return_value=False), \
+             mock.patch.object(impl.shutil, "which", return_value=None):
+            self.assertIsNone(get_ffprobe_binary())
+            self.assertIsNone(get_ffmpeg_binary())
+
+    def test_audio_fails_fast_without_ffmpeg(self):
+        import engine._impl as impl
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(impl, "check_storage_space", return_value=(True, "")), \
+                 mock.patch.object(impl, "get_or_download_ytdlp", return_value="/fake/yt-dlp"), \
+                 mock.patch.object(impl, "get_python_binary", return_value="/fake/python3"), \
+                 mock.patch.object(impl, "get_ffmpeg_binary", return_value=None):
+                with self.assertRaises(RuntimeError) as ctx:
+                    impl.download_with_ytdlp_direct("https://youtu.be/abc", tmp, fmt="audio")
+                self.assertIn("FFmpeg", str(ctx.exception))
+
+    def test_audio_fails_fast_without_ffprobe(self):
+        import engine._impl as impl
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(impl, "check_storage_space", return_value=(True, "")), \
+                 mock.patch.object(impl, "get_or_download_ytdlp", return_value="/fake/yt-dlp"), \
+                 mock.patch.object(impl, "get_python_binary", return_value="/fake/python3"), \
+                 mock.patch.object(impl, "get_ffmpeg_binary", return_value="/fake/ffmpeg"), \
+                 mock.patch.object(impl, "get_ffprobe_binary", return_value=None):
+                with self.assertRaises(RuntimeError) as ctx:
+                    impl.download_with_ytdlp_direct("https://youtu.be/abc", tmp, fmt="audio")
+                self.assertIn("FFprobe", str(ctx.exception))
 
 
 class TestProbeCache(unittest.TestCase):

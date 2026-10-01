@@ -299,7 +299,11 @@ def humanize_error(e):
             return "Access denied by platform (HTTP 403). Session cookies may have expired, try refreshing them."
         return "Access denied by platform (HTTP 403). Public links work without cookies, but this one may need session cookies."
     if "ffmpeg" in low and ("not found" in low or "not installed" in low):
-        return "FFmpeg postprocessing failed. Please verify module installation."
+        return "FFmpeg postprocessing failed. Please verify module installation, reboot, then try again."
+    if "ffprobe" in low and ("not found" in low or "not installed" in low):
+        return "FFmpeg postprocessing failed. Please verify module installation, reboot, then try again."
+    if "postprocessing" in low and ("ffmpeg" in low or "ffprobe" in low):
+        return "FFmpeg postprocessing failed. Please verify module installation, reboot, then try again."
     if "http error 404" in low or "404 not found" in low or "404: not found" in low:
         return "Media not found (HTTP 404). Link may be expired or deleted."
     if "private video" in low or "login required" in low:
@@ -2224,10 +2228,13 @@ def get_runtime_env():
 
 def get_ffmpeg_env():
     env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = "/system/lib64:/system/lib"
     rd = _resolve_runtime_dir()
     if not rd:
         rd = "/data/adb/modules/hyperdl/runtime"
+    # The bundled media tools live next to their shared libraries, so the
+    # runtime lib dir has to come first. System paths stay as fallback for
+    # devices that ship their own binaries.
+    env["LD_LIBRARY_PATH"] = f"{rd}/lib:/system/lib64:/system/lib"
     env["PATH"] = f"{rd}/bin:/data/adb/modules/hyperdl/bin:/data/adb/modules/hyperdl/system/bin:/system/bin:/system/xbin:" + env.get("PATH", "")
     return env
 
@@ -2235,6 +2242,8 @@ def get_ffmpeg_binary():
     candidates = [
         "/data/adb/modules/hyperdl/runtime/bin/ffmpeg",
         "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg",
+        "/data/adb/modules/hyperdl/runtime/bin/ffmpeg.bin",
+        "/data/adb/modules_update/hyperdl/runtime/bin/ffmpeg.bin",
         "/data/adb/modules/hyperdl/bin/ffmpeg",
         "/data/adb/modules/hyperdl/system/bin/ffmpeg",
         "/system/bin/ffmpeg",
@@ -2250,6 +2259,36 @@ def get_ffmpeg_binary():
             except Exception:
                 pass
     w = shutil.which("ffmpeg")
+    if w:
+        try:
+            r = subprocess.run([w, "-version"], capture_output=True, timeout=2, env=env)
+            if r.returncode == 0:
+                return w
+        except Exception:
+            pass
+    return None
+
+def get_ffprobe_binary():
+    candidates = [
+        "/data/adb/modules/hyperdl/runtime/bin/ffprobe",
+        "/data/adb/modules_update/hyperdl/runtime/bin/ffprobe",
+        "/data/adb/modules/hyperdl/runtime/bin/ffprobe.bin",
+        "/data/adb/modules_update/hyperdl/runtime/bin/ffprobe.bin",
+        "/data/adb/modules/hyperdl/bin/ffprobe",
+        "/data/adb/modules/hyperdl/system/bin/ffprobe",
+        "/system/bin/ffprobe",
+        "/system/xbin/ffprobe",
+    ]
+    env = get_ffmpeg_env()
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            try:
+                r = subprocess.run([c, "-version"], capture_output=True, timeout=2, env=env)
+                if r.returncode == 0:
+                    return c
+            except Exception:
+                pass
+    w = shutil.which("ffprobe")
     if w:
         try:
             r = subprocess.run([w, "-version"], capture_output=True, timeout=2, env=env)
@@ -2582,6 +2621,17 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     cookie_arg = ["--cookies", COOKIES_PATH] if os.path.exists(COOKIES_PATH) else []
     ffmpeg_bin = get_ffmpeg_binary()
     ffmpeg_arg = ["--ffmpeg-location", ffmpeg_bin] if ffmpeg_bin else []
+
+    # Audio extraction always shells out to FFmpeg, so bail out early with a
+    # clear message instead of letting yt-dlp die mid-run on a cryptic note.
+    if fmt == "audio" and not ffmpeg_bin:
+        msg = "Audio conversion requires FFmpeg, but it is not working. Please verify module installation, reboot, then try again."
+        update_status("error", error=msg)
+        raise RuntimeError(msg)
+    if fmt == "audio" and not get_ffprobe_binary():
+        msg = "Audio conversion requires FFprobe, but it is not working. Please verify module installation, reboot, then try again."
+        update_status("error", error=msg)
+        raise RuntimeError(msg)
 
     node_bin = None
     for nc in ["/system/bin/node", "/system/xbin/node"]:
