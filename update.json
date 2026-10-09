@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.52",
-  "versionCode": 13520,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.52/HyperDL-v1.3.52.zip",
+  "version": "v1.3.53",
+  "versionCode": 13530,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.53/HyperDL-v1.3.53.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Bundles the full FFmpeg shared-library closure so audio downloads work on phones without Termux, detects broken media tools honestly, and fails fast with clear errors instead of cryptic logs."
+  "notes": "TikTok photo posts with background audio now save as a single slideshow video when video format is picked, with tougher Facebook and X extractors behind it."
 }
