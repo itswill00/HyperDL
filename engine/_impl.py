@@ -981,6 +981,108 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
 
     raise RuntimeError(f"Unable to download stream: {last_err}")
 
+def build_slideshow_video(images, audio_url, out_path, title="Media", headers=None):
+    """Mux photo carousel images plus background audio into a single MP4.
+
+    Photo posts are swipeable in the app, but a video request expects one
+    playable file. Each image is shown for an equal share of the audio
+    duration (clamped to a watchable range) and remuxed with ffmpeg.
+    """
+    if not images:
+        raise RuntimeError("Cannot build slideshow: no images resolved")
+    ffmpeg_bin = get_ffmpeg_binary()
+    if not ffmpeg_bin:
+        raise RuntimeError("FFmpeg postprocessing failed. Please verify module installation, reboot, then try again.")
+    hdrs = dict(headers or {})
+
+    tmpdir = f"{out_path}.slideshow_tmp.{os.getpid()}"
+    os.makedirs(tmpdir, exist_ok=True)
+    local_images = []
+    try:
+        for idx, img_url in enumerate(images):
+            if not img_url:
+                continue
+            local_path = os.path.join(tmpdir, f"slide_{idx:03d}.jpg")
+            update_status("downloading", percent=int((idx + 1) / max(len(images), 1) * 40),
+                          title=f"{title} ({idx + 1}/{len(images)})")
+            download_file(img_url, local_path, title=f"{title} [{idx + 1}/{len(images)}]",
+                          headers=hdrs, emit_error=True, emit_complete=False)
+            local_images.append(local_path)
+        if not local_images:
+            raise RuntimeError("Downloaded slideshow images are empty")
+
+        audio_path = None
+        if audio_url:
+            try:
+                audio_path = os.path.join(tmpdir, "audio.m4a")
+                download_file(audio_url, audio_path, title=f"{title} [Audio]",
+                              headers=hdrs, emit_error=False, emit_complete=False)
+                if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+                    audio_path = None
+            except Exception:
+                audio_path = None
+
+        per_image = 3.0
+        if audio_path:
+            try:
+                ffprobe_bin = get_ffprobe_binary()
+                if ffprobe_bin:
+                    res = subprocess.run(
+                        [ffprobe_bin, "-v", "error", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+                        env=get_ffmpeg_env(), capture_output=True, text=True, timeout=10)
+                    dur = float((res.stdout or "").strip())
+                    if dur > 0 and len(local_images) > 0:
+                        per_image = max(1.0, min(dur / len(local_images), 5.0))
+            except Exception:
+                pass
+
+        n = len(local_images)
+        cmd_inputs = []
+        for p in local_images:
+            cmd_inputs += ["-loop", "1", "-t", f"{per_image:.2f}", "-i", p]
+        if audio_path:
+            cmd_inputs += ["-i", audio_path]
+
+        joints = "".join(f"[{i}:v]" for i in range(n))
+        filt = (f"{joints}concat=n={n}:v=1:a=0,"
+                "scale=1080:-2,setsar=1,format=yuv420p[v]")
+
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        update_status("downloading", percent=85, title=f"{title} (Building slideshow...)")
+
+        def _run(cmd):
+            return subprocess.run(cmd, env=get_ffmpeg_env(), capture_output=True, text=True, timeout=300)
+
+        base = [ffmpeg_bin, "-y"] + cmd_inputs + [
+            "-filter_complex", filt, "-map", "[v]",
+        ]
+        if audio_path:
+            base += ["-map", f"{n}:a"]
+        cmd = base + ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                      "-c:a", "aac", "-movflags", "+faststart", "-shortest", out_path]
+        res = _run(cmd)
+        if res.returncode != 0 and "Unknown encoder" in (res.stderr or ""):
+            cmd = base + ["-c:v", "mpeg4", "-q:v", "3",
+                          "-c:a", "aac", "-movflags", "+faststart", "-shortest", out_path]
+            res = _run(cmd)
+        if res.returncode != 0 or not os.path.exists(out_path) or os.path.getsize(out_path) <= 1024:
+            raise RuntimeError(f"Slideshow mux failed: {(res.stderr or '')[-160:]}")
+
+        try:
+            os.chmod(out_path, 0o666)
+        except Exception:
+            pass
+        scan_media_file(out_path)
+        save_source_sidecar(out_path, CURRENT_URL)
+        update_status("completed", percent=100, title=title, file_path=out_path)
+        return out_path
+    finally:
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+
 def fetch_tikwm(clean_url, fmt="video"):
     endpoints = [
         "https://www.tikwm.com/api/"
@@ -1016,12 +1118,50 @@ def fetch_tikwm(clean_url, fmt="video"):
                             "platform": "TikTok",
                             "candidates": [{"url": music_url, "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}, "label": "TikWM Audio"}]
                         }
-                elif d.get("images"):
+                if d.get("images"):
                     img_list = []
                     for im in d.get("images", []):
                         if im.startswith("/"):
                             im = "https://www.tikwm.com" + im
                         img_list.append(im)
+                    tt_headers = {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
+                    if fmt in ("album", "photo", "image"):
+                        return {
+                            "title": title,
+                            "ext": "jpg",
+                            "kind": "album",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
+                            "images": img_list,
+                            "headers": tt_headers
+                        }
+                    if fmt == "video":
+                        music_url = d.get("music") or (d.get("music_info") or {}).get("play")
+                        return {
+                            "title": title,
+                            "ext": "mp4",
+                            "kind": "slideshow",
+                            "id": media_id,
+                            "channel": author,
+                            "platform": "TikTok",
+                            "images": img_list,
+                            "audio_url": music_url,
+                            "headers": tt_headers,
+                            "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "TikTok", "channel": author, "id": media_id}
+                        }
+                    if fmt == "audio":
+                        music_url = d.get("music") or (d.get("music_info") or {}).get("play")
+                        if music_url:
+                            return {
+                                "title": title,
+                                "ext": "mp3",
+                                "kind": "audio",
+                                "id": media_id,
+                                "channel": author,
+                                "platform": "TikTok",
+                                "candidates": [{"url": music_url, "headers": tt_headers, "label": "TikWM Audio"}]
+                            }
                     return {
                         "title": title,
                         "ext": "jpg",
@@ -1030,7 +1170,7 @@ def fetch_tikwm(clean_url, fmt="video"):
                         "channel": author,
                         "platform": "TikTok",
                         "images": img_list,
-                        "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
+                        "headers": tt_headers
                     }
                 else:
                     candidates = []
@@ -1124,14 +1264,65 @@ def resolve_tiktok(url, fmt="video"):
                 media_id = str(item.get("id") or item.get("aweme_id") or "")
                 author = (item.get("author") or {}).get("unique_id") or (item.get("author") or {}).get("nickname") or ""
                 
-                image_post = item.get("imagePost", {})
+                image_post = item.get("imagePost") or {}
                 if image_post and image_post.get("images"):
                     images = []
                     for img in image_post.get("images", []):
-                        url_list = (img.get("imageURL") or {}).get("urlList") or (img.get("displayImage") or {}).get("urlList")
+                        img = (img or {})
+                        url_list = ((img.get("imageURL") or {}).get("urlList")
+                                    or (img.get("displayImage") or {}).get("urlList") or [])
                         if url_list:
                             images.append(url_list[0])
                     if images:
+                        music = (item.get("music") or {})
+                        music_url = music.get("playUrl") or music.get("play_url")
+                        tt_img_headers = {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
+                        if fmt == "audio":
+                            if music_url:
+                                tt_headers_audio = {
+                                    "User-Agent": USER_AGENT,
+                                    "Referer": "https://www.tiktok.com/",
+                                    "Origin": "https://www.tiktok.com",
+                                    "Range": "bytes=0-",
+                                    "Accept": "*/*",
+                                    "Connection": "keep-alive"
+                                }
+                                if cookie_hdr:
+                                    tt_headers_audio["Cookie"] = cookie_hdr
+                                return {
+                                    "title": title,
+                                    "ext": "mp3",
+                                    "kind": "audio",
+                                    "id": media_id,
+                                    "channel": author,
+                                    "platform": "TikTok",
+                                    "candidates": [{"url": music_url, "headers": tt_headers_audio, "label": "Direct Audio"}],
+                                    "fallback": lambda: fetch_tikwm(clean_url, "audio")
+                                }
+                        if fmt in ("album", "photo", "image"):
+                            return {
+                                "images": images,
+                                "title": title,
+                                "ext": "jpg",
+                                "kind": "album",
+                                "id": media_id,
+                                "channel": author,
+                                "platform": "TikTok",
+                                "headers": tt_img_headers
+                            }
+                        if fmt == "video":
+                            return {
+                                "images": images,
+                                "audio_url": music_url,
+                                "title": title,
+                                "ext": "mp4",
+                                "kind": "slideshow",
+                                "id": media_id,
+                                "channel": author,
+                                "platform": "TikTok",
+                                "headers": tt_img_headers,
+                                "fallback": lambda: fetch_tikwm(clean_url, fmt)
+                            }
                         return {
                             "images": images,
                             "title": title,
@@ -1140,7 +1331,7 @@ def resolve_tiktok(url, fmt="video"):
                             "id": media_id,
                             "channel": author,
                             "platform": "TikTok",
-                            "headers": {"User-Agent": USER_AGENT, "Referer": "https://www.tiktok.com/"}
+                            "headers": tt_img_headers
                         }
 
                 tt_headers = {
@@ -1493,6 +1684,8 @@ def resolve_facebook(url, fmt="video"):
         native_sd_m = re.search(r'"browser_native_sd_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
         playable_hd_m = re.search(r'"playable_url_quality_hd"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
         playable_sd_m = re.search(r'"playable_url"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html, re.S)
+        hd_src_m = re.search(r'"hd_src"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html)
+        sd_src_m = re.search(r'"sd_src"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', html)
 
         def unescape_fb(val):
             val = val.replace(r"\/", "/").replace(r"\u0026", "&")
@@ -1506,12 +1699,16 @@ def resolve_facebook(url, fmt="video"):
             candidates.append({"url": unescape_fb(native_hd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
         if playable_hd_m and not hd_m and not native_hd_m:
             candidates.append({"url": unescape_fb(playable_hd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
+        if hd_src_m and not hd_m and not native_hd_m and not playable_hd_m:
+            candidates.append({"url": unescape_fb(hd_src_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook HD"})
         if sd_m:
             candidates.append({"url": unescape_fb(sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
         if native_sd_m and not sd_m:
             candidates.append({"url": unescape_fb(native_sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
         if playable_sd_m and not sd_m and not native_sd_m:
             candidates.append({"url": unescape_fb(playable_sd_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
+        if sd_src_m and not sd_m and not native_sd_m and not playable_sd_m:
+            candidates.append({"url": unescape_fb(sd_src_m.group(1)), "headers": fb_media_hdrs, "label": "Facebook SD"})
 
         title_m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html) or \
                   re.search(r'<title[^>]*>(.*?)</title>', html, re.S)
@@ -1530,6 +1727,22 @@ def resolve_facebook(url, fmt="video"):
                 "candidates": candidates,
                 "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
             }
+
+        if fmt in ("video", "audio"):
+            og_vid = (re.search(r'<meta[^>]+property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', html)
+                      or re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:video(?::secure_url)?["\']', html))
+            if og_vid:
+                vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
+                if vurl and vurl.startswith("http"):
+                    return {
+                        "title": title,
+                        "ext": "mp4",
+                        "kind": "video",
+                        "url": vurl,
+                        "platform": "Facebook",
+                        "headers": fb_media_hdrs,
+                        "fallback": lambda: {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title}
+                    }
 
         if fmt not in ("audio", "video"):
             og_img = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html) or \
@@ -1867,6 +2080,7 @@ def resolve_twitter(url, fmt="video"):
 
     guest_endpoints = [
         f"https://api.fxtwitter.com/status/{status_id}",
+        f"https://api.vxtwitter.com/Twitter/status/{status_id}",
         f"https://cdn.syndication.twimg.com/tweet-result?id={status_id}&token=4"
     ]
 
@@ -1878,7 +2092,7 @@ def resolve_twitter(url, fmt="video"):
     results = []
     update_status("resolving", title="Trying mirror endpoints...")
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(query_guest_ep, ep): ep for ep in guest_endpoints}
         for f in as_completed(futures):
             try:
@@ -3309,6 +3523,42 @@ def main():
         media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
         target_dir = get_target_directory(outdir, info, url)
         base_title = re.sub(rf'[_ -]*{re.escape(media_id)}.*$', '', title).strip() or title
+
+        if info.get("kind") == "slideshow" and info.get("images"):
+            slide_images = info.get("images") or []
+            slide_audio = info.get("audio_url")
+            slide_headers = dict(info.get("headers") or {})
+            filename = f"{base_title}_{media_id}.mp4"
+            out_path = os.path.join(target_dir, filename)
+            try:
+                build_slideshow_video(slide_images, slide_audio, out_path,
+                                      title=title, headers=slide_headers)
+                return
+            except Exception as se:
+                print(f"Slideshow build note: {se}, falling back...", file=sys.stderr)
+                fb = info.get("fallback")
+                if callable(fb):
+                    try:
+                        fb_item = fb()
+                        if fb_item and fb_item.get("direct_ytdlp"):
+                            download_with_ytdlp_direct(fb_item["url"], target_dir,
+                                                       fmt=fb_item.get("fmt", fmt))
+                            return
+                    except Exception:
+                        pass
+                for idx, img_url in enumerate(slide_images):
+                    if not img_url:
+                        continue
+                    item_path = os.path.join(target_dir, f"{base_title}_{media_id}_{idx+1}.jpg")
+                    try:
+                        download_file(img_url, item_path, title=f"{base_title}_{media_id}_{idx+1}",
+                                      headers=slide_headers, emit_error=False, emit_complete=False)
+                        scan_media_file(item_path)
+                        save_source_sidecar(item_path, url)
+                    except Exception:
+                        continue
+                update_status("completed", percent=100, title=title, file_path=target_dir)
+                return
 
         if info.get("kind") == "album" and (info.get("images") or info.get("items")):
             raw_items = info.get("items") or info.get("images") or []
