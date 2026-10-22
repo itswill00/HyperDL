@@ -90,13 +90,12 @@ if [ ! -f "webroot/index.html" ] || [ -n "$(find webui/src -newer webroot/index.
     cp -f webui/dist/index.html webroot/index.html
 fi
 
-# yt-dlp check
-if [ ! -f "bin/yt-dlp" ]; then
-    echo "-> fetching yt-dlp..."
-    curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o bin/yt-dlp
-    chmod 755 bin/yt-dlp
-    [ -f "scripts/optimize_ytdlp.py" ] && python3 scripts/optimize_ytdlp.py bin/yt-dlp
-fi
+# yt-dlp check: always resolve the pinned release so a stale local copy can
+# never ship. Failures are fatal because the module is useless without it.
+echo "-> verifying yt-dlp (pin $(head -n 1 ytdlp.pin 2>/dev/null))..."
+python3 scripts/fetch_ytdlp.py
+[ -f "scripts/optimize_ytdlp.py" ] && python3 scripts/optimize_ytdlp.py bin/yt-dlp
+python3 scripts/fetch_ytdlp.py --check || { echo "error: yt-dlp is not the pinned build"; exit 1; }
 
 # Sitecustomize
 if [ -f "src/sitecustomize.py" ] && [ -d "runtime/lib/python3.14" ]; then
