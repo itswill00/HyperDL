@@ -1680,16 +1680,19 @@ const notifyMode = ref('normal')
 async function loadNotifyMode() {
   try {
     const raw = await runBridge('get_notify_mode')
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      if (res.notify_mode) notifyMode.value = res.notify_mode
-    }
+    const res = parseBridgeJson(raw)
+    if (res && res.notify_mode) notifyMode.value = res.notify_mode
   } catch (e) {}
 }
 
 async function setNotifyMode(mode) {
   try {
-    await runBridge('notify_mode', mode)
+    const raw = await runBridge('notify_mode', mode)
+    const res = parseBridgeJson(raw)
+    if (res && res.success === false) {
+      showToast('Failed to update notification mode', 'error')
+      return
+    }
     notifyMode.value = mode
     showToast(mode === 'silent' ? 'Notifications silenced' : (mode === 'verbose' ? 'Verbose progress on' : 'Normal notifications'), 'success')
   } catch (e) {
@@ -1703,8 +1706,8 @@ const vaultDomainsCount = ref(0)
 async function loadVaultDomains() {
   try {
     const raw = await runBridge('get_vault_domains')
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
+    const res = parseBridgeJson(raw)
+    if (res) {
       const list = Array.isArray(res.domains) ? res.domains : []
       vaultDomainsText.value = list.join('\n')
       vaultDomainsCount.value = list.length
@@ -1716,14 +1719,16 @@ async function saveVaultDomains() {
   try {
     const b64 = base64EncodeUtf8(vaultDomainsText.value)
     const raw = await runBridge('save_vault_domains', b64)
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      if (res.success) {
-        vaultDomainsCount.value = res.domains
-        showToast(`Vault list saved (${res.domains} domains)`, 'success')
-      } else {
-        showToast(res.error === 'no_valid_domains' ? 'No valid domains found' : 'Save failed', 'error')
-      }
+    const res = parseBridgeJson(raw)
+    if (!res) {
+      showToast('Failed to save vault list: no response from HyperDL', 'error')
+      return
+    }
+    if (res.success) {
+      vaultDomainsCount.value = res.domains
+      showToast(`Vault list saved (${res.domains} domains)`, 'success')
+    } else {
+      showToast(res.error === 'no_valid_domains' ? 'No valid domains found' : 'Save failed', 'error')
     }
   } catch (e) {
     showToast('Failed to save vault list', 'error')
@@ -2189,11 +2194,9 @@ async function pasteClipboard() {
   if (!text) {
     try {
       const raw = await runBridge('get_clipboard')
-      if (raw && raw.startsWith('{')) {
-        const parsed = JSON.parse(raw)
-        if (parsed.clipboard_b64) {
-          text = base64DecodeUtf8(parsed.clipboard_b64)
-        }
+      const parsed = parseBridgeJson(raw)
+      if (parsed && parsed.clipboard_b64) {
+        text = base64DecodeUtf8(parsed.clipboard_b64)
       }
     } catch (e) {}
   }
@@ -2788,8 +2791,9 @@ const storageBarPercent = computed(() => {
 async function fetchStorageStats() {
   try {
     const raw = await runBridge('storage_info')
-    if (raw && raw.startsWith('{')) {
-      storageStats.value = JSON.parse(raw)
+    const stats = parseBridgeJson(raw)
+    if (stats) {
+      storageStats.value = stats
       if (storageStats.value.free_size) {
         storageFree.value = storageStats.value.free_size
       }
@@ -2802,13 +2806,19 @@ async function cleanJunk() {
   isCleaningJunk.value = true
   try {
     const raw = await runBridge('clean_junk')
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      if (res.deleted > 0) {
-        showToast(`Cleaned ${res.deleted} junk file${res.deleted > 1 ? 's' : ''} (${res.freed_size} freed)`, 'success')
-      } else {
-        showToast('Storage is clean! No junk files found.', 'info')
-      }
+    const res = parseBridgeJson(raw)
+    if (!res) {
+      showToast('Failed to clean storage: no response from HyperDL', 'error')
+      return
+    }
+    if (res.success === false) {
+      showToast('Cleanup failed: ' + (res.error || 'unknown error'), 'error')
+      return
+    }
+    if (res.deleted > 0) {
+      showToast(`Cleaned ${res.deleted} junk file${res.deleted > 1 ? 's' : ''} (${res.freed_size} freed)`, 'success')
+    } else {
+      showToast('Storage is clean! No junk files found.', 'info')
     }
     await fetchStorageStats()
     await fetchHistory()
@@ -2830,11 +2840,9 @@ async function checkClipboardSniffer() {
   if (!text) {
     try {
       const raw = await runBridge('get_clipboard')
-      if (raw && raw.startsWith('{')) {
-        const parsed = JSON.parse(raw)
-        if (parsed.clipboard_b64) {
-          text = base64DecodeUtf8(parsed.clipboard_b64)
-        }
+      const parsed = parseBridgeJson(raw)
+      if (parsed && parsed.clipboard_b64) {
+        text = base64DecodeUtf8(parsed.clipboard_b64)
       }
     } catch (e) {}
   }
@@ -2887,8 +2895,8 @@ const currentImageIndex = computed(() => {
 
 async function fetchPreviewPayload(item) {
   const raw = await runBridge('preview', item.path)
-  if (raw && raw.startsWith('{')) {
-    const res = JSON.parse(raw)
+  const res = parseBridgeJson(raw)
+  if (res) {
     if (res.success && res.data) return { ok: true, data: res.data }
     if (res.error === 'too_large') return { ok: false, error: `File size is ${res.size || item.size}. Tap 'Open in app' to view.` }
     return { ok: false, error: 'Preview not available for this image.' }
@@ -3165,8 +3173,8 @@ async function toggleAutoDl() {
 async function loadCookies() {
   try {
     const raw = await runBridge('get_cookies')
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
+    const res = parseBridgeJson(raw)
+    if (res) {
       cookiesActive.value = !!res.exists
       cookiesLines.value = res.lines || 0
       if (res.content_b64) {
@@ -3287,8 +3295,8 @@ async function clearLogs() {
 async function loadSystemInfo() {
   try {
     const raw = await runBridge('info')
-    if (raw && raw.startsWith('{')) {
-      const info = JSON.parse(raw)
+    const info = parseBridgeJson(raw)
+    if (info) {
       storageFree.value = info.storage_free || ''
       sysInfo.value = info
       cookiesActive.value = !!info.has_cookies
@@ -3297,12 +3305,10 @@ async function loadSystemInfo() {
         localStorage.setItem('hyperdl_audio_fmt', info.audio_format)
       }
     }
-    
+
     const autoRaw = await runBridge('get_autodl')
-    if (autoRaw && autoRaw.startsWith('{')) {
-      const autoInfo = JSON.parse(autoRaw)
-      autoDl.value = !!autoInfo.autodl
-    }
+    const autoInfo = parseBridgeJson(autoRaw)
+    if (autoInfo) autoDl.value = !!autoInfo.autodl
   } catch (e) {}
 }
 
