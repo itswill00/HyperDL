@@ -16,6 +16,7 @@ up inside a shipped module.
 
 import hashlib
 import os
+import re
 import sys
 import json
 import urllib.request
@@ -69,14 +70,30 @@ def sha256_of(path):
 
 
 def installed_version():
-    """Read the version string out of the installed zipapp without running it."""
+    """Read the version string out of the installed zipapp without running it.
+
+    The shipped payload is repacked to bytecode-only (`.pyc`), so the source
+    module is usually absent. The compiled file still embeds the version
+    literal, so a bounded scan of `version.pyc` is enough and avoids importing
+    or executing anything from the archive.
+    """
     import zipfile
     try:
         with zipfile.ZipFile(TARGET, "r") as z:
-            raw = z.read("yt_dlp/version.py").decode("utf-8", "replace")
-        for line in raw.splitlines():
-            if line.startswith("__version__"):
-                return line.split("=", 1)[1].strip().strip("'\"")
+            names = set(z.namelist())
+            if "yt_dlp/version.py" in names:
+                raw = z.read("yt_dlp/version.py").decode("utf-8", "replace")
+                for line in raw.splitlines():
+                    if line.startswith("__version__"):
+                        return line.split("=", 1)[1].strip().strip("'\"")
+            for cand in names:
+                if cand.endswith("version.pyc") and cand.startswith("yt_dlp/"):
+                    blob = z.read(cand)
+                    for m in re.finditer(rb"\d{4}\.\d{2}\.\d{2}", blob):
+                        try:
+                            return m.group(0).decode("ascii")
+                        except Exception:
+                            continue
     except Exception:
         pass
     return ""
