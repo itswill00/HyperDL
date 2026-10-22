@@ -4,6 +4,7 @@ import json
 import shutil
 import tempfile
 import unittest
+import urllib.parse
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -322,6 +323,11 @@ class TestRangeErrorRecovery(unittest.TestCase):
         self.assertFalse(_is_range_error(""))
         self.assertFalse(_is_range_error(None))
 
+    def test_ignores_unrelated_numbers_near_the_word_range(self):
+        # A byte count that happens to be 416 must not restart a healthy run.
+        self.assertFalse(_is_range_error("downloaded 416 KB of range chunk 3"))
+        self.assertFalse(_is_range_error("filesize 416 KB, range 0-1024"))
+
     def test_purge_removes_only_fresh_partials(self):
         import tempfile
         import time
@@ -338,6 +344,208 @@ class TestRangeErrorRecovery(unittest.TestCase):
             self.assertFalse(os.path.exists(fresh_part))
             self.assertTrue(os.path.exists(old_part))
             self.assertTrue(os.path.exists(final_file))
+
+
+class TestPurgeWindow(unittest.TestCase):
+    def test_partial_from_previous_run_is_kept(self):
+        """Only the failed run's own partials are junk, older ones may resume."""
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            run_start = time.time()
+            stale = os.path.join(tmp, "earlier.mp4.part")
+            with open(stale, "w") as f:
+                f.write("x" * 512)
+            old = run_start - 1800
+            os.utime(stale, (old, old))
+            _purge_stale_partials(tmp, run_start)
+            self.assertTrue(os.path.exists(stale),
+                            "a partial predating the run must survive for resume")
+
+    def test_partial_touched_during_run_is_removed(self):
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            run_start = time.time()
+            mine = os.path.join(tmp, "current.mp4.part")
+            with open(mine, "w") as f:
+                f.write("y" * 512)
+            _purge_stale_partials(tmp, run_start)
+            self.assertFalse(os.path.exists(mine))
+
+
+class TestFxtwitterParsing(unittest.TestCase):
+    """The X mirror moved to a nested media shape; both shapes must parse."""
+
+    def _resolve(self, payload):
+        import engine._impl as impl
+        from unittest import mock
+
+        def fake_urlopen(req, timeout=None):
+            class R:
+                status = 200
+                def read(self_inner):
+                    return json.dumps(payload).encode()
+                def __enter__(self_inner):
+                    return self_inner
+                def __exit__(self_inner, *a):
+                    return False
+            return R()
+
+        with mock.patch.object(impl.urllib.request, "urlopen", fake_urlopen), \
+             mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "expand_shortlink_fast", lambda u, timeout=None: u):
+            return impl.resolve_twitter("https://x.com/user/status/1234567890", "video")
+
+    def test_nested_v2_shape_picks_best_mp4(self):
+        payload = {
+            "code": 200,
+            "text": "hello",
+            "author": {"screen_name": "user"},
+            "tweet": {"media": {"videos": [
+                {"url": "https://video.twimg.com/low.mp4", "bitrate": 256000, "content_type": "video/mp4"},
+                {"url": "https://video.twimg.com/high.mp4", "bitrate": 2176000, "content_type": "video/mp4"},
+            ]}},
+        }
+        out = self._resolve(payload)
+        self.assertEqual(out["url"], "https://video.twimg.com/high.mp4")
+        self.assertEqual(out["kind"], "video")
+
+    def test_legacy_flat_shape_still_works(self):
+        payload = {
+            "code": 200,
+            "text": "legacy",
+            "author": {"screen_name": "user"},
+            "video_url": "https://video.twimg.com/legacy.mp4",
+        }
+        out = self._resolve(payload)
+        self.assertEqual(out["url"], "https://video.twimg.com/legacy.mp4")
+
+    def test_media_extended_shape_still_works(self):
+        payload = {
+            "code": 200,
+            "text": "ext",
+            "author": {"screen_name": "user"},
+            "media_extended": [
+                {"type": "image", "url": "https://pbs.twimg.com/pic.jpg"},
+                {"type": "video", "url": "https://video.twimg.com/ext.mp4"},
+            ],
+        }
+        out = self._resolve(payload)
+        self.assertEqual(out["url"], "https://video.twimg.com/ext.mp4")
+
+    def test_non_200_code_is_skipped(self):
+        payload = {"code": 404, "message": "NOT_FOUND"}
+        out = self._resolve(payload)
+        self.assertTrue(out.get("direct_ytdlp"),
+                        "an error payload must fall through to yt-dlp, not crash")
+
+
+class TestFacebookHostRewrite(unittest.TestCase):
+    def test_mobile_host_is_rewritten(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "expand_shortlink_fast", lambda u, timeout=None: u), \
+             mock.patch.object(impl.urllib.request, "urlopen", side_effect=RuntimeError("offline")):
+            out = impl.resolve_facebook("https://m.facebook.com/watch/?v=123", "video")
+        self.assertIn("www.facebook.com", json.dumps(out))
+
+    def test_query_value_containing_host_is_untouched(self):
+        """A redirect param must not be substring-replaced into a broken URL."""
+        import engine._impl as impl
+        seen = {}
+
+        def fake_urlopen(req, timeout=None):
+            seen["url"] = req.full_url
+            raise RuntimeError("stop")
+
+        from unittest import mock
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "expand_shortlink_fast", lambda u, timeout=None: u), \
+             mock.patch.object(impl.urllib.request, "urlopen", fake_urlopen):
+            impl.resolve_facebook(
+                "https://www.facebook.com/login?next=https%3A%2F%2Fm.facebook.com%2Fwatch", "video")
+        self.assertIn("https%3A%2F%2Fm.facebook.com", seen["url"])
+
+
+class TestRedditJsonPath(unittest.TestCase):
+    def _json_url(self, url):
+        """Return the Reddit JSON URL the resolver builds, or "" if none."""
+        import engine._impl as impl
+        from unittest import mock
+
+        seen = []
+
+        def fake_urlopen(req, timeout=None):
+            # The rapidsave probe runs first and embeds the post URL as a query
+            # parameter, so match on the host rather than a substring.
+            host = (urllib.parse.urlparse(req.full_url).netloc or "").lower()
+            if host.endswith("reddit.com"):
+                seen.append(req.full_url)
+            raise RuntimeError("offline")
+
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "expand_shortlink_fast", lambda u, timeout=None: u), \
+             mock.patch.object(impl.urllib.request, "urlopen", fake_urlopen), \
+             mock.patch.object(impl, "get_cookie_header", lambda d="": ""):
+            impl.resolve_reddit(url, "video")
+        return seen[0] if seen else ""
+
+    def test_appends_json_once(self):
+        got = self._json_url("https://www.reddit.com/r/videos/comments/abc/title/")
+        # Reddit accepts both `/title.json` and `/title/.json`; what matters is
+        # that the suffix is added exactly once and the post path survives.
+        self.assertTrue(got.endswith("title.json") or got.endswith("title/.json"), got)
+        self.assertEqual(got.count(".json"), 1)
+        self.assertIn("/comments/abc/title", got)
+
+    def test_does_not_double_append(self):
+        got = self._json_url("https://www.reddit.com/r/videos/comments/abc/title.json")
+        self.assertEqual(got.count(".json"), 1)
+        self.assertNotIn(".json/.json", got)
+
+
+class TestModuleUpdateFallback(unittest.TestCase):
+    def test_unreadable_module_prop_does_not_pretend_to_be_current(self):
+        """A failed module.prop read must not hide a real update."""
+        import engine._impl as impl
+        from unittest import mock
+
+        class FakeResp:
+            def read(self_inner):
+                return json.dumps({"version": "v9.9.9", "versionCode": 99999}).encode()
+            def __enter__(self_inner):
+                return self_inner
+            def __exit__(self_inner, *a):
+                return False
+
+        with mock.patch.object(impl, "get_module_local_prop",
+                               return_value={"version": "", "versionCode": "0"}), \
+             mock.patch.object(impl.urllib.request, "urlopen", lambda *a, **k: FakeResp()):
+            res = impl.check_module_update()
+        self.assertTrue(res["has_update"])
+        self.assertEqual(res["latest_version"], "v9.9.9")
+
+
+class TestBilibiliRoutesToYtdlp(unittest.TestCase):
+    def test_uses_native_extractor_instead_of_412_api(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None):
+            out = impl.resolve_bilibili("https://www.bilibili.com/video/BV1GJ411x7h7", "video")
+        self.assertTrue(out.get("direct_ytdlp"))
+        self.assertIn("BV1GJ411x7h7", out["title"])
+
+    def test_does_not_call_the_view_api(self):
+        import engine._impl as impl
+        from unittest import mock
+        called = []
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl.urllib.request, "urlopen",
+                               lambda *a, **k: called.append(1)):
+            impl.resolve_bilibili("https://www.bilibili.com/video/BV1GJ411x7h7", "video")
+        self.assertEqual(called, [], "bilibili scraping was removed on purpose")
 
 
 if __name__ == "__main__":
