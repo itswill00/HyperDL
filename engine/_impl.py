@@ -858,7 +858,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             update_status("error", error=str(e), title=title)
         raise
 
-def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=True):
+def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=True, fmt="video"):
     ffmpeg_bin = get_ffmpeg_binary()
     env = get_ffmpeg_env()
     if ffmpeg_bin:
@@ -907,7 +907,7 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
             return out_path
 
     outdir = os.path.dirname(out_path) or "."
-    return download_with_ytdlp_direct(m3u8_url, outdir, fmt="video")
+    return download_with_ytdlp_direct(m3u8_url, outdir, fmt=fmt)
 
 def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
@@ -915,7 +915,8 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
         return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False), is_playlist=item.get("is_playlist", False), format_id=item.get("format_id"), height=item.get("height"), audio_format=item.get("audio_format"))
 
     if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
-        return download_hls(item["url"], out_path, title=title, headers=item.get("headers"), emit_complete=emit_complete)
+        return download_hls(item["url"], out_path, title=title, headers=item.get("headers"),
+                            emit_complete=emit_complete, fmt=item.get("fmt", "video"))
 
     if item.get("audio_url"):
         ffmpeg_bin = get_ffmpeg_binary()
