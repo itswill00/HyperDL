@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.53",
-  "versionCode": 13530,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.53/HyperDL-v1.3.53.zip",
+  "version": "v1.3.54",
+  "versionCode": 13540,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.54/HyperDL-v1.3.54.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "TikTok photo posts with background audio now save as a single slideshow video when video format is picked, with tougher Facebook and X extractors behind it."
+  "notes": "Scraper recovery paths repaired, yt-dlp pinned with checksum verification, and six WebUI bugs fixed including dead open actions and false success toasts."
 }
