@@ -109,21 +109,40 @@ export function formatTruncatedUrl(u) {
   }
 }
 
+// The extractor names files `{title}_{media_id}` where media_id is either a
+// numeric platform id or an 8-char hex digest, and album items additionally
+// carry a `_{index}` before the extension. Anything else that merely looks
+// identifier-ish must survive: a title like `Best_Song_ABCDEFGH` used to lose
+// its real suffix because any 8+ character run was treated as an id.
+const ALBUM_ITEM_RE = /^(.*)_([A-Za-z0-9]{6,})_(\d{1,3})$/
+const MEDIA_ID_RE = /^(.*)_([A-Za-z0-9]{6,})$/
+const NUMERIC_ID_RE = /^\d{9,}$/
+// A hex digest id always contains at least one letter in practice; requiring
+// that keeps numeric title fragments like `_12345678` intact.
+const HEX_ID_RE = /^(?=.*[a-f])[0-9a-f]{8}$/i
+
+function looksLikeMediaId(token) {
+  return NUMERIC_ID_RE.test(token) || HEX_ID_RE.test(token)
+}
+
 export function cleanDisplayName(name) {
   if (!name) return ''
   let base = String(name)
   const dot = base.lastIndexOf('.')
   if (dot > 0) base = base.slice(0, dot)
-  let m = /^(.*)_([A-Za-z0-9]{6,})_(\d+)$/.exec(base)
-  if (m) {
-    const cleaned = m[1].trim()
+
+  const album = ALBUM_ITEM_RE.exec(base)
+  if (album && looksLikeMediaId(album[2])) {
+    const cleaned = album[1].trim()
     return cleaned || base
   }
-  m = /^(.*)_([A-Za-z0-9]{6,})$/.exec(base)
-  if (m && (/^\d+$/.test(m[2]) || m[2].length >= 8)) {
-    const cleaned = m[1].trim()
+
+  const single = MEDIA_ID_RE.exec(base)
+  if (single && looksLikeMediaId(single[2])) {
+    const cleaned = single[1].trim()
     return cleaned || base
   }
+
   return base
 }
 
