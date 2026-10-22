@@ -3074,7 +3074,10 @@ async function openMedia(filePath) {
   openingPath.value = filePath
   showToast('Opening media...', 'info')
   try {
-    await openMediaFile(filePath)
+    const res = await openMediaFile(filePath)
+    if (res && !res.ok) {
+      showToast(openFailureMessage(res.error), 'error')
+    }
   } catch (e) {
     showToast('Failed to open media', 'error')
   } finally {
@@ -3087,12 +3090,32 @@ async function openMediaFolder() {
   openingFolder.value = true
   showToast('Opening folder...', 'info')
   try {
-    await openFolder()
+    const res = await openFolder()
+    if (res && !res.ok) {
+      showToast(openFailureMessage(res.error), 'error')
+    }
   } catch (e) {
     showToast('Failed to open folder', 'error')
   } finally {
     openingFolder.value = false
   }
+}
+
+function openFailureMessage(err) {
+  const code = String(err || '')
+  if (code === 'binary_not_found') {
+    return 'HyperDL is not active. Reboot your device after installing the module.'
+  }
+  if (code === 'path_outside_output_dir') {
+    return 'This file is outside the HyperDL download folder and cannot be opened.'
+  }
+  if (code === 'missing_path') {
+    return 'No file path was provided.'
+  }
+  if (code === 'empty_response') {
+    return 'No response from HyperDL. Try reloading the app.'
+  }
+  return 'Unable to open: ' + (code || 'unknown error')
 }
 
 async function toggleAutoDl() {

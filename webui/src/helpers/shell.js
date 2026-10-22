@@ -4,7 +4,7 @@ export function execCommand(cmd, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     if (typeof ksu !== 'undefined' && typeof ksu.exec === 'function') {
       const id = `_hdl_${++cbSeq}_${Date.now()}`
-      
+
       const timer = setTimeout(() => {
         if (window[id]) {
           delete window[id]
@@ -15,6 +15,8 @@ export function execCommand(cmd, timeoutMs = 60000) {
       window[id] = (errno, stdout, stderr) => {
         clearTimeout(timer)
         delete window[id]
+        // Keep stderr when stdout is empty so a command that only explains
+        // itself on stderr still reaches the caller instead of looking silent.
         resolve(stdout || stderr || '')
       }
 
@@ -62,6 +64,10 @@ export function base64DecodeUtf8(str) {
   }
 }
 
+export function shellQuote(arg) {
+  return "'" + String(arg).replace(/'/g, "'\\''") + "'"
+}
+
 const BRIDGES = [
   '/data/adb/modules/hyperdl/bin/libhyperdl.so',
   '/data/adb/modules/hyperdl/system/bin/libhyperdl.so',
@@ -69,21 +75,53 @@ const BRIDGES = [
   '/data/adb/modules_update/hyperdl/system/bin/libhyperdl.so',
   '/system/bin/libhyperdl.so'
 ]
+
+// Only actions this module is allowed to dispatch from here. Anything else is
+// rejected instead of being silently rewritten to `status`, which previously
+// made every `open` call report a download status instead of opening a file.
+const ALLOWED_ACTIONS = new Set(['open', 'open_folder'])
+
 function bridgeCmd(action, arg = '') {
-  const safeAction = action === 'open' || action === 'open_folder' ? action : 'status'
-  const parts = BRIDGES.map(b => `[ -x ${b} ] && exec ${b} ${safeAction}${arg ? ' ' + arg : ''}`).join(' || ')
-  return `(${parts})`
+  if (!ALLOWED_ACTIONS.has(action)) {
+    throw new Error(`Refusing to dispatch unsupported bridge action: ${action}`)
+  }
+  const safeAction = shellQuote(action)
+  const parts = BRIDGES
+    .map(b => `[ -x ${b} ] && exec ${b} ${safeAction}${arg ? ' ' + arg : ''}`)
+    .join(' || ')
+  return `(${parts}) || echo binary_not_found`
+}
+
+function parseBridgeResult(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return { ok: false, error: 'empty_response' }
+  if (text === 'binary_not_found') return { ok: false, error: 'binary_not_found' }
+  try {
+    const data = JSON.parse(text)
+    if (data && typeof data === 'object' && 'success' in data) {
+      return { ok: !!data.success, error: data.error || '', data }
+    }
+    return { ok: true, error: '', data }
+  } catch (e) {
+    return { ok: true, error: '', data: text }
+  }
 }
 
 export async function openMediaFile(filePath) {
-  if (!filePath) return
-  const safePath = "'" + String(filePath).replace(/'/g, "'\\''") + "'"
-  try { return await execCommand(bridgeCmd('open', safePath), 10000) }
-  catch (e) { return '' }
+  if (!filePath) return { ok: false, error: 'missing_path' }
+  try {
+    const raw = await execCommand(bridgeCmd('open', shellQuote(filePath)), 10000)
+    return parseBridgeResult(raw)
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
 }
 
 export async function openFolder() {
-  try { return await execCommand(bridgeCmd('open_folder'), 10000) }
-  catch (e) { return '' }
+  try {
+    const raw = await execCommand(bridgeCmd('open_folder'), 10000)
+    return parseBridgeResult(raw)
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
 }
-
