@@ -2146,6 +2146,20 @@ async function runBridge(action, ...args) {
   return (res || '').trim()
 }
 
+// Bridge calls resolve with a JSON string (or an empty/notification string on
+// failure) and never reject, so callers must inspect the payload instead of
+// relying on try/catch. Returns null when the response is not usable JSON.
+function parseBridgeJson(raw) {
+  const text = String(raw || '').trim()
+  if (!text || !text.startsWith('{')) return null
+  try {
+    const data = JSON.parse(text)
+    return (data && typeof data === 'object') ? data : null
+  } catch (e) {
+    return null
+  }
+}
+
 async function pasteClipboard() {
   if (urlInput.value) {
     urlInput.value.focus()
@@ -2606,8 +2620,26 @@ async function deleteSelected() {
   selectedFiles.value = new Set()
 
   try {
-    await runBridge('delete', ...paths)
-    showToast(`Deleted ${paths.length} file${paths.length > 1 ? 's' : ''}`, 'success')
+    const raw = await runBridge('delete', ...paths)
+    const res = parseBridgeJson(raw)
+    if (!res || res.success !== true) {
+      historyList.value = prevList
+      showToast(res && res.error === 'path_outside_output_dir'
+        ? 'Those files are outside the HyperDL folder and were not deleted.'
+        : 'Failed to delete selected files', 'error')
+      fetchHistory()
+      return
+    }
+    const done = Number(res.deleted) || 0
+    if (done < paths.length) {
+      // The bridge deletes what it can and reports the count, so a partial
+      // result must not be announced as a full success.
+      historyList.value = prevList
+      showToast(`Only ${done} of ${paths.length} files could be deleted`, 'warning')
+      fetchHistory()
+      return
+    }
+    showToast(`Deleted ${done} file${done > 1 ? 's' : ''}`, 'success')
     fetchHistory()
   } catch (e) {
     historyList.value = prevList
@@ -3148,12 +3180,23 @@ async function saveCookies() {
   try {
     const b64 = base64EncodeUtf8(cookiesText.value.trim())
     const raw = await runBridge('save_cookies', b64)
-    if (raw && raw.startsWith('{')) {
-      const res = JSON.parse(raw)
-      cookiesActive.value = (res.lines > 0)
-      cookiesLines.value = res.lines || 0
-      showToast('Cookies saved', 'success')
+    const res = parseBridgeJson(raw)
+    if (!res) {
+      showToast('Failed to save cookies: no response from HyperDL', 'error')
+      return
     }
+    if (res.success !== true) {
+      const reason = res.error === 'decode_failed'
+        ? 'Cookies could not be decoded. Paste the cookie text again.'
+        : (res.error === 'open_failed'
+          ? 'Cookies could not be written to storage.'
+          : 'Cookies were not saved.')
+      showToast(reason, 'error')
+      return
+    }
+    cookiesActive.value = (res.lines > 0)
+    cookiesLines.value = res.lines || 0
+    showToast(res.lines > 0 ? 'Cookies saved' : 'Cookies cleared', 'success')
   } catch (e) {
     showToast('Failed to save cookies', 'error')
   }
