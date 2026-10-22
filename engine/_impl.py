@@ -982,7 +982,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
 
     raise RuntimeError(f"Unable to download stream: {last_err}")
 
-def build_slideshow_video(images, audio_url, out_path, title="Media", headers=None):
+def build_slideshow_video(images, audio_url, out_path, title="Media", headers=None, emit_complete=True):
     """Mux photo carousel images plus background audio into a single MP4.
 
     Photo posts are swipeable in the app, but a video request expects one
@@ -1076,7 +1076,8 @@ def build_slideshow_video(images, audio_url, out_path, title="Media", headers=No
             pass
         scan_media_file(out_path)
         save_source_sidecar(out_path, CURRENT_URL)
-        update_status("completed", percent=100, title=title, file_path=out_path)
+        if emit_complete:
+            update_status("completed", percent=100, title=title, file_path=out_path)
         return out_path
     finally:
         try:
@@ -1656,7 +1657,16 @@ def resolve_instagram(url, fmt="video"):
 def resolve_facebook(url, fmt="video"):
     update_status("resolving", title="Resolving Facebook media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
-    clean_url = clean_url.replace("m.facebook.com", "www.facebook.com").replace("mbasic.facebook.com", "www.facebook.com")
+    # Rewrite only the host, never substring-replace it: a query value or path
+    # that happens to contain "m.facebook.com" must survive untouched.
+    try:
+        _p = urllib.parse.urlparse(clean_url)
+        _host = (_p.netloc or "").lower()
+        if _host in ("m.facebook.com", "mbasic.facebook.com", "mobile.facebook.com"):
+            clean_url = urllib.parse.urlunparse(
+                (_p.scheme or "https", "www.facebook.com", _p.path, _p.params, _p.query, _p.fragment))
+    except Exception:
+        pass
     
     cookie_hdr = get_cookie_header("facebook.com")
     hdrs = {
@@ -1881,7 +1891,13 @@ def resolve_reddit(url, fmt="video"):
 
     p = urllib.parse.urlparse(clean_url)
     clean_path = p.path.rstrip("/")
-    if not clean_path.endswith(".json"):
+    # Reddit's JSON endpoint accepts a trailing slash before `.json` but the
+    # path segment must not be empty, so normalise both shapes explicitly.
+    if clean_path.endswith("/.json"):
+        clean_path = clean_path[:-6] + ".json"
+    elif clean_path.endswith(".json"):
+        pass
+    elif clean_path:
         clean_path += "/.json"
 
     cookie_hdr = get_cookie_header("reddit.com")
@@ -1896,12 +1912,21 @@ def resolve_reddit(url, fmt="video"):
     try:
         rs_url = f"https://rapidsave.com/info?url={urllib.parse.quote(clean_url)}"
         rs_req = urllib.request.Request(rs_url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(rs_req, timeout=4) as r:
+        with urllib.request.urlopen(rs_req, timeout=5) as r:
             rs_html = r.read().decode("utf-8", errors="ignore")
-        rs_match = re.search(r'<a[^>]+class=["\'][^"\']*downloadbutton[^"\']*["\'][^>]+href=["\']([^"\']+)["\']', rs_html) or \
-                   re.search(r'<a[^>]+href=["\'](https?://(?:sd|d)\.rapidsave\.com/download\.php\?[^"\']+)["\']', rs_html)
+        # rapidsave reshuffles its markup regularly, so match on the download
+        # URL shape first (stable) and fall back to a class-based anchor.
+        rs_match = (
+            re.search(r'href=["\'](https?://(?:sd|d)\.rapidsave\.com/download\.php\?[^"\']+)["\']', rs_html)
+            or re.search(r'href=["\']([^"\']*rapidsave\.com/download\.php\?[^"\']+)["\']', rs_html)
+            or re.search(r'<a[^>]+class=["\'][^"\']*download[^"\']*["\'][^>]+href=["\']([^"\']+)["\']', rs_html)
+        )
         if rs_match:
-            dl_url = rs_match.group(1).replace("&amp;", "&")
+            dl_url = pyhtml.unescape(rs_match.group(1)).replace("&amp;", "&")
+            if dl_url.startswith("//"):
+                dl_url = "https:" + dl_url
+            if not dl_url.startswith("http"):
+                dl_url = urllib.parse.urljoin(rs_url, dl_url)
             title_m = re.search(r'<title>(.*?)</title>', rs_html)
             t = title_m.group(1) if title_m else "Reddit Video"
             t = re.sub(r'\s*-\s*Reddit Video Downloader.*$', '', t, flags=re.I).strip()
@@ -2002,10 +2027,11 @@ def resolve_twitter(url, fmt="video"):
     m_auth = re.search(r'(?:twitter|x)\.com/([^/?#]+)/status', clean_url)
     author = m_auth.group(1) if m_auth and m_auth.group(1) not in ("i", "intent", "search") else ""
 
-    cookie_hdr = get_cookie_header("x.com") or get_cookie_header("twitter.com")
-    cookies_map = load_cookies("x.com")
-    if not cookies_map:
-        cookies_map = load_cookies("twitter.com")
+    # Pick one cookie jar and keep it consistent. Mixing `ct0` from one domain
+    # with an `auth_token` from another produces a session X always rejects, and
+    # a header built from a different filter can leak an unrelated cookie.
+    cookies_map = load_cookies("x.com") or load_cookies("twitter.com")
+    cookie_hdr = "; ".join(f"{k}={v}" for k, v in cookies_map.items()) if cookies_map else ""
 
     csrf = cookies_map.get("ct0")
     auth_token = cookies_map.get("auth_token")
@@ -2079,10 +2105,11 @@ def resolve_twitter(url, fmt="video"):
         except Exception as e:
             print(f"Twitter GraphQL API note: {e}", file=sys.stderr)
 
+    # Only fxtwitter is kept as a guest mirror. vxtwitter answers 403 to every
+    # request and the syndication endpoint returns `{}` without a valid signed
+    # token, so querying them only added latency before falling through.
     guest_endpoints = [
         f"https://api.fxtwitter.com/status/{status_id}",
-        f"https://api.vxtwitter.com/Twitter/status/{status_id}",
-        f"https://cdn.syndication.twimg.com/tweet-result?id={status_id}&token=4"
     ]
 
     def query_guest_ep(ep):
@@ -2103,9 +2130,49 @@ def resolve_twitter(url, fmt="video"):
             except Exception:
                 continue
 
+    def _pick_mp4(candidates):
+        """Return the highest-bitrate MP4 from a list of variant dicts."""
+        mp4s = [c for c in candidates
+                if isinstance(c, dict)
+                and str(c.get("content_type") or c.get("container") or "").lower() in
+                ("video/mp4", "mp4", "")
+                and c.get("url")]
+        if not mp4s:
+            return None
+        mp4s.sort(key=lambda c: int(c.get("bitrate") or 0), reverse=True)
+        return mp4s[0].get("url")
+
+    def _fx_media(data):
+        """Normalise an fxtwitter v2 payload into (videos, photos).
+
+        fxtwitter moved from flat `video_url` / `media_extended` fields to a
+        nested `tweet.media.{videos,photos}` object. Both shapes are accepted
+        so older mirror deployments keep working.
+        """
+        tweet = (data.get("tweet") or {})
+        media = (tweet.get("media") or {})
+        videos = list(media.get("videos") or [])
+        photos = [p.get("url") for p in (media.get("photos") or []) if (p or {}).get("url")]
+
+        for m in (data.get("media_extended") or []):
+            m = (m or {})
+            mtype = str(m.get("type", "")).lower()
+            if mtype in ("video", "gif", "animated_gif"):
+                videos.append(m)
+            elif mtype == "image" and m.get("url"):
+                photos.append(m.get("url"))
+
+        if data.get("video_url"):
+            videos.append({"url": data["video_url"]})
+        if not photos and data.get("mediaURLs"):
+            photos = [u for u in (data.get("mediaURLs") or []) if u and u not in photos]
+        return videos, photos
+
     has_video_indicator = False
     for ep, data in results:
         data = (data or {})
+        if data.get("code") not in (None, 200):
+            continue
         tweet_fallback = (data.get("tweet") or {})
         title = data.get("text") or tweet_fallback.get("text") or f"Tweet_{status_id}"
         g_auth = ((data.get("author") or {}).get("screen_name")) or data.get("user_screen_name") or author
@@ -2113,43 +2180,22 @@ def resolve_twitter(url, fmt="video"):
 
         v_url = None
         if "fxtwitter" in ep or "vxtwitter" in ep:
-            v_url = data.get("video_url") or None
-            for m in (data.get("media_extended") or []):
-                if str((m or {}).get("type", "")).lower() in ("video", "animated_gif", "gif"):
-                    has_video_indicator = True
-                    if (m or {}).get("url") and not v_url:
-                        v_url = (m or {}).get("url")
-            if data.get("video_url"):
+            videos, _ = _fx_media(data)
+            if videos:
                 has_video_indicator = True
-            tweet_obj = (data.get("tweet") or {})
-            media_obj = (tweet_obj.get("media") or {})
-            vids = media_obj.get("videos") or []
-            if vids:
-                has_video_indicator = True
-                if (vids[0] or {}).get("url") and not v_url:
-                    v_url = (vids[0] or {}).get("url")
+                v_url = _pick_mp4(videos)
         elif "syndication" in ep:
             for md in (data.get("mediaDetails") or []):
                 md = (md or {})
                 if str(md.get("type", "")).lower() in ("video", "animated_gif"):
                     has_video_indicator = True
                     variants = ((md.get("video_info") or {}).get("variants")) or []
-                    mp4s = [v for v in variants if (v or {}).get("content_type") == "video/mp4" and (v or {}).get("url")]
-                    if mp4s and not v_url:
-                        mp4s.sort(key=lambda x: int((x or {}).get("bitrate") or 0), reverse=True)
-                        v_url = (mp4s[0] or {}).get("url")
+                    if not v_url:
+                        v_url = _pick_mp4(variants)
             if ((data.get("video") or {}).get("variants")):
                 has_video_indicator = True
                 if not v_url:
-                    variants = ((data.get("video") or {}).get("variants")) or []
-                    mp4s = [v for v in variants if (v or {}).get("content_type") == "video/mp4" and (v or {}).get("url")]
-                    if mp4s:
-                        mp4s.sort(key=lambda x: int((x or {}).get("bitrate") or 0), reverse=True)
-                        v_url = (mp4s[0] or {}).get("url")
-
-        if not v_url and data.get("video_url"):
-            has_video_indicator = True
-            v_url = data.get("video_url")
+                    v_url = _pick_mp4(((data.get("video") or {}).get("variants")) or [])
 
         if v_url:
             return {"url": v_url, "title": title, "ext": "mp4", "kind": "video", "id": status_id, "channel": g_auth, "platform": "Twitter", "fallback": fb_lambda}
@@ -2176,15 +2222,7 @@ def resolve_twitter(url, fmt="video"):
 
             photos = []
             if "fxtwitter" in ep or "vxtwitter" in ep:
-                tweet_obj_p = (data.get("tweet") or {})
-                media_obj_p = (tweet_obj_p.get("media") or {})
-                photos = [p.get("url") for p in (media_obj_p.get("photos") or []) if (p or {}).get("url")]
-                if not photos:
-                    m_ext = data.get("media_extended") or []
-                    if m_ext:
-                        photos = [m.get("url") for m in m_ext if str((m or {}).get("type", "")).lower() == "image" and (m or {}).get("url")]
-                    elif data.get("mediaURLs"):
-                        photos = [u for u in (data.get("mediaURLs") or []) if u]
+                _, photos = _fx_media(data)
             elif "syndication" in ep:
                 photos = [(p or {}).get("url") for p in (data.get("photos") or []) if (p or {}).get("url")]
 
@@ -2206,6 +2244,8 @@ def resolve_twitter(url, fmt="video"):
     }
 
 YTDLP_DOWNLOAD_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+YTDLP_SUMS_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
+YTDLP_ASSET_NAME = "yt-dlp"
 
 def _repack_pyc(src_zip, dst_zip):
     import tempfile
@@ -2297,6 +2337,35 @@ def check_ytdlp_version_api():
         "has_update": has_update
     }
 
+def _fetch_verified_ytdlp():
+    """Download the latest yt-dlp and verify it against the published checksum.
+
+    The extractor runs with full root privileges on the device, so an
+    unverified payload is an unacceptable supply-chain risk. Returns the
+    sha256 digest that the caller can record once the update lands.
+    """
+    def _get(url, timeout):
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    sums = _get(YTDLP_SUMS_URL, 20).decode("utf-8", "replace")
+    want = ""
+    for line in sums.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[-1].lstrip("*") == YTDLP_ASSET_NAME:
+            want = parts[0].strip().lower()
+            break
+    if not want:
+        raise RuntimeError("Could not read the yt-dlp checksum list")
+
+    payload = _get(YTDLP_DOWNLOAD_URL, 90)
+    got = hashlib.sha256(payload).hexdigest()
+    if got != want:
+        raise RuntimeError("yt-dlp checksum mismatch, refusing to install")
+    return payload, got
+
+
 def perform_ytdlp_update():
     import tempfile
     target_paths = [
@@ -2309,9 +2378,12 @@ def perform_ytdlp_update():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_dl = os.path.join(tmpdir, "raw_ytdlp")
-        req = urllib.request.Request(YTDLP_DOWNLOAD_URL, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=60) as resp, open(raw_dl, "wb") as f:
-            f.write(resp.read())
+        try:
+            payload, digest = _fetch_verified_ytdlp()
+        except Exception as e:
+            return {"success": False, "error": humanize_error(e)}
+        with open(raw_dl, "wb") as f:
+            f.write(payload)
 
         opt_path = os.path.join(tmpdir, "opt_ytdlp")
         _repack_pyc(raw_dl, opt_path)
@@ -2340,6 +2412,12 @@ def perform_ytdlp_update():
             shutil.copyfile(opt_path, tp)
             os.chmod(tp, 0o755)
 
+        try:
+            with open(os.path.join(CONF_DIR, "ytdlp.sha256"), "w") as f:
+                f.write(digest + "\n")
+        except Exception:
+            pass
+
         return {"success": True, "version": new_ver}
 
 def get_module_local_prop():
@@ -2347,7 +2425,10 @@ def get_module_local_prop():
         "/data/adb/modules/hyperdl/module.prop",
         "/data/adb/modules_update/hyperdl/module.prop",
     ]
-    props = {"version": "v1.3.51", "versionCode": "13510"}
+    # Fallbacks only matter when module.prop is unreadable. Keep them at 0 so a
+    # failed read reports "update available" instead of silently pretending the
+    # device is current and hiding a real release.
+    props = {"version": "", "versionCode": "0"}
     for p in candidates:
         if os.path.exists(p):
             try:
@@ -2364,11 +2445,11 @@ def get_module_local_prop():
 
 def check_module_update():
     local_props = get_module_local_prop()
-    cur_ver = local_props.get("version", "v1.3.51")
+    cur_ver = local_props.get("version") or ""
     try:
-        cur_code = int(local_props.get("versionCode", "13510"))
-    except ValueError:
-        cur_code = 13510
+        cur_code = int(local_props.get("versionCode") or 0)
+    except (ValueError, TypeError):
+        cur_code = 0
 
     res = {
         "current_version": cur_ver,
@@ -2634,6 +2715,46 @@ def resolve_threads(url, fmt="video"):
         print(f"Threads OG scrape note: {e}", file=sys.stderr)
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Threads_{post_id}", "platform": "Threads"}
 
+def _dns_is_poisoned(host):
+    """Detect ISP-level DNS poisoning for a known-good host.
+
+    Indonesian ISPs (Kominfo trustpos blocking) answer some media domains with
+    a sinkhole address that refuses connections, while public DNS resolvers
+    still return the real CDN. Distinguishing the two matters because the fix
+    (DoH) is automatic, and a plain `Connection refused` error reads like a
+    module bug to the user.
+    """
+    try:
+        local = {r[4][0] for r in socket.getaddrinfo(host, 443)}
+    except Exception:
+        return False
+    if not local:
+        return False
+    trusted = set()
+    try:
+        import json as _json
+        for ep in ("https://1.1.1.1/dns-query?name={}&type=A",
+                   "https://8.8.8.8/resolve?name={}&type=A"):
+            try:
+                req = urllib.request.Request(
+                    ep.format(host),
+                    headers={"Accept": "application/dns-json", "User-Agent": USER_AGENT})
+                with urllib.request.urlopen(req, timeout=3.5) as r:
+                    data = _json.loads(r.read().decode("utf-8", "replace"))
+                for a in data.get("Answer", []):
+                    if a.get("type") == 1 and a.get("data"):
+                        trusted.add(a["data"])
+                if trusted:
+                    break
+            except Exception:
+                continue
+    except Exception:
+        return False
+    if not trusted:
+        return False
+    return not (local & trusted)
+
+
 def resolve_streamable(url, fmt="video"):
     update_status("resolving", title="Resolving Streamable media...")
     m = re.search(r'streamable\.com/(?:e/)?([A-Za-z0-9]+)', url)
@@ -2642,11 +2763,11 @@ def resolve_streamable(url, fmt="video"):
     vid_id = m.group(1)
     try:
         req = urllib.request.Request(f"https://api.streamable.com/videos/{vid_id}", headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=6) as resp:
             d = json.loads(resp.read().decode("utf-8"))
         title = d.get("title") or f"Streamable_{vid_id}"
         files = d.get("files") or {}
-        for key in ("mp4", "mp4-mobile"):
+        for key in ("mp4", "mp4-720", "mp4-mobile"):
             f = files.get(key) or {}
             if f.get("url"):
                 mp4_url = f["url"]
@@ -2655,83 +2776,41 @@ def resolve_streamable(url, fmt="video"):
                 return {"url": mp4_url, "title": title, "ext": "mp4", "kind": "video", "id": vid_id, "platform": "Streamable"}
     except Exception as e:
         print(f"Streamable API note: {e}", file=sys.stderr)
+        if _dns_is_poisoned("api.streamable.com"):
+            raise RuntimeError(
+                "Streamable is blocked by your network provider's DNS. "
+                "Public DNS resolves it correctly, so this is not a module fault. "
+                "Try a different network or a DNS-over-HTTPS / VPN setup.")
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Streamable_{vid_id}", "platform": "Streamable"}
 
 def resolve_bilibili(url, fmt="video"):
+    """Hand Bilibili to the native yt-dlp extractor.
+
+    The public `web-interface/view` API answers HTTP 412 to every anonymous
+    request unless the caller reproduces Bilibili's WBI request signature
+    (`w_rid`/`wts` HMAC over the sorted query with keys scraped from `nav`).
+    Cookies, a real `buvid3`, and a browser user agent are not enough. yt-dlp
+    already implements that signing, so scraping here only produced a dead 412
+    round trip before falling back anyway. Short links still get expanded so the
+    cached probe key and the saved sidecar carry the canonical watch URL.
+    """
     update_status("resolving", title="Resolving Bilibili media...")
     clean_url = url
     if "b23.tv" in url.lower():
-        try:
-            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
-            opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler)
-            with opener.open(req, timeout=4) as r:
-                clean_url = r.geturl()
-        except urllib.error.HTTPError as e:
-            loc = e.headers.get("Location") or e.headers.get("location")
-            if loc:
-                clean_url = loc if loc.startswith("http") else urllib.parse.urljoin(url, loc)
-        except Exception:
-            pass
+        clean_url = expand_shortlink_fast(url, timeout=4.0)
 
     m_bv = re.search(r'/(BV[A-Za-z0-9]+)', clean_url)
     m_av = re.search(r'/av(\d+)', clean_url)
-    if not m_bv and not m_av:
-        return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": "Bilibili Video", "platform": "Bilibili"}
+    title = f"Bilibili_{m_bv.group(1) if m_bv else ('av' + m_av.group(1) if m_av else 'Video')}"
 
-    bvid = m_bv.group(1) if m_bv else None
-    aid = m_av.group(1) if m_av else None
-    title = f"Bilibili_{bvid or aid}"
-    hdrs = {
-        "User-Agent": USER_AGENT,
-        "Referer": "https://www.bilibili.com/",
-        "Origin": "https://www.bilibili.com",
-        "Accept": "application/json, text/plain, */*",
+    return {
+        "direct_ytdlp": True,
+        "url": clean_url,
+        "fmt": fmt,
+        "is_yt": False,
+        "title": title,
+        "platform": "Bilibili"
     }
-    cookie_hdr = get_cookie_header("bilibili.com")
-    if cookie_hdr:
-        hdrs["Cookie"] = cookie_hdr
-
-    try:
-        params = f"bvid={bvid}" if bvid else f"aid={aid}"
-        req = urllib.request.Request(f"https://api.bilibili.com/x/web-interface/view?{params}", headers=hdrs)
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            d = json.loads(resp.read().decode("utf-8"))
-        info = (d.get("data") or {})
-        title = info.get("title") or (f"Bilibili_{bvid or aid}")
-        cid = info.get("cid")
-        vid_bvid = info.get("bvid") or bvid
-        vid_aid = info.get("aid") or aid
-        channel = (info.get("owner") or {}).get("name") or ""
-
-        if cid and (vid_bvid or vid_aid):
-            q_param = "qn=80&fnval=0&fnver=0&fourk=1"
-            if vid_bvid:
-                play_params = f"bvid={vid_bvid}&cid={cid}&{q_param}"
-            else:
-                play_params = f"avid={vid_aid}&cid={cid}&{q_param}"
-            req2 = urllib.request.Request(f"https://api.bilibili.com/x/player/playurl?{play_params}", headers=hdrs)
-            with urllib.request.urlopen(req2, timeout=4) as resp2:
-                pd = json.loads(resp2.read().decode("utf-8"))
-            durl = ((pd.get("data") or {}).get("durl") or [])
-            if durl:
-                best = max(durl, key=lambda x: (x or {}).get("size", 0))
-                best = (best or {})
-                media_url = best.get("url") or ((best.get("backup_url") or [None])[0])
-                if media_url:
-                    return {
-                        "url": media_url,
-                        "title": title,
-                        "ext": "mp4",
-                        "kind": "video",
-                        "id": vid_bvid or str(vid_aid),
-                        "channel": channel,
-                        "platform": "Bilibili",
-                        "headers": hdrs
-                    }
-    except Exception as e:
-        print(f"Bilibili API note: {e}", file=sys.stderr)
-
-    return {"direct_ytdlp": True, "url": clean_url, "fmt": fmt, "is_yt": False, "title": title, "platform": "Bilibili"}
 
 def resolve_ytdlp(url, fmt="video", is_yt=False):
     return {
@@ -2804,20 +2883,39 @@ def resolve_youtube(url, fmt="video"):
     }
 
 def _is_range_error(err):
+    """Return True only for a genuine HTTP 416 range failure.
+
+    A loose `"416" in text and "range" in text` check also matched unrelated
+    messages (a byte count such as `filesize 416 KB` next to the word "range"),
+    which triggered a pointless full purge and restart of a healthy download.
+    """
     low = (err or "").lower()
-    return "416" in low and "range" in low
+    if "416" not in low:
+        return False
+    return bool(
+        re.search(r'http error 416', low)
+        or re.search(r'416[^0-9]{0,12}range not satisfiable', low)
+        or re.search(r'requested range not satisfiable', low)
+    )
 
 
 def _purge_stale_partials(outdir, since):
+    """Delete partial files written by the failed attempt that started at `since`.
+
+    Partials are junk only when the failed run just touched them: the signed
+    stream URL moved on, so its byte offsets no longer line up. Anything older
+    than the run (someone's earlier download still waiting to resume) must be
+    left alone, so the comparison is `mtime >= since` matched against the run
+    start rather than a fixed window.
+    """
     try:
-        cutoff = since - 600
         for root, _, fnames in os.walk(outdir):
             for fn in fnames:
                 if not fn.endswith((".part", ".ytdl", ".temp")):
                     continue
                 full_p = os.path.join(root, fn)
                 try:
-                    if os.path.getmtime(full_p) >= cutoff:
+                    if os.path.getmtime(full_p) >= (since - 1):
                         os.remove(full_p)
                 except Exception:
                     pass
