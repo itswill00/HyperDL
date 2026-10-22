@@ -2489,12 +2489,36 @@ async function doDownload(u, fmt, extraArg, isResume = false) {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer)
   const pollStart = Date.now()
+  // A bridge that keeps answering with nothing usable (empty output, a
+  // timeout, a non-JSON line) used to leave this interval running forever and
+  // the UI stuck in "processing". Give it a bounded number of consecutive
+  // misses before declaring the task dead.
+  let consecutiveMisses = 0
+  const MAX_MISSES = 25  // ~10s at the 400ms interval
+  const stopPollingWithError = (message) => {
+    clearInterval(pollTimer)
+    pollTimer = null
+    isProcessing.value = false
+    task.value.status = 'error'
+    task.value.error = message
+    showToast(message, 'error')
+    saveActiveTaskToStorage(task.value)
+    fetchLogs()
+    processQueue()
+  }
+
   pollTimer = setInterval(async () => {
     if (isPollingActive) return
     isPollingActive = true
     try {
       const raw = await runBridge('status')
-      if (!raw) return
+      if (!raw) {
+        consecutiveMisses++
+        if (consecutiveMisses >= MAX_MISSES) {
+          stopPollingWithError('Lost contact with HyperDL. Check the module is active and retry.')
+        }
+        return
+      }
       if (raw === 'binary_not_found') {
         clearInterval(pollTimer)
         pollTimer = null
@@ -2509,9 +2533,16 @@ function startPolling() {
       try {
         parsed = JSON.parse(raw)
       } catch (e) {
+        parsed = null
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        consecutiveMisses++
+        if (consecutiveMisses >= MAX_MISSES) {
+          stopPollingWithError('Received malformed status from HyperDL. Retry the download.')
+        }
         return
       }
-      if (!parsed || typeof parsed !== 'object') return
+      consecutiveMisses = 0
 
       task.value = { ...task.value, ...parsed }
       saveActiveTaskToStorage(task.value)
