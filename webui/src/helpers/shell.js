@@ -15,8 +15,11 @@ export function execCommand(cmd, timeoutMs = 60000) {
       window[id] = (errno, stdout, stderr) => {
         clearTimeout(timer)
         delete window[id]
-        // Keep stderr when stdout is empty so a command that only explains
-        // itself on stderr still reaches the caller instead of looking silent.
+        // The bridge writes one JSON object to stdout and reserves stderr for
+        // host-level noise, so stdout wins when present. stderr is only used as
+        // a fallback so a command that fails before printing anything still
+        // reaches the caller instead of looking silent. Concatenating the two
+        // would corrupt the JSON that every caller parses.
         resolve(stdout || stderr || '')
       }
 
