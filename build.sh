@@ -77,8 +77,21 @@ fi
 if [ ! -f "bin/libhyperdl.so" ] || [ "src/main.c" -nt "bin/libhyperdl.so" ] || [ "src/embedded_engine.h" -nt "bin/libhyperdl.so" ]; then
     echo "-> compiling c native bridge..."
     clang -O3 -Wall -Wextra src/main.c -o bin/libhyperdl.so
+    # The Termux clang driver bakes its own toolchain path into RUNPATH
+    # (/data/data/com.termux/files/usr/bin/../../usr/lib). That path must never
+    # ship: on a device where Termux exists the linker could resolve libc.so
+    # from it, and the module is supposed to be fully standalone. The driver
+    # always prepends it, so drop it after linking.
+    patchelf --remove-rpath bin/libhyperdl.so 2>/dev/null || true
     strip --strip-unneeded bin/libhyperdl.so
     chmod 755 bin/libhyperdl.so
+    # Fail loudly instead of shipping a bridge that points back at the builder.
+    # Only the dynamic section matters here; patchelf leaves the raw string in
+    # .dynstr, but an unreferenced string is never read by the loader.
+    if readelf -d bin/libhyperdl.so | grep -iE "(rpath|runpath).*com\.termux"; then
+        echo "error: bin/libhyperdl.so still resolves libraries through the Termux toolchain path" >&2
+        exit 1
+    fi
 fi
 
 # WebUI

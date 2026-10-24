@@ -72,9 +72,10 @@ static int dir_has_prefix(const char *dir, const char *prefix) {
 static int runtime_libs_present(const char *runtime_dir) {
     char libdir[512];
     snprintf(libdir, sizeof(libdir), "%s/lib", runtime_dir);
-    if (dir_has_prefix(libdir, "libavformat.so")) return 1;
-    if (dir_has_prefix("/data/data/com.termux/files/usr/lib", "libavformat.so")) return 1;
-    return 0;
+    /* Only the bundled closure counts. The wrapper script pins LD_LIBRARY_PATH
+     * to /system/lib64:/system/lib:<module>/lib, so a libav found anywhere else
+     * would never load and reporting it as present would hide a broken install. */
+    return dir_has_prefix(libdir, "libavformat.so");
 }
 
 static int has_working_ffmpeg(void) {
