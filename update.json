@@ -3,5 +3,5 @@
   "versionCode": 13540,
   "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.54/HyperDL-v1.3.54.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Scraper recovery paths repaired, yt-dlp pinned with checksum verification, and six WebUI bugs fixed including dead open actions and false success toasts."
+  "notes": "Rebuilds the scraper recovery paths that dead endpoints had broken, pins the yt-dlp release with checksum verification, and fixes six WebUI bugs — the worst of which made open-file taps silently do nothing and delete actions report success on failure."
 }
