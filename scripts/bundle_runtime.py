@@ -184,7 +184,11 @@ exec "$DIR/{tool}.bin" "$@"
     skip_dirs = {
         "lib-dynload", "site-packages", "test", "tests",
         "tkinter", "idlelib", "turtledemo", "pydoc_data",
-        "_pyrepl", "unittest", "ensurepip", "__pycache__"
+        "_pyrepl", "unittest", "ensurepip", "__pycache__",
+        # Nothing on device ever creates a virtualenv, and the module is
+        # supposed to stay lean: venv only adds weight to the shipped zip.
+        # asyncio stays: yt-dlp's websocket downloader imports it.
+        "venv", "distutils", "lib2to3",
     }
 
     with tempfile.TemporaryDirectory() as tmp_stdlib:
