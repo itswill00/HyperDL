@@ -6,25 +6,72 @@ import json
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def parse_args():
-    bump_type = "patch"
+USAGE = """usage: bump_version.py [patch|minor|major] [VERSION] [--notes TEXT]
+
+Rewrite the version across module.prop, update.json, webui/package.json,
+webui/src/App.vue, src/main.c and README.md.
+
+arguments:
+  patch | minor | major   Which part of the current version to increment
+                          (default: patch).
+  VERSION                 Jump to an explicit version instead, e.g. v1.3.60.
+
+options:
+  --notes TEXT            Overwrite the update.json notes field.
+  -h, --help              Show this message and exit without touching files.
+
+This script writes to disk immediately and has no dry-run, so every argument
+is validated before the first file is opened. Anything unrecognised aborts."""
+
+BUMP_TYPES = ("patch", "minor", "major")
+VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
+def parse_args(argv):
+    """Return (bump_type, custom_ver, notes) or exit without writing anything.
+
+    Every argument is validated up front because the caller writes to disk as
+    soon as parsing succeeds. A typo used to fall through silently and bump the
+    version anyway, which is exactly the accidental release this guards against.
+    """
+    bump_type = None
     custom_ver = None
     notes = None
-    args = sys.argv[1:]
+    args = list(argv)
     i = 0
     while i < len(args):
         arg = args[i]
-        if arg in ("patch", "minor", "major"):
-            bump_type = arg
-        elif arg == "--notes" and i + 1 < len(args):
+        if arg in ("-h", "--help"):
+            print(USAGE)
+            sys.exit(0)
+        elif arg == "--notes":
+            if i + 1 >= len(args):
+                fail(f"{arg} needs a value")
             notes = args[i + 1]
             i += 1
-        elif arg.startswith("v") and "." in arg:
-            custom_ver = arg
-        elif "." in arg and not arg.startswith("-"):
-            custom_ver = f"v{arg}"
+        elif arg in BUMP_TYPES:
+            if bump_type is not None:
+                fail(f"bump type given twice: {bump_type} and {arg}")
+            if custom_ver is not None:
+                fail(f"cannot combine bump type '{arg}' with explicit version {custom_ver}")
+            bump_type = arg
+        elif VERSION_RE.match(arg):
+            if custom_ver is not None:
+                fail(f"explicit version given twice: {custom_ver} and {arg}")
+            if bump_type is not None:
+                fail(f"cannot combine explicit version {arg} with bump type '{bump_type}'")
+            custom_ver = arg if arg.startswith("v") else f"v{arg}"
+        else:
+            fail(f"unrecognized argument: {arg}")
         i += 1
-    return bump_type, custom_ver, notes
+    return bump_type or "patch", custom_ver, notes
+
+
+def fail(message):
+    print(f"error: {message}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(USAGE, file=sys.stderr)
+    sys.exit(2)
 
 def calculate_version(curr_ver, curr_code, bump_type, custom_ver):
     m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", curr_ver)
@@ -64,7 +111,7 @@ def update_file(path, pattern, replacement):
     return False
 
 def main():
-    bump_type, custom_ver, notes = parse_args()
+    bump_type, custom_ver, notes = parse_args(sys.argv[1:])
     prop_path = os.path.join(PROJECT_DIR, "module.prop")
     
     if not os.path.exists(prop_path):
