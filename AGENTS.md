@@ -36,6 +36,7 @@ is allowed to contain Indonesian.
    - Never bump version on your own. Only bump when the user explicitly asks for it.
    - When asked to bump, update version and versionCode across `module.prop`, `update.json`, `webui/package.json`, `webui/src/App.vue`, `src/main.c`, and `README.md`.
    - `scripts/bump_version.py` is the single supported way to bump. Run it and verify the six files stayed in sync.
+   - Never invoke `scripts/bump_version.py` to inspect it: it has no dry-run and writes on success. Read the file or pass `--help`, which exits before touching anything.
    - Always run Vite build and copy `webui/dist/index.html` to `webroot/index.html` after modifying `webui/`.
    - Run `./build.sh --deploy` to test and deploy to live `/data/adb/modules/hyperdl`.
    - Release zips live strictly in internal `releases/` (`HyperDL-vX.Y.Z.zip`). Never mirror to `/sdcard`.
@@ -84,7 +85,10 @@ is allowed to contain Indonesian.
     - The Magisk / KernelSU / APatch module MUST be 100% standalone and isolated inside `/data/adb/modules/hyperdl/` and `/system/`.
     - Termux is strictly the local build and compilation environment; runtime code (`src/main.c`, `engine/`, `bin/hyperdl_daemon`, and `webui/src/helpers/shell.js`) must NEVER reference `/data/data/com.termux/...`.
     - Bundled ELF binaries (`python3`, dynamic extensions `.so`, `ffmpeg.bin`, `ffprobe.bin`) must have relative RUNPATHs (`$ORIGIN/../lib`, `$ORIGIN/../..`) set via `patchelf` during packaging.
+    - The Termux clang driver prepends its own toolchain path to RUNPATH on every link, so `bin/libhyperdl.so` must have its RUNPATH stripped after linking. `build.sh` does this and fails the build if any `DT_RPATH`/`DT_RUNPATH` still names `/data/data/com.termux/...`, because the loader would otherwise resolve `libc.so` from a Termux install.
     - Python stdlib must be packaged as stripped `.pyc` bytecode inside a single compressed archive (`python314.zip`) without GUI, tests, or unused debug modules.
+    - Do NOT prune `asyncio` from the stdlib archive: yt-dlp's `downloader/websocket.pyc` imports it. Prune only what nothing on the download path reaches (`venv`, `distutils`, `lib2to3`, `tkinter`, `idlelib`, `ensurepip`, `unittest`, `pydoc_data`, `turtledemo`, `test`).
+    - `scripts/bundle_runtime.py` requires a working Termux `ffmpeg`/`ffprobe` and `patchelf`. It is not part of the normal loop: `./build.sh` reuses the existing `runtime/` payload unless the script is invoked directly.
 
 ---
 

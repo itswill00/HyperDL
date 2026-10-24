@@ -314,7 +314,8 @@ HyperDL/
 ├── release_notes/
 │   └── vX.Y.Z.md            # GitHub Release description per version
 ├── tests/
-│   └── test_engine.py       # Unit tests (run with unittest)
+│   ├── test_engine.py       # Extractor unit tests
+│   └── test_bump_version.py # Version helper argument tests
 ├── webroot/
 │   └── index.html           # Inlined single-file WebUI (built from webui/)
 ├── webui/
@@ -351,6 +352,26 @@ HyperDL/
 ./build.sh --release         # package, tag, and publish to this repo
 ```
 
+### Version Bumping
+
+`scripts/bump_version.py` is the only supported way to move the version, and
+`./build.sh --bump` is a thin wrapper around it:
+
+```sh
+python3 scripts/bump_version.py --help   # usage, touches nothing
+python3 scripts/bump_version.py patch    # v1.3.54 -> v1.3.55
+python3 scripts/bump_version.py minor    # v1.3.54 -> v1.4.0
+python3 scripts/bump_version.py v1.3.60  # jump to an explicit version
+
+# --notes also rewrites the update.json notes field
+python3 scripts/bump_version.py patch --notes "Scraper recovery paths repaired"
+```
+
+The helper writes to disk immediately and has no dry-run, so every argument is
+validated before the first file is opened: an unknown flag, a stray word, or a
+bump type combined with an explicit version aborts with exit code `2` and
+changes nothing.
+
 ### Build Targets
 
 Packaging outputs a single Full Zip to internal `releases/`:
@@ -364,7 +385,21 @@ Packaging outputs a single Full Zip to internal `releases/`:
 
 ```sh
 python3 -m unittest discover -s tests -v
+cd webui && npm test
 ```
+
+The suite covers the extractor, the version helper, the release metadata
+standard, and the standalone isolation rules. The isolation tests read
+`bin/libhyperdl.so` and `runtime/lib/python314.zip` and skip when those
+artifacts have not been built yet, so a fresh clone still passes.
+
+### Rebuilding the Bundled Runtime
+
+`scripts/bundle_runtime.py` assembles the ARM64 Python 3 and FFmpeg closure and
+needs a working Termux `ffmpeg`/`ffprobe` plus `patchelf` on the build machine.
+It is not part of the normal loop: `./build.sh` only re-runs it when you invoke
+it directly. A plain `./build.sh` reuses the committed `runtime/` payload and
+repackages it.
 
 ---
 
