@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.55",
-  "versionCode": 13550,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.55/HyperDL-v1.3.55.zip",
+  "version": "v1.3.56",
+  "versionCode": 13560,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.56/HyperDL-v1.3.56.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Stops the module from resolving media libraries through the Termux toolchain, trims the bundled Python runtime, and makes the build and release helpers refuse to ship a broken or accidental result."
+  "notes": "Hardens vault isolation, download cleanup, and root control files while making URL handling and bundled-tool trust safer across the module."
 }
