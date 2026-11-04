@@ -91,11 +91,20 @@ def main():
     missing = [r for r in required if r not in names]
     if missing:
         print(f"error: package is incomplete, missing: {', '.join(missing)}", file=sys.stderr)
+        # A failed build must never leave a zip that looks publishable.
+        try:
+            os.unlink(out_zip)
+        except OSError:
+            pass
         return 1
     # The media tools are useless without their shared-library closure, so a
     # zip carrying the binaries but no libav* is a broken build, not a release.
     if "runtime/bin/ffmpeg.bin" in names and not any("libavformat.so" in n for n in names):
         print("error: package carries ffmpeg without its libav shared libraries", file=sys.stderr)
+        try:
+            os.unlink(out_zip)
+        except OSError:
+            pass
         return 1
 
     print(f"verified: {len(required)} required entries present")

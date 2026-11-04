@@ -4,6 +4,10 @@ PID_FILE="/data/local/tmp/hyperdl_clip.pid"
 LAST_CLIP_FILE="/data/local/tmp/hyperdl_last_clip.txt"
 MODDIR="${0%/*}/.."
 
+# Control/temp files can briefly exist before their final chmod; keep them
+# owner-only from creation so clipboard URLs are never world-readable.
+umask 077
+
 find_jar() {
     for j in \
         /data/adb/modules/hyperdl/bin/clip.jar \
@@ -46,6 +50,27 @@ get_clipboard() {
     fi
 }
 
+pid_is_daemon() {
+    [ -n "$1" ] || return 1
+    kill -0 "$1" 2>/dev/null || return 1
+    [ -r "/proc/$1/cmdline" ] || return 1
+    tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | grep -q hyperdl_daemon
+}
+
+pid_is_hyperdl() {
+    [ -n "$1" ] || return 1
+    kill -0 "$1" 2>/dev/null || return 1
+    if [ -r "/proc/$1/cmdline" ] && \
+       tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | grep -q hyperdl; then
+        return 0
+    fi
+    if [ -r "/proc/$1/environ" ] && \
+       tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | grep -q '^HYPERDL_BRIDGE=1$'; then
+        return 0
+    fi
+    return 1
+}
+
 is_screen_on() {
   local b=""
   for f in /sys/class/backlight/*/brightness /sys/class/leds/lcd-backlight/brightness /sys/class/leds/wled/brightness; do
@@ -58,14 +83,16 @@ case "$1" in
   start)
     if [ -f "$PID_FILE" ]; then
       OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
-      if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+      if pid_is_daemon "$OLD_PID"; then
         exit 0
       fi
+      rm -f "$PID_FILE"
     fi
 
     (
       LAST_PROCESSED_URL=""
       if [ -f "$LAST_CLIP_FILE" ]; then
+        chmod 600 "$LAST_CLIP_FILE" 2>/dev/null || true
         LAST_PROCESSED_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
       fi
 
@@ -94,19 +121,33 @@ case "$1" in
           IDLE_TICKS=0
         fi
         if [ -n "$CLIP" ]; then
-          LOW_CLIP="$(echo "$CLIP" | tr '[:upper:]' '[:lower:]')"
+          CLEAN_URL="$(printf '%s' "$CLIP" | grep -oiE 'https?://[^[:space:]<>"]+' | head -n 1)"
+          if [ -z "$CLEAN_URL" ]; then
+            continue
+          fi
+          CLIP_HOST="$(printf '%s' "$CLEAN_URL" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#[/?#].*$##; s#^.*@##; s#:[0-9]+$##; s#\.$##' | tr '[:upper:]' '[:lower:]')"
           MATCHED=false
-          case "$LOW_CLIP" in
-            *tiktok.com*|*douyin.com*|*instagram.com*|*instagr.am*|*twitter.com*|*x.com*|*t.co*|*youtu.be*|*youtube.com*|*facebook.com*|*fb.watch*|*fb.com*|*pinterest.com*|*pin.it*|*reddit.com*|*redd.it*|*threads.net*|*streamable.com*|*bilibili.com*|*b23.tv*|*bsky.app*|*twitch.tv*)
+          case "$CLIP_HOST" in
+            tiktok.com|*.tiktok.com|douyin.com|*.douyin.com|\
+            instagram.com|*.instagram.com|instagr.am|*.instagr.am|\
+            twitter.com|*.twitter.com|x.com|*.x.com|t.co|*.t.co|\
+            youtu.be|*.youtu.be|youtube.com|*.youtube.com|\
+            facebook.com|*.facebook.com|fb.watch|*.fb.watch|fb.com|*.fb.com|\
+            pinterest.com|*.pinterest.com|pin.it|*.pin.it|\
+            reddit.com|*.reddit.com|redd.it|*.redd.it|\
+            threads.net|*.threads.net|threads.com|*.threads.com|\
+            streamable.com|*.streamable.com|bilibili.com|*.bilibili.com|\
+            b23.tv|*.b23.tv|bsky.app|*.bsky.app|twitch.tv|*.twitch.tv)
               MATCHED=true
               ;;
             *)
               if [ -f /data/adb/hyperdl/vault.enabled ] && [ -f /data/adb/hyperdl/vault_domains.conf ]; then
                 while IFS= read -r vdom || [ -n "$vdom" ]; do
-                  vdom="$(echo "$vdom" | tr -d ' \r\n')"
+                  vdom="$(printf '%s' "$vdom" | tr -d ' \r\n' | sed 's#^\.##' | tr '[:upper:]' '[:lower:]')"
                   [ -z "$vdom" ] && continue
-                  case "$LOW_CLIP" in
-                    *"$vdom"*)
+                  case "$vdom" in '#'*) continue ;; esac
+                  case "$CLIP_HOST" in
+                    "$vdom"|*."$vdom")
                       MATCHED=true
                       break
                       ;;
@@ -115,11 +156,14 @@ case "$1" in
               fi
               ;;
           esac
+          # If the vault is enabled but its list vanished, fail private rather
+          # than sending a potentially adult link to the public folder.
+          if [ "$MATCHED" != "true" ] && [ -f /data/adb/hyperdl/vault.enabled ] && \
+             { [ ! -f /data/adb/hyperdl/vault_domains.conf ] || [ ! -r /data/adb/hyperdl/vault_domains.conf ]; }; then
+            MATCHED=true
+          fi
 
           if [ "$MATCHED" = "true" ]; then
-            CLEAN_URL="$(echo "$CLIP" | grep -oE 'https?://[^[:space:]<>"]+' | head -n 1)"
-            [ -z "$CLEAN_URL" ] && CLEAN_URL="$CLIP"
-
             LAST_FILE_URL=""
             if [ -f "$LAST_CLIP_FILE" ]; then
               LAST_FILE_URL="$(cat "$LAST_CLIP_FILE" 2>/dev/null | tr -d ' \r\n')"
@@ -127,11 +171,20 @@ case "$1" in
 
             if [ "$CLEAN_URL" != "$LAST_PROCESSED_URL" ] && [ "$CLEAN_URL" != "$LAST_FILE_URL" ]; then
               LAST_PROCESSED_URL="$CLEAN_URL"
-              echo "$CLEAN_URL" > "$LAST_CLIP_FILE"
+              _tmp_last="${LAST_CLIP_FILE}.tmp.$$"
+              if [ ! -d "$LAST_CLIP_FILE" ]; then
+                rm -f "$_tmp_last" 2>/dev/null || true
+                if printf '%s\n' "$CLEAN_URL" > "$_tmp_last" 2>/dev/null; then
+                  chmod 600 "$_tmp_last" 2>/dev/null || true
+                  mv -f "$_tmp_last" "$LAST_CLIP_FILE" 2>/dev/null || rm -f "$_tmp_last"
+                else
+                  rm -f "$_tmp_last" 2>/dev/null || true
+                fi
+              fi
 
               while [ -f /data/local/tmp/hyperdl.pid ]; do
                 DL_PID=$(cat /data/local/tmp/hyperdl.pid 2>/dev/null)
-                if [ -n "$DL_PID" ] && kill -0 "$DL_PID" 2>/dev/null; then
+                if [ -n "$DL_PID" ] && pid_is_hyperdl "$DL_PID"; then
                   sleep 2
                 else
                   rm -f /data/local/tmp/hyperdl.pid
@@ -144,7 +197,9 @@ case "$1" in
                 _esc_url="$(printf '%s' "$CLEAN_URL" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
                 _js="{\"status\":\"resolving\",\"percent\":0,\"title\":\"Clipboard auto-download\",\"url\":\"$_esc_url\",\"fmt\":\"video\"}"
                 for _f in /data/local/tmp/hyperdl_status.json /data/adb/hyperdl/active_task.json; do
-                  printf '%s' "$_js" > "$_f.tmp" 2>/dev/null && chmod 666 "$_f.tmp" 2>/dev/null && mv -f "$_f.tmp" "$_f" 2>/dev/null && chmod 666 "$_f" 2>/dev/null || true
+                  _t="$_f.tmp.$$"
+                  rm -f "$_t" 2>/dev/null || true
+                  printf '%s' "$_js" > "$_t" 2>/dev/null && chmod 600 "$_t" 2>/dev/null && mv -f "$_t" "$_f" 2>/dev/null && chmod 600 "$_f" 2>/dev/null || rm -f "$_t" 2>/dev/null || true
                 done
                 "$BRIDGE" download "$CLEAN_URL" video >/dev/null 2>&1
               fi
@@ -159,14 +214,20 @@ case "$1" in
       rm -f "$PID_FILE"
     ) </dev/null >/dev/null 2>&1 &
 
-    echo $! > "$PID_FILE"
-    chmod 666 "$PID_FILE" 2>/dev/null || true
+    _tmp_pid="${PID_FILE}.tmp.$$"
+    rm -f "$_tmp_pid" 2>/dev/null || true
+    if printf '%s\n' "$!" > "$_tmp_pid" 2>/dev/null; then
+      chmod 644 "$_tmp_pid" 2>/dev/null || true
+      mv -f "$_tmp_pid" "$PID_FILE" 2>/dev/null || rm -f "$_tmp_pid"
+    else
+      rm -f "$_tmp_pid" 2>/dev/null || true
+    fi
     ;;
 
   stop)
     if [ -f "$PID_FILE" ]; then
       OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
-      if [ -n "$OLD_PID" ]; then
+      if pid_is_daemon "$OLD_PID"; then
         kill -9 "$OLD_PID" 2>/dev/null || true
       fi
       rm -f "$PID_FILE"
@@ -176,7 +237,7 @@ case "$1" in
   status)
     if [ -f "$PID_FILE" ]; then
       OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
-      if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+      if pid_is_daemon "$OLD_PID"; then
         echo "running (PID $OLD_PID)"
         exit 0
       fi

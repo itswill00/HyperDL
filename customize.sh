@@ -1,6 +1,22 @@
 #!/system/bin/sh
 SKIPUNZIP=1
 
+kill_hyperdl_pid() {
+    _pf="$1"
+    [ -f "$_pf" ] || return 0
+    _pid="$(cat "$_pf" 2>/dev/null)"
+    case "$_pid" in ''|*[!0-9]*) _pid="" ;; esac
+    if [ -n "$_pid" ] && {
+        { [ -r "/proc/$_pid/cmdline" ] && \
+          tr '\0' ' ' < "/proc/$_pid/cmdline" | grep -q hyperdl; } || \
+        { [ -r "/proc/$_pid/environ" ] && \
+          tr '\0' '\n' < "/proc/$_pid/environ" | grep -q '^HYPERDL_BRIDGE=1$'; }
+    }; then
+        kill -9 "$_pid" 2>/dev/null || true
+    fi
+    rm -f "$_pf"
+}
+
 ARCH_ABI=$(getprop ro.product.cpu.abi 2>/dev/null)
 if [ "$ARCH" != "arm64" ] && [ "$ARCH_ABI" != "arm64-v8a" ]; then
     ui_print "! Unsupported architecture: $ARCH ($ARCH_ABI)"
@@ -10,14 +26,8 @@ fi
 
 ui_print "- Installing HyperDL..."
 
-if [ -f /data/local/tmp/hyperdl_clip.pid ]; then
-    kill -9 $(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
-    rm -f /data/local/tmp/hyperdl_clip.pid
-fi
-if [ -f /data/local/tmp/hyperdl.pid ]; then
-    kill -9 $(cat /data/local/tmp/hyperdl.pid 2>/dev/null) 2>/dev/null || true
-    rm -f /data/local/tmp/hyperdl.pid
-fi
+kill_hyperdl_pid /data/local/tmp/hyperdl_clip.pid
+kill_hyperdl_pid /data/local/tmp/hyperdl.pid
 pkill -9 -f hyperdl_daemon 2>/dev/null || true
 pkill -9 -f hyperdl.bundle 2>/dev/null || true
 
@@ -43,7 +53,6 @@ mkdir -p /data/adb/hyperdl 2>/dev/null || true
 chmod 0700 /data/adb/hyperdl 2>/dev/null || true
 [ -f /data/adb/hyperdl/cookies.txt ] && chmod 0600 /data/adb/hyperdl/cookies.txt 2>/dev/null || true
 mkdir -p /data/local/tmp 2>/dev/null || true
-chmod 0777 /data/local/tmp 2>/dev/null || true
 
 if [ -f "$MODPATH/bin/clip.jar" ]; then
     cp -f "$MODPATH/bin/clip.jar" /data/adb/hyperdl/clip.jar 2>/dev/null || true
@@ -53,8 +62,9 @@ fi
 # Keep the gallery-hidden marker in place on whichever storage we resolved.
 for od in /storage/emulated/0/Download/HyperDL /data/media/0/Download/HyperDL; do
     if [ -d "$od/.vault" ]; then
+        chmod 0755 "$od/.vault" 2>/dev/null || true
         touch "$od/.vault/.nomedia" 2>/dev/null || true
-        chmod 0666 "$od/.vault/.nomedia" 2>/dev/null || true
+        chmod 0644 "$od/.vault/.nomedia" 2>/dev/null || true
     fi
 done
 
@@ -78,7 +88,9 @@ chmod 644 "$MODPATH/webroot/index.html" 2>/dev/null
 
 for mgr_bin in /data/adb/ap/bin /data/adb/ksu/bin /data/adb/modules/bin; do
     if [ -d "$mgr_bin" ]; then
-        ln -sf "$MODPATH/bin/libhyperdl.so" "$mgr_bin/hyperdl" 2>/dev/null || true
+        # $MODPATH points at modules_update during install and disappears after
+        # the reboot, so link to the stable installed path instead.
+        ln -sf /data/adb/modules/hyperdl/bin/libhyperdl.so "$mgr_bin/hyperdl" 2>/dev/null || true
     fi
 done
 

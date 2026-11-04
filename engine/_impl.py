@@ -85,18 +85,20 @@ def get_effective_outdir(preferred=DEFAULT_OUTDIR):
 def clean_media_url(raw_url):
     if not raw_url:
         return ""
-    m = re.search(r'https?://[^\s<>"]+', raw_url)
+    m = re.search(r'(?i)https?://[^\s<>"]+', raw_url)
     clean = m.group(0) if m else raw_url.strip()
     try:
         parsed = urllib.parse.urlparse(clean)
         if not parsed.query:
             return clean
         qs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-        netloc = parsed.netloc.lower()
-        is_yt = "youtube.com" in netloc or "youtu.be" in netloc
-        is_ig = "instagram.com" in netloc
-        is_tt = "tiktok.com" in netloc or "douyin.com" in netloc
-        is_x = "x.com" in netloc or "twitter.com" in netloc
+        host = (parsed.hostname or "").lower().rstrip(".")
+        def _has(domain):
+            return host == domain or host.endswith("." + domain)
+        is_yt = _has("youtube.com") or _has("youtu.be")
+        is_ig = _has("instagram.com") or _has("instagr.am")
+        is_tt = _has("tiktok.com") or _has("douyin.com")
+        is_x = _has("x.com") or _has("twitter.com")
 
         new_qs = []
         for k, v in qs:
@@ -137,55 +139,154 @@ def check_storage_space(outdir, required_bytes=100 * 1024 * 1024):
         return True, ""
 
 
-def get_target_directory(base_outdir, info, url=""):
-    vault_flag = "/data/adb/hyperdl/vault.enabled"
-    vault_conf = "/data/adb/hyperdl/vault_domains.conf"
-    if os.path.exists(vault_flag) and os.path.exists(vault_conf):
+def _url_host(url):
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "//" + raw
+    try:
+        return (urllib.parse.urlsplit(raw).hostname or "").lower().rstrip(".")
+    except Exception:
+        return ""
+
+
+def _host_in(host, domains):
+    return any(d == "*" or host == d or host.endswith("." + d) for d in domains)
+
+
+VAULT_FLAG = "/data/adb/hyperdl/vault.enabled"
+VAULT_CONF = "/data/adb/hyperdl/vault_domains.conf"
+
+
+def load_vault_domains():
+    """Return the vault domain allowlist, or [] when the vault is disabled.
+
+    Both the extractor and the clipboard daemon read the same file, so this is
+    the single place that decides whether a URL belongs in the private vault.
+    The flag controls whether the vault is enabled. If the flag exists but the
+    list is missing or unreadable, treat every host as private rather than
+    leaking an adult page into the public gallery; toggling the vault in the
+    UI recreates the default list.
+    """
+    if not os.path.exists(VAULT_FLAG):
+        return []
+    if not os.path.exists(VAULT_CONF):
+        return ["*"]
+    try:
+        with open(VAULT_CONF, "r") as vf:
+            domains = []
+            for line in vf:
+                d = line.strip().lower().lstrip(".")
+                if d and not d.startswith("#"):
+                    domains.append(d)
+            return domains
+    except Exception:
+        return ["*"]
+
+
+def url_is_vault(url, domains=None):
+    domains = load_vault_domains() if domains is None else domains
+    if not domains:
+        return False
+    host = _url_host(url)
+    if not host:
+        return False
+    # Match the domain and real subdomains only. A substring test also sent
+    # lookalikes such as "notpornhub.com" and URLs that merely mention a vault
+    # domain in their query string into the private folder.
+    return _host_in(host, domains)
+
+
+def vault_stream_dir(base_outdir):
+    """Create and return ``<outdir>/.vault/Stream`` with its .nomedia marker."""
+    base_outdir = os.path.abspath(base_outdir)
+    # Callers sometimes already hold the vault root itself. Treating that as
+    # a public outdir used to create ``.vault/.vault/Stream``.
+    if os.path.basename(base_outdir) == ".vault":
+        vault_root = base_outdir
+    else:
+        vault_root = os.path.join(base_outdir, ".vault")
+    target = os.path.join(vault_root, "Stream")
+    os.makedirs(target, exist_ok=True)
+    nm = os.path.join(vault_root, ".nomedia")
+    if not os.path.exists(nm):
         try:
-            with open(vault_conf, "r") as vf:
-                v_domains = [l.strip().lower() for l in vf if l.strip()]
-                low_u = (url or "").lower()
-                if any(vd in low_u for vd in v_domains):
-                    vault_root = os.path.join(base_outdir, ".vault")
-                    target = os.path.join(vault_root, "Stream")
-                    os.makedirs(target, exist_ok=True)
-                    nm = os.path.join(vault_root, ".nomedia")
-                    if not os.path.exists(nm):
-                        with open(nm, "w") as f:
-                            pass
-                        os.chmod(nm, 0o666)
-                    return target
+            with open(nm, "w") as f:
+                pass
         except Exception:
             pass
+    try:
+        os.chmod(nm, 0o644)
+    except Exception:
+        pass
+    return target
+
+
+def _is_inside_vault(path):
+    return ".vault" in os.path.abspath(path).split(os.sep)
+
+
+def resolve_ytdlp_target(outdir, url, vault_hint=None):
+    """Return ``(target_dir, is_vault)`` without nesting the vault twice.
+
+    A resolver can fall back to yt-dlp after the caller already resolved the
+    output path inside ``.vault/Stream``. Re-appending ``.vault/Stream`` there
+    used to produce ``.vault/Stream/.vault/Stream`` and leak the layout.
+
+    ``vault_hint`` lets the caller preserve the privacy decision made for the
+    original page URL. Resolver fallbacks often hand us a CDN URL whose host is
+    not in the vault list, and testing only that URL would send the file to the
+    public folder.
+    """
+    outdir = os.path.abspath(outdir)
+    if _is_inside_vault(outdir):
+        if os.path.basename(outdir) == ".vault":
+            return vault_stream_dir(outdir), True
+        return outdir, True
+    if vault_hint is None:
+        vault_hint = url_is_vault(url)
+    if vault_hint:
+        return vault_stream_dir(outdir), True
+    return outdir, False
+
+
+def get_target_directory(base_outdir, info, url=""):
+    if url_is_vault(url):
+        return vault_stream_dir(base_outdir)
 
     platform = info.get("platform")
     if not platform:
-        low = (url or "").lower()
-        if "instagram.com" in low or "instagr.am" in low:
+        host = _url_host(url)
+        if _host_in(host, ("instagram.com", "instagr.am")):
             platform = "Instagram"
-        elif "tiktok.com" in low or "douyin.com" in low:
+        elif _host_in(host, ("tiktok.com", "douyin.com")):
             platform = "TikTok"
-        elif "youtube.com" in low or "youtu.be" in low:
+        elif _host_in(host, ("youtube.com", "youtu.be")):
             platform = "YouTube"
-        elif "twitter.com" in low or "x.com" in low or "t.co" in low:
+        elif _host_in(host, ("twitter.com", "x.com", "t.co")):
             platform = "Twitter"
-        elif "facebook.com" in low or "fb.watch" in low or "fb.com" in low:
+        elif _host_in(host, ("facebook.com", "fb.watch", "fb.com")):
             platform = "Facebook"
-        elif "pinterest.com" in low or "pin.it" in low:
+        elif _host_in(host, ("pinterest.com", "pin.it")):
             platform = "Pinterest"
-        elif "reddit.com" in low or "redd.it" in low:
+        elif _host_in(host, ("reddit.com", "redd.it")):
             platform = "Reddit"
-        elif "threads.net" in low or "threads.com" in low:
+        elif _host_in(host, ("threads.net", "threads.com")):
             platform = "Threads"
-        elif "bilibili.com" in low or "b23.tv" in low:
+        elif _host_in(host, ("bilibili.com", "b23.tv")):
             platform = "Bilibili"
-        elif "streamable.com" in low:
+        elif _host_in(host, ("streamable.com",)):
             platform = "Streamable"
-        elif "bsky.app" in low:
+        elif _host_in(host, ("bsky.app",)):
             platform = "Bluesky"
         else:
             ext_key = str(info.get("extractor_key") or info.get("extractor") or "").strip()
             platform = ext_key if ext_key else "Media"
+
+    # Extractor keys are normally safe, but never trust a metadata string as a
+    # path component: sanitize it before it reaches os.path.join().
+    platform = sanitize_filename(str(platform or "Media"))
 
     author = info.get("channel") or info.get("uploader") or info.get("uploader_id") or info.get("author") or info.get("creator")
     if not author:
@@ -409,47 +510,33 @@ def post_android_notification(status, percent=0, speed="", downloaded="", total=
             "hyperdl_task",
             notif_text
         ]
-        try:
+
+        def _run(args):
+            kwargs = {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "timeout": 2,
+            }
             if os.getuid() == 0:
-                subprocess.run(
-                    cmd,
-                    preexec_fn=lambda: (os.setresgid(2000, 2000, 2000), os.setresuid(2000, 2000, 2000)),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2
-                )
-            else:
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2
-                )
+                # Drop to the shell UID for NotificationManager. `user=` is
+                # implemented inside subprocess and avoids preexec_fn, which
+                # can deadlock when this notification thread forks alongside
+                # the stderr-drain thread.
+                try:
+                    return subprocess.run(args, user=2000, group=2000,
+                                          extra_groups=[], **kwargs)
+                except TypeError:
+                    return subprocess.run(
+                        args,
+                        preexec_fn=lambda: (os.setresgid(2000, 2000, 2000),
+                                            os.setresuid(2000, 2000, 2000)),
+                        **kwargs)
+            return subprocess.run(args, **kwargs)
+
+        try:
+            _run(cmd)
         except Exception:
-            try:
-                fallback_cmd = [
-                    "/system/bin/cmd", "notification", "post",
-                    "-t", notif_title,
-                    "hyperdl_task",
-                    notif_text
-                ]
-                if os.getuid() == 0:
-                    subprocess.run(
-                        fallback_cmd,
-                        preexec_fn=lambda: (os.setresgid(2000, 2000, 2000), os.setresuid(2000, 2000, 2000)),
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=2
-                    )
-                else:
-                    subprocess.run(
-                        fallback_cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=2
-                    )
-            except Exception:
-                pass
+            pass
 
     try:
         t = threading.Thread(target=_send, daemon=True)
@@ -509,7 +596,7 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
             json.dump(data, f)
         os.replace(tmp_status, STATUS_FILE)
         try:
-            os.chmod(STATUS_FILE, 0o666)
+            os.chmod(STATUS_FILE, 0o600)
         except Exception:
             pass
     except Exception:
@@ -522,7 +609,7 @@ def update_status(status, percent=0, speed="", downloaded="", total="", title=""
             json.dump(data, f)
         os.replace(tmp_active, ACTIVE_TASK_FILE)
         try:
-            os.chmod(ACTIVE_TASK_FILE, 0o666)
+            os.chmod(ACTIVE_TASK_FILE, 0o600)
         except Exception:
             pass
     except Exception:
@@ -553,6 +640,27 @@ def sanitize_filename(name):
     clean = re.sub(r'\s+', ' ', clean).strip(' ._-')
     return clean[:60] if clean else "Media"
 
+
+def safe_ext(value, default="mp4"):
+    """Return a short alphanumeric extension safe for a filename."""
+    ext = re.sub(r"[^a-z0-9]", "", str(value or "").lower())[:8]
+    return ext or default
+
+
+# Extensions yt-dlp can leave in the output directory. The post-download
+# fallback must never mistake a subtitle or metadata sidecar for the media,
+# and a video/audio request must never adopt a thumbnail image.
+VIDEO_FILE_EXTS = (
+    ".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".m4v", ".ts", ".3gp",
+)
+AUDIO_FILE_EXTS = (
+    ".mp3", ".m4a", ".opus", ".ogg", ".oga", ".flac", ".wav", ".aac",
+    ".webm", ".mka", ".weba",
+)
+IMAGE_FILE_EXTS = (
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic",
+)
+
 def save_source_sidecar(file_path, url=""):
     if not file_path or not url:
         return
@@ -566,17 +674,27 @@ def save_source_sidecar(file_path, url=""):
         with open(side, "w") as f:
             f.write(url + "\n")
         try:
-            os.chmod(side, 0o666)
+            os.chmod(side, 0o644)
         except Exception:
             pass
     except Exception:
         pass
 
+def remove_media_file(file_path):
+    """Remove a media file together with the source URL sidecar we created."""
+    if not file_path:
+        return
+    for candidate in (file_path, file_path + ".url.txt"):
+        try:
+            os.remove(candidate)
+        except Exception:
+            pass
+
 def scan_media_file(file_path):
     if not file_path or not os.path.exists(file_path):
         return
     try:
-        os.chmod(file_path, 0o666)
+        os.chmod(file_path, 0o644)
     except Exception:
         pass
     try:
@@ -625,11 +743,13 @@ def load_cookies(domain=""):
                     continue
                 parts = line.split("\t")
                 if len(parts) >= 7:
-                    c_domain = parts[0].strip().lower()
+                    c_domain = parts[0].strip().lower().lstrip(".")
                     c_name = parts[5].strip()
                     c_val = parts[6].strip()
-                    if domain and not (domain in c_domain or c_domain.endswith(domain)):
-                        continue
+                    if domain:
+                        d = domain.lower().lstrip(".")
+                        if not (c_domain == d or c_domain.endswith("." + d)):
+                            continue
                     if c_name and c_val:
                         cookies[c_name] = c_val
                     continue
@@ -646,25 +766,25 @@ def get_cookie_header(domain=""):
 
 def has_cookies_for_current():
     try:
-        low_u = (CURRENT_URL or "").lower()
+        host = _url_host(CURRENT_URL)
         domains = []
-        if "tiktok.com" in low_u or "douyin.com" in low_u:
+        if _host_in(host, ("tiktok.com", "douyin.com")):
             domains = ["tiktok.com"]
-        elif "instagram.com" in low_u or "instagr.am" in low_u:
+        elif _host_in(host, ("instagram.com", "instagr.am")):
             domains = ["instagram.com"]
-        elif "facebook.com" in low_u or "fb.watch" in low_u or "fb.com" in low_u:
+        elif _host_in(host, ("facebook.com", "fb.watch", "fb.com")):
             domains = ["facebook.com"]
-        elif "pinterest.com" in low_u or "pin.it" in low_u:
+        elif _host_in(host, ("pinterest.com", "pin.it")):
             domains = ["pinterest.com"]
-        elif "reddit.com" in low_u or "redd.it" in low_u:
+        elif _host_in(host, ("reddit.com", "redd.it")):
             domains = ["reddit.com"]
-        elif "twitter.com" in low_u or "x.com" in low_u or "t.co" in low_u:
+        elif _host_in(host, ("twitter.com", "x.com", "t.co")):
             domains = ["x.com", "twitter.com"]
-        elif "youtube.com" in low_u or "youtu.be" in low_u:
+        elif _host_in(host, ("youtube.com", "youtu.be")):
             domains = ["youtube.com", "google.com"]
-        elif "threads.net" in low_u or "threads.com" in low_u:
+        elif _host_in(host, ("threads.net", "threads.com")):
             domains = ["threads.net", "threads.com"]
-        elif "bilibili.com" in low_u or "b23.tv" in low_u:
+        elif _host_in(host, ("bilibili.com", "b23.tv")):
             domains = ["bilibili.com"]
         for d in domains:
             if load_cookies(d):
@@ -716,6 +836,9 @@ def solve_tiktok_challenge(html_text):
         return ""
 
 def download_file(url, out_path, title="Media", headers=None, emit_error=True, emit_complete=True):
+    url = str(url or "").strip()
+    if not re.match(r'(?i)^https?://', url):
+        raise RuntimeError("Unsupported media URL scheme")
     if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
         save_source_sidecar(out_path, CURRENT_URL or url)
         if emit_complete:
@@ -843,7 +966,7 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
             os.replace(part_path, out_path)
 
             try:
-                os.chmod(out_path, 0o666)
+                os.chmod(out_path, 0o644)
             except Exception:
                 pass
 
@@ -859,11 +982,16 @@ def download_file(url, out_path, title="Media", headers=None, emit_error=True, e
         raise
 
 def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=True, fmt="video"):
+    m3u8_url = str(m3u8_url or "").strip()
+    if not re.match(r'(?i)^https?://', m3u8_url):
+        raise RuntimeError("Unsupported media URL scheme")
     ffmpeg_bin = get_ffmpeg_binary()
     env = get_ffmpeg_env()
     if ffmpeg_bin:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        part_path = out_path + ".tmp.mp4"
+        part_path = os.path.join(
+            os.path.dirname(out_path) or ".",
+            f".tmp_{os.path.basename(out_path)}.hls.mp4")
         if os.path.exists(part_path):
             try:
                 os.remove(part_path)
@@ -893,11 +1021,14 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
             part_path
         ]
         update_status("downloading", percent=35, title=f"Downloading: {title}")
-        res = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if res.returncode == 0 and os.path.exists(part_path) and os.path.getsize(part_path) > 1024:
+        try:
+            res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=900)
+        except (subprocess.TimeoutExpired, OSError):
+            res = None
+        if res and res.returncode == 0 and os.path.exists(part_path) and os.path.getsize(part_path) > 1024:
             os.replace(part_path, out_path)
             try:
-                os.chmod(out_path, 0o666)
+                os.chmod(out_path, 0o644)
             except Exception:
                 pass
             scan_media_file(out_path)
@@ -906,13 +1037,22 @@ def download_hls(m3u8_url, out_path, title="Media", headers=None, emit_complete=
                 update_status("completed", percent=100, title=title, file_path=out_path)
             return out_path
 
+        # A failed remux can leave a large `.tmp.mp4` fragment that would show
+        # up as a finished video in the library. Drop it before the yt-dlp
+        # fallback starts its own download.
+        if os.path.exists(part_path):
+            try:
+                os.remove(part_path)
+            except Exception:
+                pass
+
     outdir = os.path.dirname(out_path) or "."
     return download_with_ytdlp_direct(m3u8_url, outdir, fmt=fmt)
 
 def download_media_candidates(item, out_path, title, emit_complete=True):
     if item.get("direct_ytdlp"):
         outdir = os.path.dirname(out_path) or "."
-        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt", False), is_playlist=item.get("is_playlist", False), format_id=item.get("format_id"), height=item.get("height"), audio_format=item.get("audio_format"))
+        return download_with_ytdlp_direct(item["url"], outdir, fmt=item.get("fmt", "video"), is_yt=item.get("is_yt"), is_playlist=item.get("is_playlist", False), format_id=item.get("format_id"), height=item.get("height"), audio_format=item.get("audio_format"))
 
     if item.get("is_m3u8") or str(item.get("url", "")).endswith(".m3u8"):
         return download_hls(item["url"], out_path, title=title, headers=item.get("headers"),
@@ -923,20 +1063,37 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
         if ffmpeg_bin:
             tmp_v = out_path + ".tmp_v.mp4"
             tmp_a = out_path + ".tmp_a.m4a"
+            mux_path = os.path.join(
+                os.path.dirname(out_path) or ".",
+                f".tmp_{os.path.basename(out_path)}.mux.mp4")
             hdrs = item.get("headers") or {}
-            download_file(item["url"], tmp_v, title=f"{title} [Video]", headers=hdrs, emit_error=True, emit_complete=False)
-            download_file(item["audio_url"], tmp_a, title=f"{title} [Audio]", headers=hdrs, emit_error=True, emit_complete=False)
-            update_status("downloading", percent=98, title=f"{title} (Muxing audio & video...)")
-            res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", out_path], env=get_ffmpeg_env(), capture_output=True)
-            for tmp_f in (tmp_v, tmp_a):
-                if os.path.exists(tmp_f):
-                    try:
-                        os.remove(tmp_f)
-                    except Exception:
-                        pass
+            try:
+                download_file(item["url"], tmp_v, title=f"{title} [Video]", headers=hdrs, emit_error=True, emit_complete=False)
+                download_file(item["audio_url"], tmp_a, title=f"{title} [Audio]", headers=hdrs, emit_error=True, emit_complete=False)
+                update_status("downloading", percent=98, title=f"{title} (Muxing audio & video...)")
+                remove_media_file(mux_path)
+                try:
+                    res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_v, "-i", tmp_a, "-c", "copy", mux_path],
+                                         env=get_ffmpeg_env(), capture_output=True, timeout=300)
+                except (subprocess.TimeoutExpired, OSError):
+                    res = None
+            finally:
+                # Also clean up when one of the source downloads fails, not
+                # only after a completed mux attempt.
+                remove_media_file(tmp_v)
+                remove_media_file(tmp_a)
+            # Write the mux to a hidden temp file so a failed remux cannot
+            # destroy an older good copy of the same title.
+            if res is None or res.returncode != 0 or not os.path.exists(mux_path) or os.path.getsize(mux_path) == 0:
+                remove_media_file(mux_path)
+            else:
+                try:
+                    os.replace(mux_path, out_path)
+                finally:
+                    remove_media_file(mux_path)
             if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
                 try:
-                    os.chmod(out_path, 0o666)
+                    os.chmod(out_path, 0o644)
                 except Exception:
                     pass
                 scan_media_file(out_path)
@@ -974,7 +1131,7 @@ def download_media_candidates(item, out_path, title, emit_complete=True):
             if fb_item:
                 if fb_item.get("direct_ytdlp"):
                     outdir = os.path.dirname(out_path) or "."
-                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt", False), is_playlist=fb_item.get("is_playlist", False), format_id=fb_item.get("format_id"), height=fb_item.get("height"), audio_format=fb_item.get("audio_format"))
+                    return download_with_ytdlp_direct(fb_item["url"], outdir, fmt=fb_item.get("fmt", "video"), is_yt=fb_item.get("is_yt"), is_playlist=fb_item.get("is_playlist", False), format_id=fb_item.get("format_id"), height=fb_item.get("height"), audio_format=fb_item.get("audio_format"))
                 return download_media_candidates(fb_item, out_path, title, emit_complete=emit_complete)
         except Exception as fe:
             last_err = fe
@@ -1055,23 +1212,46 @@ def build_slideshow_video(images, audio_url, out_path, title="Media", headers=No
         def _run(cmd):
             return subprocess.run(cmd, env=get_ffmpeg_env(), capture_output=True, text=True, timeout=300)
 
+        mux_path = os.path.join(tmpdir, "slideshow.mp4")
         base = [ffmpeg_bin, "-y"] + cmd_inputs + [
             "-filter_complex", filt, "-map", "[v]",
         ]
         if audio_path:
             base += ["-map", f"{n}:a"]
         cmd = base + ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                      "-c:a", "aac", "-movflags", "+faststart", "-shortest", out_path]
-        res = _run(cmd)
+                      "-c:a", "aac", "-movflags", "+faststart", "-shortest", mux_path]
+        res = None
+        try:
+            res = _run(cmd)
+        except subprocess.TimeoutExpired:
+            try:
+                os.remove(mux_path)
+            except Exception:
+                pass
+            raise RuntimeError("Slideshow mux timed out")
         if res.returncode != 0 and "Unknown encoder" in (res.stderr or ""):
             cmd = base + ["-c:v", "mpeg4", "-q:v", "3",
-                          "-c:a", "aac", "-movflags", "+faststart", "-shortest", out_path]
-            res = _run(cmd)
-        if res.returncode != 0 or not os.path.exists(out_path) or os.path.getsize(out_path) <= 1024:
+                          "-c:a", "aac", "-movflags", "+faststart", "-shortest", mux_path]
+            try:
+                res = _run(cmd)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.remove(mux_path)
+                except Exception:
+                    pass
+                raise RuntimeError("Slideshow mux timed out")
+        if res.returncode != 0 or not os.path.exists(mux_path) or os.path.getsize(mux_path) <= 1024:
+            try:
+                os.remove(mux_path)
+            except Exception:
+                pass
             raise RuntimeError(f"Slideshow mux failed: {(res.stderr or '')[-160:]}")
+        # Only replace the final path after a complete mux. A failed attempt
+        # must not clobber an older good copy of the same title.
+        os.replace(mux_path, out_path)
 
         try:
-            os.chmod(out_path, 0o666)
+            os.chmod(out_path, 0o644)
         except Exception:
             pass
         scan_media_file(out_path)
@@ -1102,7 +1282,7 @@ def fetch_tikwm(clean_url, fmt="video"):
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
-            if res.get("code") == 0 and res.get("data"):
+            if res.get("code") == 0 and isinstance(res.get("data"), dict):
                 d = res["data"]
                 title = d.get("title") or "TikTok Media"
                 media_id = str(d.get("id") or "")
@@ -2280,33 +2460,59 @@ def get_or_download_ytdlp():
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
 
-    p = shutil.which("yt-dlp")
-    if p:
-        return p
-
+    # Do not fall back to whatever `yt-dlp` happens to be on PATH: that
+    # executable runs as root and may be an unverified host/Termux copy. The
+    # module always ships a pinned build; a missing one is repaired with the
+    # verified download below.
     target_dir = os.path.join(CONF_DIR, "bin")
     os.makedirs(target_dir, exist_ok=True)
     target_path = os.path.join(target_dir, "yt-dlp")
     tmp_path = target_path + ".downloading"
 
     update_status("resolving", title="Downloading utility components...")
-    req = urllib.request.Request(
-        YTDLP_DOWNLOAD_URL,
-        headers={"User-Agent": "Mozilla/5.0 (Android; Mobile; rv:130.0)"}
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp, open(tmp_path, "wb") as f:
-        f.write(resp.read())
+    try:
+        # The extractor runs with root privileges, so an unverified payload is
+        # not acceptable. Verify against the published SHA2-256SUMS first.
+        payload, digest = _fetch_verified_ytdlp()
+    except Exception as exc:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        raise RuntimeError(f"Could not download a verified media utility: {exc}")
 
     try:
-        opt_path = tmp_path + ".opt"
-        _repack_pyc(tmp_path, opt_path)
-        os.replace(opt_path, tmp_path)
-    except Exception as opt_err:
-        print(f"Bytecode optimizer note: {opt_err}", file=sys.stderr)
+        with open(tmp_path, "wb") as f:
+            f.write(payload)
+        os.chmod(tmp_path, 0o755)
 
-    os.chmod(tmp_path, 0o755)
-    os.replace(tmp_path, target_path)
-    return target_path
+        try:
+            opt_path = tmp_path + ".opt"
+            _repack_pyc(tmp_path, opt_path)
+            os.replace(opt_path, tmp_path)
+            os.chmod(tmp_path, 0o755)
+        except Exception as opt_err:
+            print(f"Bytecode optimizer note: {opt_err}", file=sys.stderr)
+
+        os.replace(tmp_path, target_path)
+
+        try:
+            digest_path = os.path.join(CONF_DIR, "ytdlp.sha256")
+            tmp_digest = digest_path + f".tmp.{os.getpid()}"
+            with open(tmp_digest, "w") as f:
+                f.write(digest + "\n")
+            os.replace(tmp_digest, digest_path)
+            os.chmod(digest_path, 0o644)
+        except Exception:
+            pass
+
+        return target_path
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
 
 def get_ytdlp_local_version():
     ytdlp_bin = get_or_download_ytdlp()
@@ -2397,11 +2603,19 @@ def perform_ytdlp_update():
 
         updated_any = False
         for tp in target_paths:
-            if os.path.exists(os.path.dirname(tp)):
+            if not os.path.isdir(os.path.dirname(tp)):
+                continue
+            tmp_tp = tp + ".updating"
+            try:
+                shutil.copyfile(opt_path, tmp_tp)
+                os.chmod(tmp_tp, 0o755)
+                # Atomic replacement avoids ETXTBSY when the old binary is
+                # still mapped by a running download.
+                os.replace(tmp_tp, tp)
+                updated_any = True
+            except Exception:
                 try:
-                    shutil.copyfile(opt_path, tp)
-                    os.chmod(tp, 0o755)
-                    updated_any = True
+                    os.remove(tmp_tp)
                 except Exception:
                     pass
 
@@ -2409,12 +2623,18 @@ def perform_ytdlp_update():
             cb = os.path.join(CONF_DIR, "bin")
             os.makedirs(cb, exist_ok=True)
             tp = os.path.join(cb, "yt-dlp")
-            shutil.copyfile(opt_path, tp)
-            os.chmod(tp, 0o755)
+            tmp_tp = tp + ".updating"
+            shutil.copyfile(opt_path, tmp_tp)
+            os.chmod(tmp_tp, 0o755)
+            os.replace(tmp_tp, tp)
 
         try:
-            with open(os.path.join(CONF_DIR, "ytdlp.sha256"), "w") as f:
+            digest_path = os.path.join(CONF_DIR, "ytdlp.sha256")
+            tmp_digest = digest_path + f".tmp.{os.getpid()}"
+            with open(tmp_digest, "w") as f:
                 f.write(digest + "\n")
+            os.replace(tmp_digest, digest_path)
+            os.chmod(digest_path, 0o644)
         except Exception:
             pass
 
@@ -2521,6 +2741,19 @@ def get_runtime_env():
         env["PYTHONPATH"] = f"{rd}/lib/python314.zip:{rd}/lib/python3.14/lib-dynload:{rd}/lib/python3.14"
         env["SSL_CERT_FILE"] = f"{rd}/lib/cacert.pem"
     return env
+
+
+def ytdlp_tls_args():
+    """Disable certificate checks only when no CA bundle is available.
+
+    The module ships ``cacert.pem``, so normal installs keep full TLS
+    verification. A development checkout without ``runtime/`` still works,
+    which is why the old unconditional ``--no-check-certificates`` existed.
+    """
+    cert = get_runtime_env().get("SSL_CERT_FILE")
+    if cert and os.path.isfile(cert):
+        return []
+    return ["--no-check-certificates"]
 
 def get_ffmpeg_env():
     env = dict(os.environ)
@@ -2923,7 +3156,13 @@ def _purge_stale_partials(outdir, since):
         pass
 
 
-def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None, is_playlist=False, audio_format=None, playlist_start=None, playlist_end=None, sub_langs=None):
+def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=None,
+                               is_playlist=False, audio_format=None,
+                               playlist_start=None, playlist_end=None,
+                               sub_langs=None, is_yt=None, vault_hint=None):
+    url = str(url or "").strip()
+    if not re.match(r'(?i)^https?://', url):
+        raise RuntimeError("Unsupported media URL scheme")
     ok, err_msg = check_storage_space(outdir, 100 * 1024 * 1024)
     if not ok:
         update_status("error", error=err_msg)
@@ -3002,48 +3241,25 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         else:
             format_arg = ["-f", "best[ext=mp4]/best"]
 
-    os.makedirs(outdir, exist_ok=True)
-    is_vault = False
-    vault_flag = "/data/adb/hyperdl/vault.enabled"
-    vault_conf = "/data/adb/hyperdl/vault_domains.conf"
-    if os.path.exists(vault_flag) and os.path.exists(vault_conf):
-        try:
-            with open(vault_conf, "r") as vf:
-                v_domains = [l.strip().lower() for l in vf if l.strip()]
-                low_u = (url or "").lower()
-                if any(vd in low_u for vd in v_domains):
-                    is_vault = True
-        except Exception:
-            pass
-
+    target_dir, is_vault = resolve_ytdlp_target(outdir, url, vault_hint=vault_hint)
+    os.makedirs(target_dir, exist_ok=True)
     if is_vault:
-        vault_root = os.path.join(outdir, ".vault")
-        target_dir = os.path.join(vault_root, "Stream")
-        os.makedirs(target_dir, exist_ok=True)
-        nm = os.path.join(vault_root, ".nomedia")
-        if not os.path.exists(nm):
-            try:
-                with open(nm, "w") as f:
-                    pass
-                os.chmod(nm, 0o666)
-            except Exception:
-                pass
         out_tpl = os.path.join(target_dir, "%(title).60s_%(id)s.%(ext)s")
     else:
         out_tpl = os.path.join(
-            outdir,
+            target_dir,
             "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(playlist_index)s_%(title).60s_%(id)s.%(ext)s"
         ) if is_playlist else os.path.join(
-            outdir,
+            target_dir,
             "%(extractor_key,extractor|Media)s/%(channel,uploader,uploader_id|Media)s/%(title).60s_%(id)s.%(ext)s"
         )
 
     extra_dl_args = []
-    low_u = (url or "").lower()
+    host = _url_host(url)
     # YouTube links ride on short-lived signed URLs, so a resumed Range
     # request often lands past the fresh file size and dies with HTTP 416.
     # Stick to default .part handling here and recover explicitly below.
-    if "youtube.com" in low_u or "youtu.be" in low_u:
+    if _host_in(host, ("youtube.com", "youtu.be")):
         extra_dl_args = []
     elif not (".m3u8" in url or "manifest" in url or "/hls/" in url):
         extra_dl_args = ["--continue", "--concurrent-fragments", "4", "--http-chunk-size", "10M"]
@@ -3069,7 +3285,12 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
         if langs:
             sub_arg = ["--write-subs", "--sub-langs", langs, "--sub-format", "srt/best"]
 
-    is_yt = ("youtube.com" in low_u or "youtu.be" in low_u)
+    if is_yt is None:
+        _h = host
+        is_yt = (_h == "youtu.be" or _h == "youtube.com"
+                 or _h.endswith(".youtube.com"))
+    else:
+        is_yt = bool(is_yt)
     if is_yt:
         cookie_attempts = [[], cookie_arg] if cookie_arg else [[]]
     else:
@@ -3077,14 +3298,15 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
     range_retry_done = False
     recovery_args = []
     attempt_idx = 0
+    env = get_runtime_env()
+    tls_args = ytdlp_tls_args()
     while attempt_idx < len(cookie_attempts):
         active_cookies = cookie_attempts[attempt_idx]
         cmd = [
             py_bin,
             ytdlp_bin,
             "--no-warnings",
-            "--no-check-certificates",
-        ] + playlist_arg + range_arg + sub_arg + [
+        ] + tls_args + playlist_arg + range_arg + sub_arg + [
             "--no-mtime",
             "--buffer-size", "256k",
             "--extractor-retries", "3",
@@ -3094,7 +3316,6 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             "-o", out_tpl,
         ] + extra_dl_args + recovery_args + js_arg + ffmpeg_arg + format_arg + active_cookies + [url]
 
-        env = get_runtime_env()
         t_proc_start = time.time()
         init_title = "Connecting to YouTube..." if is_yt else "Connecting to media stream..."
         update_status("resolving", percent=0, title=init_title)
@@ -3105,6 +3326,10 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             try:
                 for eline in proc.stderr:
                     stderr_lines.append(eline)
+                    # yt-dlp can emit thousands of warning lines on a broken
+                    # playlist; keep the tail that the error message needs.
+                    if len(stderr_lines) > 400:
+                        del stderr_lines[:200]
             except Exception:
                 pass
 
@@ -3169,7 +3394,7 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             if _is_range_error(err) and not range_retry_done:
                 range_retry_done = True
                 recovery_args = ["--no-continue"]
-                _purge_stale_partials(outdir, t_proc_start)
+                _purge_stale_partials(target_dir, t_proc_start)
                 update_status("downloading", percent=0, title="Retrying download from start...")
                 continue
             if active_cookies and attempt_idx == 0:
@@ -3180,17 +3405,48 @@ def download_with_ytdlp_direct(url, outdir, fmt="video", format_id=None, height=
             raise RuntimeError(f"yt-dlp failed: {err[-200:]}")
         break
 
-    if not downloaded_file or not os.path.exists(downloaded_file):
+    if fmt in ("album", "image", "photo", "gif"):
+        allowed_exts = IMAGE_FILE_EXTS
+    elif fmt == "audio":
+        allowed_exts = AUDIO_FILE_EXTS
+    else:
+        allowed_exts = VIDEO_FILE_EXTS
+
+    # With subtitle sidecars yt-dlp can print a Destination line for a .srt
+    # after the real media file. Never let that replace the video/audio path,
+    # and never adopt a directory or an unrelated thumbnail in the fallback.
+    target_real = os.path.realpath(target_dir)
+    target_prefix = target_real.rstrip(os.sep) + os.sep
+    if downloaded_file:
+        dl_real = os.path.realpath(downloaded_file)
+        dl_ext = os.path.splitext(downloaded_file)[1].lower()
+        inside_target = (dl_real == target_real or
+                         dl_real.startswith(target_prefix))
+        if not inside_target or not os.path.isfile(downloaded_file) or dl_ext not in allowed_exts:
+            downloaded_file = None
+        elif not _is_inside_vault(target_dir) and _is_inside_vault(dl_real):
+            # A public request must never adopt a file that happens to sit in
+            # the hidden vault tree, even if yt-dlp printed its path.
+            downloaded_file = None
+
+    if not downloaded_file:
         candidates = []
-        for r, _, fnames in os.walk(outdir):
+        for r, dnames, fnames in os.walk(target_dir):
+            # Never wander into .vault or any other hidden staging directory.
+            dnames[:] = [d for d in dnames if not d.startswith('.')]
             for fn in fnames:
-                if not fn.startswith('.') and not any(fn.endswith(bad) for bad in ('.part', '.ytdl', '.temp', '.tmp', '.raw')):
-                    full_p = os.path.join(r, fn)
-                    try:
-                        if os.path.getmtime(full_p) >= t_proc_start - 10:
-                            candidates.append(full_p)
-                    except Exception:
-                        pass
+                if fn.startswith('.') or not fn.lower().endswith(allowed_exts):
+                    continue
+                if any(fn.endswith(bad) for bad in ('.part', '.ytdl', '.temp', '.tmp', '.raw')):
+                    continue
+                full_p = os.path.join(r, fn)
+                try:
+                    if os.path.islink(full_p):
+                        continue
+                    if os.path.getmtime(full_p) >= t_proc_start - 10:
+                        candidates.append(full_p)
+                except Exception:
+                    pass
         if candidates:
             candidates.sort(key=os.path.getmtime, reverse=True)
             downloaded_file = candidates[0]
@@ -3281,10 +3537,13 @@ def _cache_get_probe(url, ttl=PROBE_CACHE_TTL):
     if not isinstance(entry, dict):
         return None
     ts = entry.get("ts", 0)
-    if time.time() - ts > ttl:
+    try:
+        if time.time() - float(ts) > ttl:
+            return None
+    except (TypeError, ValueError):
         return None
     res = entry.get("resolutions")
-    if not res:
+    if not isinstance(res, list) or not res:
         return None
     return {
         "resolutions": res,
@@ -3301,11 +3560,19 @@ def _cache_put_probe(url, resolutions, thumbnail="", subtitles=None):
         "thumbnail": thumbnail or "",
         "subtitles": list(subtitles or []),
     }
+    def _entry_ts(value):
+        if not isinstance(value, dict):
+            return 0.0
+        try:
+            return float(value.get("ts", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
     for k, v in list(cache.items()):
-        if now - v.get("ts", 0) > PROBE_CACHE_TTL:
+        if now - _entry_ts(v) > PROBE_CACHE_TTL:
             del cache[k]
     if len(cache) > 200:
-        for k, _ in sorted(cache.items(), key=lambda kv: kv[1].get("ts", 0))[:len(cache) - 200]:
+        for k, _ in sorted(cache.items(), key=lambda kv: _entry_ts(kv[1]))[:len(cache) - 200]:
             cache.pop(k, None)
     _save_probe_cache(cache)
 
@@ -3317,20 +3584,29 @@ def _write_probe_result(data):
             json.dump(data, f)
         os.replace(tmp_file, PROBE_FILE)
         try:
-            os.chmod(PROBE_FILE, 0o666)
+            os.chmod(PROBE_FILE, 0o600)
         except Exception:
             pass
     except Exception:
         pass
     finally:
         try:
-            if os.path.exists(PROBE_PID):
+            own_pid = None
+            with open(PROBE_PID, "r") as pf:
+                own_pid = int((pf.read() or "").strip() or 0)
+            if own_pid == os.getpid():
                 os.unlink(PROBE_PID)
         except Exception:
             pass
 
 def probe_resolutions(url):
     url = clean_media_url(url)
+    if not re.match(r'(?i)^https?://', url):
+        msg = "Unsupported media URL scheme"
+        _write_probe_result({"status": "error", "url": url,
+                             "error": msg, "resolutions": []})
+        return {"url": url, "error": msg, "resolutions": [],
+                "thumbnail": "", "subtitles": []}
     cached = _cache_get_probe(url)
     if cached:
         _write_probe_result({"status": "ready", "url": url, **cached})
@@ -3344,7 +3620,7 @@ def probe_resolutions(url):
     try:
         with open(PROBE_PID, "w") as f:
             f.write(str(os.getpid()))
-        os.chmod(PROBE_PID, 0o666)
+        os.chmod(PROBE_PID, 0o644)
     except Exception:
         pass
 
@@ -3362,10 +3638,10 @@ def probe_resolutions(url):
 
     cmd_base = [
         py_bin, ytdlp_bin,
-        "-J", "--no-warnings", "--no-check-certificates",
+        "-J", "--no-warnings",
         "--no-playlist", "--skip-download", "--socket-timeout", "10",
         "--extractor-retries", "1",
-    ] + js_arg
+    ] + ytdlp_tls_args() + js_arg
 
     env = get_runtime_env()
 
@@ -3384,8 +3660,12 @@ def probe_resolutions(url):
         _write_probe_result({"status": "ready", "url": url, "resolutions": []})
         return {"url": url, "resolutions": [], "thumbnail": "", "subtitles": []}
 
+    if not isinstance(data, dict):
+        _write_probe_result({"status": "ready", "url": url, "resolutions": []})
+        return {"url": url, "resolutions": [], "thumbnail": "", "subtitles": []}
+
     duration = data.get("duration") or 0
-    formats = data.get("formats") or []
+    formats = [f for f in (data.get("formats") or []) if isinstance(f, dict)]
     thumbnail = _pick_thumbnail(data)
     sub_langs = _pick_subtitle_langs(data)
 
@@ -3464,6 +3744,20 @@ def probe_resolutions(url):
     _write_probe_result(payload)
     return payload
 
+AUDIO_OUTPUT_FORMATS = ("mp3", "flac", "m4a", "opus")
+
+
+def audio_encode_args(fmt):
+    """FFmpeg codec arguments for the audio format the user picked."""
+    if fmt == "flac":
+        return ["-c:a", "flac"]
+    if fmt == "m4a":
+        return ["-c:a", "aac", "-b:a", "256k"]
+    if fmt == "opus":
+        return ["-c:a", "libopus", "-b:a", "160k"]
+    return ["-c:a", "libmp3lame", "-b:a", "320k"]
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="HyperDL Downloader")
@@ -3475,7 +3769,7 @@ def main():
     dl_parser.add_argument("--outdir", default=DEFAULT_OUTDIR)
     dl_parser.add_argument("--height", default=None, help="Max height for video")
     dl_parser.add_argument("--format-id", default=None, dest="format_id", help="Specific yt-dlp format ID")
-    dl_parser.add_argument("--audio-format", default=None, choices=["mp3", "flac", "m4a", "opus"], help="Target audio format")
+    dl_parser.add_argument("--audio-format", default=None, choices=AUDIO_OUTPUT_FORMATS, help="Target audio format")
     dl_parser.add_argument("--playlist", action="store_true", help="Treat the link as a playlist/series")
     dl_parser.add_argument("--playlist-start", default=None, dest="playlist_start", help="First playlist item (1-based)")
     dl_parser.add_argument("--playlist-end", default=None, dest="playlist_end", help="Last playlist item")
@@ -3545,6 +3839,13 @@ def main():
     height = args.height if hasattr(args, 'height') else None
     format_id = args.format_id if hasattr(args, 'format_id') else None
 
+    if not re.match(r'(?i)^https?://', url):
+        CURRENT_URL = url
+        msg = "Please enter a valid http(s) media link."
+        update_status("error", error=msg)
+        print(json.dumps({"error": msg}), flush=True)
+        return
+
     CURRENT_URL = url
     CURRENT_FMT = fmt
     CURRENT_FORMAT_ID = format_id or ""
@@ -3571,7 +3872,7 @@ def main():
             return
 
         update_status("resolving", title="Connecting to platform...")
-        low_url = url.lower()
+        host = _url_host(url)
 
         want_playlist = bool(getattr(args, "playlist", False))
         pl_start = getattr(args, "playlist_start", None)
@@ -3588,38 +3889,55 @@ def main():
             download_with_ytdlp_direct(url, outdir, fmt=fmt, format_id=format_id, height=height, audio_format=target_audio_fmt, sub_langs=sub_langs)
             return
 
-        if "tiktok.com" in low_url or "douyin.com" in low_url:
+        if _host_in(host, ("tiktok.com", "douyin.com")):
             info = resolve_tiktok(url, fmt)
-        elif "twitter.com" in low_url or "x.com" in low_url:
+        elif _host_in(host, ("twitter.com", "x.com", "t.co")):
             info = resolve_twitter(url, fmt)
-        elif "instagram.com" in low_url or "instagr.am" in low_url:
+        elif _host_in(host, ("instagram.com", "instagr.am")):
             info = resolve_instagram(url, fmt)
-        elif "facebook.com" in low_url or "fb.watch" in low_url or "fb.com" in low_url:
+        elif _host_in(host, ("facebook.com", "fb.watch", "fb.com")):
             info = resolve_facebook(url, fmt)
-        elif "pinterest.com" in low_url or "pin.it" in low_url:
+        elif _host_in(host, ("pinterest.com", "pin.it")):
             info = resolve_pinterest(url, fmt)
-        elif "reddit.com" in low_url or "redd.it" in low_url:
+        elif _host_in(host, ("reddit.com", "redd.it")):
             info = resolve_reddit(url, fmt)
-        elif "youtube.com" in low_url or "youtu.be" in low_url:
+        elif _host_in(host, ("youtube.com", "youtu.be")):
             info = resolve_youtube(url, fmt)
-        elif "threads.net" in low_url or "threads.com" in low_url:
+        elif _host_in(host, ("threads.net", "threads.com")):
             info = resolve_threads(url, fmt)
-        elif "streamable.com" in low_url:
+        elif _host_in(host, ("streamable.com",)):
             info = resolve_streamable(url, fmt)
-        elif "bilibili.com" in low_url or "b23.tv" in low_url:
+        elif _host_in(host, ("bilibili.com", "b23.tv")):
             info = resolve_bilibili(url, fmt)
-        elif "bsky.app" in low_url:
+        elif _host_in(host, ("bsky.app",)):
             info = resolve_bluesky(url, fmt)
         else:
             info = resolve_ytdlp(url, fmt, is_yt=False)
 
         if info.get("direct_ytdlp"):
-            download_with_ytdlp_direct(info["url"], outdir, fmt=info.get("fmt", fmt), is_playlist=info.get("is_playlist", False))
+            # A resolver fallback can carry its own format selection (for
+            # example a Twitter post whose API returned only a video). Keep
+            # those hints instead of starting a fresh default download.
+            download_with_ytdlp_direct(
+                info["url"], outdir,
+                fmt=info.get("fmt", fmt),
+                is_yt=info.get("is_yt"),
+                is_playlist=info.get("is_playlist", False),
+                playlist_start=pl_start,
+                playlist_end=pl_end,
+                format_id=info.get("format_id") or format_id,
+                height=info.get("height") or height,
+                audio_format=target_audio_fmt if fmt == "audio" else info.get("audio_format"),
+                sub_langs=sub_langs,
+                vault_hint=url_is_vault(url),
+            )
             return
 
         title = sanitize_filename(info.get("title", "Media"))
-        ext = info.get("ext") or ("jpg" if info.get("kind") == "image" else "mp4")
-        media_id = info.get("id") or hashlib.md5(url.encode()).hexdigest()[:8]
+        ext = safe_ext(info.get("ext"), "jpg" if info.get("kind") == "image" else "mp4")
+        media_id = re.sub(r"[^A-Za-z0-9._-]", "", str(info.get("id") or ""))[:80]
+        if not media_id:
+            media_id = hashlib.md5(url.encode()).hexdigest()[:8]
         target_dir = get_target_directory(outdir, info, url)
         base_title = re.sub(rf'[_ -]*{re.escape(media_id)}.*$', '', title).strip() or title
 
@@ -3656,6 +3974,12 @@ def main():
                         save_source_sidecar(item_path, url)
                     except Exception:
                         continue
+                saved = [p for p in (
+                    os.path.join(target_dir, f"{base_title}_{media_id}_{i+1}.jpg")
+                    for i in range(len(slide_images))
+                ) if os.path.exists(p) and os.path.getsize(p) > 0]
+                if not saved:
+                    raise RuntimeError("Slideshow images could not be downloaded")
                 update_status("completed", percent=100, title=title, file_path=target_dir)
                 return
 
@@ -3665,7 +3989,9 @@ def main():
             for idx, it in enumerate(raw_items):
                 if isinstance(it, dict):
                     item_url = it.get("url")
-                    item_ext = it.get("ext") or ("mp4" if it.get("kind") == "video" else ("jpg" if it.get("kind") == "image" else ext))
+                    item_ext = safe_ext(
+                        it.get("ext"),
+                        "mp4" if it.get("kind") == "video" else ("jpg" if it.get("kind") == "image" else ext))
                 else:
                     item_url = it
                     item_ext = "mp4" if ".mp4" in str(item_url).lower() else ext
@@ -3701,36 +4027,69 @@ def main():
                 if info.get("kind") == "image" or ext in ("jpg", "jpeg", "png", "webp"):
                     raise RuntimeError("Cannot extract audio: this post only contains photos/images.")
                 ffmpeg_bin = get_ffmpeg_binary()
-                if ffmpeg_bin:
-                    tmp_raw = os.path.join(target_dir, f".tmp_{base_title}_{media_id}.raw")
-                    download_media_candidates(info, tmp_raw, title=title, emit_complete=False)
-                    if target_audio_fmt == "flac":
-                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.flac")
-                        update_status("downloading", percent=95, title="Encoding audio to FLAC HD...")
-                        res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "flac", out_path], env=get_ffmpeg_env(), capture_output=True)
-                    else:
-                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.mp3")
-                        update_status("downloading", percent=95, title="Encoding audio to MP3 (320 kbps)...")
-                        res = subprocess.run([ffmpeg_bin, "-y", "-i", tmp_raw, "-c:a", "libmp3lame", "-b:a", "320k", out_path], env=get_ffmpeg_env(), capture_output=True)
-                    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
-                        fallback_ext = ext if ext in ["mp3", "m4a", "wav", "aac"] else "mp3"
-                        out_path = os.path.join(target_dir, f"{base_title}_{media_id}.{fallback_ext}")
-                        if os.path.exists(tmp_raw):
-                            os.replace(tmp_raw, out_path)
-                    else:
-                        if os.path.exists(tmp_raw):
-                            try:
-                                os.remove(tmp_raw)
-                            except Exception:
-                                pass
+                if not ffmpeg_bin:
+                    raise RuntimeError(
+                        "Audio conversion requires FFmpeg, but it is not working. "
+                        "Please verify module installation, reboot, then try again.")
+                tmp_raw = os.path.join(target_dir, f".tmp_{base_title}_{media_id}.mp4")
+                source_path = download_media_candidates(
+                    info, tmp_raw, title=title, emit_complete=False)
+                if not source_path or not os.path.exists(source_path):
+                    raise RuntimeError("Downloaded audio source is missing")
+                source_ext = os.path.splitext(source_path)[1].lstrip(".").lower()
+                out_ext = target_audio_fmt
+                out_path = os.path.join(target_dir, f"{base_title}_{media_id}.{out_ext}")
+
+                if source_ext == out_ext:
+                    # The source is already the requested format (for example
+                    # a resolver HLS fallback). Moving it avoids a lossy
+                    # transcode and, more importantly, avoids reporting a path
+                    # that the downloader never wrote.
+                    if os.path.abspath(source_path) != os.path.abspath(out_path):
+                        os.replace(source_path, out_path)
+                        remove_media_file(source_path)
+                else:
+                    update_status("downloading", percent=95,
+                                  title=f"Encoding audio to {out_ext.upper()}...")
+                    encode_path = os.path.join(
+                        os.path.dirname(out_path) or ".",
+                        f".tmp_{os.path.basename(out_path)}.encode.{out_ext}")
+                    remove_media_file(encode_path)
                     try:
-                        os.chmod(out_path, 0o666)
-                    except Exception:
-                        pass
-                    scan_media_file(out_path)
-                    save_source_sidecar(out_path, url)
-                    update_status("completed", percent=100, title=title, file_path=out_path)
-                    return
+                        try:
+                            res = subprocess.run(
+                                [ffmpeg_bin, "-y", "-i", source_path, "-vn"] +
+                                audio_encode_args(out_ext) + [encode_path],
+                                env=get_ffmpeg_env(), capture_output=True, timeout=300)
+                        except (subprocess.TimeoutExpired, OSError):
+                            res = None
+                        encoded = (res is not None and res.returncode == 0 and
+                                   os.path.exists(encode_path) and os.path.getsize(encode_path) > 0)
+                        if encoded:
+                            os.replace(encode_path, out_path)
+                            remove_media_file(source_path)
+                        else:
+                            remove_media_file(encode_path)
+                            fallback_ext = (source_ext if source_ext in
+                                            ("mp3", "m4a", "aac", "wav", "flac", "opus", "ogg", "webm")
+                                            else "mp4")
+                            out_path = os.path.join(
+                                target_dir, f"{base_title}_{media_id}.{fallback_ext}")
+                            if not os.path.exists(source_path):
+                                raise RuntimeError("FFmpeg could not encode the audio track")
+                            if os.path.abspath(source_path) != os.path.abspath(out_path):
+                                os.replace(source_path, out_path)
+                                remove_media_file(source_path)
+                    finally:
+                        remove_media_file(encode_path)
+                try:
+                    os.chmod(out_path, 0o644)
+                except Exception:
+                    pass
+                scan_media_file(out_path)
+                save_source_sidecar(out_path, url)
+                update_status("completed", percent=100, title=title, file_path=out_path)
+                return
             if info.get("kind") == "image" and ext == "mp4":
                 ext = "jpg"
             if ext == "mp4" and any(e in str(info.get("url", "")).lower() for e in (".jpg", ".jpeg", ".png", ".webp")):
@@ -3748,7 +4107,10 @@ def main():
         sys.exit(1)
     finally:
         try:
-            if os.path.exists(PID_FILE):
+            own_pid = None
+            with open(PID_FILE, "r") as pf:
+                own_pid = int((pf.read() or "").strip() or 0)
+            if own_pid == os.getpid():
                 os.remove(PID_FILE)
         except Exception:
             pass

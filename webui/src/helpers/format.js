@@ -169,8 +169,16 @@ export function getExtIcon(ext) {
 }
 
 export function needsResolutionPicker(u) {
-  const l = (u || '').toLowerCase()
-  return l.includes('youtube.com') || l.includes('youtu.be')
+  const raw = String(u || '').trim()
+  if (!raw) return false
+  try {
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`)
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+    const hasHost = (domain) => host === domain || host.endsWith('.' + domain)
+    return hasHost('youtube.com') || hasHost('youtu.be')
+  } catch (e) {
+    return false
+  }
 }
 
 export function shellEscape(arg) {
@@ -179,18 +187,19 @@ export function shellEscape(arg) {
 
 export function extractUrl(text) {
   if (!text) return ''
-  const match = String(text).match(/https?:\/\/[^\s<>"]+/)
+  const match = String(text).match(/https?:\/\/[^\s<>"]+/i)
   const raw = match ? match[0].trim() : text.trim()
-  if (!raw.startsWith('http://') && !raw.startsWith('https://')) return raw
+  if (!/^https?:\/\//i.test(raw)) return raw
 
   try {
     const parsed = new URL(raw)
     const params = new URLSearchParams(parsed.search)
-    const host = parsed.hostname.toLowerCase()
-    const isYt = host.includes('youtube.com') || host.includes('youtu.be')
-    const isIg = host.includes('instagram.com')
-    const isTt = host.includes('tiktok.com') || host.includes('douyin.com')
-    const isX = host.includes('x.com') || host.includes('twitter.com')
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+    const hasHost = (domain) => host === domain || host.endsWith('.' + domain)
+    const isYt = hasHost('youtube.com') || hasHost('youtu.be')
+    const isIg = hasHost('instagram.com') || hasHost('instagr.am')
+    const isTt = hasHost('tiktok.com') || hasHost('douyin.com')
+    const isX = hasHost('x.com') || hasHost('twitter.com')
 
     const toRemove = []
     for (const key of params.keys()) {

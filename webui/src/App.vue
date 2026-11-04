@@ -1426,13 +1426,23 @@ import {
 } from '@/helpers/format.js'
 import Icons from '@/components/Icons.vue'
 
+function readStoredValue(key, fallback) {
+  try {
+    return localStorage.getItem(key) || fallback
+  } catch (e) {
+    // Some WebViews throw when storage is disabled; a failed read must not
+    // stop the whole app from mounting.
+    return fallback
+  }
+}
+
 const activeTab = ref('download')
 const contentArea = ref(null)
 const url = ref('')
 const urlInput = ref(null)
 const terminalCard = ref(null)
 const selectedFormat = ref('video')
-const audioFormat = ref(localStorage.getItem('hyperdl_audio_fmt') || 'mp3')
+const audioFormat = ref(readStoredValue('hyperdl_audio_fmt', 'mp3'))
 const isProcessing = ref(false)
 const autoDl = ref(false)
 const storageFree = ref('')
@@ -1443,6 +1453,8 @@ async function setAudioFormat(fmt) {
   audioFormat.value = fmt
   try {
     localStorage.setItem('hyperdl_audio_fmt', fmt)
+  } catch (e) {}
+  try {
     await runBridge('set_audio_format', fmt)
     showToast(`Audio format set to ${fmt.toUpperCase()}`, 'success')
   } catch (e) {}
@@ -2146,7 +2158,18 @@ async function runBridge(action, ...args) {
   const safeParams = args.map(shellEscape).join(' ')
   const cmd = `if [ -x /data/adb/modules/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ]; then /data/adb/modules_update/hyperdl/system/bin/libhyperdl.so ${safeAction} ${safeParams}; elif [ -x /system/bin/libhyperdl.so ]; then /system/bin/libhyperdl.so ${safeAction} ${safeParams}; else echo "binary_not_found"; fi`
   
-  const timeoutMs = action === 'probe' ? 50000 : 15000
+  // Network updates and recursive cleanup can easily exceed the default
+  // 15-second bridge budget. Keep the UI responsive for normal calls while
+  // giving the long-running actions enough time to return their real result.
+  const timeoutByAction = {
+    check_update: 60000,
+    check_ytdlp: 60000,
+    update_ytdlp: 300000,
+    clean_junk: 120000,
+    probe_start: 50000,
+    probe_result: 50000
+  }
+  const timeoutMs = timeoutByAction[action] || 15000
   const res = await execCommand(cmd, timeoutMs)
   return (res || '').trim()
 }
@@ -2697,7 +2720,6 @@ async function copySourceLink(item) {
     await navigator.clipboard.writeText(u)
     showToast('Link copied', 'success')
   } catch (e) {
-    try { await runBridge('get_clipboard') } catch (_e) {}
     // Legacy WebView without async clipboard still needs this fallback.
     const ta = document.createElement('textarea')
     ta.value = u
@@ -3333,7 +3355,7 @@ async function loadSystemInfo() {
       cookiesActive.value = !!info.has_cookies
       if (info.audio_format) {
         audioFormat.value = info.audio_format
-        localStorage.setItem('hyperdl_audio_fmt', info.audio_format)
+        try { localStorage.setItem('hyperdl_audio_fmt', info.audio_format) } catch (e) {}
       }
     }
 

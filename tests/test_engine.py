@@ -252,6 +252,13 @@ class TestProbeCache(unittest.TestCase):
         self.assertEqual(self.impl._load_probe_cache(), {})
         self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/abc"))
 
+    def test_non_dict_cache_entry_does_not_break_writes(self):
+        with open(self.impl._probe_cache_path(), "w") as f:
+            json.dump({"https://youtu.be/old": "broken"}, f)
+        self.assertIsNone(self.impl._cache_get_probe("https://youtu.be/old"))
+        self.impl._cache_put_probe("https://youtu.be/new", [{"height": 720}])
+        self.assertIn("https://youtu.be/new", self.impl._load_probe_cache())
+
 
 class TestProbePayloadHelpers(unittest.TestCase):
     def setUp(self):
@@ -546,6 +553,195 @@ class TestBilibiliRoutesToYtdlp(unittest.TestCase):
                                lambda *a, **k: called.append(1)):
             impl.resolve_bilibili("https://www.bilibili.com/video/BV1GJ411x7h7", "video")
         self.assertEqual(called, [], "bilibili scraping was removed on purpose")
+
+
+class TestDirectCandidateForwarding(unittest.TestCase):
+    def test_forwards_is_yt_without_type_error(self):
+        import engine._impl as impl
+        from unittest import mock
+
+        seen = {}
+
+        def fake(url, outdir, **kwargs):
+            seen.update(kwargs)
+            seen["url"] = url
+            seen["outdir"] = outdir
+            return "/tmp/result.mp4"
+
+        with mock.patch.object(impl, "download_with_ytdlp_direct", fake):
+            out = impl.download_media_candidates(
+                {"direct_ytdlp": True, "url": "https://youtu.be/abc",
+                 "is_yt": True, "fmt": "video"},
+                "/tmp/out.mp4", "Title")
+
+        self.assertEqual(out, "/tmp/result.mp4")
+        self.assertTrue(seen["is_yt"])
+        self.assertEqual(seen["fmt"], "video")
+        self.assertEqual(seen["outdir"], "/tmp")
+
+
+class TestVaultRouting(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_vault_url_routes_once(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "url_is_vault", return_value=True):
+            target, is_vault = impl.resolve_ytdlp_target(
+                self.tmp, "https://pornhub.com/view_video.php?viewkey=1")
+        self.assertEqual(target, os.path.join(self.tmp, ".vault", "Stream"))
+        self.assertTrue(is_vault)
+        self.assertTrue(os.path.isdir(target))
+
+    def test_already_inside_vault_is_not_nested_again(self):
+        import engine._impl as impl
+        from unittest import mock
+        stream = os.path.join(self.tmp, ".vault", "Stream")
+        os.makedirs(stream)
+        with mock.patch.object(impl, "url_is_vault", return_value=True):
+            target, is_vault = impl.resolve_ytdlp_target(
+                stream, "https://pornhub.com/view_video.php?viewkey=1")
+        self.assertEqual(target, stream)
+        self.assertTrue(is_vault)
+        self.assertFalse(os.path.exists(os.path.join(stream, ".vault")))
+
+    def test_vault_root_gets_one_stream_child(self):
+        import engine._impl as impl
+        from unittest import mock
+        vault_root = os.path.join(self.tmp, ".vault")
+        os.makedirs(vault_root)
+        with mock.patch.object(impl, "url_is_vault", return_value=True):
+            target, is_vault = impl.resolve_ytdlp_target(
+                vault_root, "https://pornhub.com/view_video.php?viewkey=1")
+        self.assertEqual(target, os.path.join(vault_root, "Stream"))
+        self.assertTrue(is_vault)
+
+    def test_public_url_stays_in_public_root(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "url_is_vault", return_value=False):
+            target, is_vault = impl.resolve_ytdlp_target(
+                self.tmp, "https://youtu.be/abc")
+        self.assertEqual(target, os.path.abspath(self.tmp))
+        self.assertFalse(is_vault)
+
+    def test_vault_hint_keeps_cdn_fallback_private(self):
+        import engine._impl as impl
+        target, is_vault = impl.resolve_ytdlp_target(
+            self.tmp, "https://cdn.example.com/video.mp4", vault_hint=True)
+        self.assertEqual(target, os.path.join(self.tmp, ".vault", "Stream"))
+        self.assertTrue(is_vault)
+
+
+class TestSafeExt(unittest.TestCase):
+    def test_keeps_normal_extensions(self):
+        import engine._impl as impl
+        for ext in ("mp4", "jpg", "m4a", "webm", "opus"):
+            self.assertEqual(impl.safe_ext(ext), ext)
+
+    def test_strips_path_and_punctuation(self):
+        import engine._impl as impl
+        self.assertEqual(impl.safe_ext("../../x"), "x")
+        self.assertEqual(impl.safe_ext("mp4?x=1"), "mp4x1")
+
+    def test_empty_uses_default(self):
+        import engine._impl as impl
+        self.assertEqual(impl.safe_ext(None, "jpg"), "jpg")
+        self.assertEqual(impl.safe_ext("", "mp4"), "mp4")
+
+
+class TestVaultDomainMatching(unittest.TestCase):
+    def test_exact_and_real_subdomains_only(self):
+        import engine._impl as impl
+        domains = ["pornhub.com"]
+        self.assertTrue(impl.url_is_vault("https://pornhub.com/view", domains))
+        self.assertTrue(impl.url_is_vault("https://www.pornhub.com/view", domains))
+        self.assertTrue(impl.url_is_vault("pornhub.com/view", domains))
+        self.assertFalse(impl.url_is_vault("https://notpornhub.com/view", domains))
+        self.assertFalse(impl.url_is_vault(
+            "https://example.com/?next=pornhub.com", domains))
+
+    def test_empty_allowlist_keeps_everything_public(self):
+        import engine._impl as impl
+        self.assertFalse(impl.url_is_vault("https://pornhub.com/view", []))
+
+    def test_missing_list_while_enabled_fails_private(self):
+        import engine._impl as impl
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = os.path.join(tmp, "vault.enabled")
+            conf = os.path.join(tmp, "vault_domains.conf")
+            open(flag, "w").close()
+            with mock.patch.object(impl, "VAULT_FLAG", flag), \
+                 mock.patch.object(impl, "VAULT_CONF", conf):
+                domains = impl.load_vault_domains()
+                self.assertEqual(domains, ["*"])
+                self.assertTrue(impl.url_is_vault("https://example.com/video", domains))
+
+    def test_disabled_vault_keeps_everything_public(self):
+        import engine._impl as impl
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = os.path.join(tmp, "vault.disabled")
+            conf = os.path.join(tmp, "vault_domains.conf")
+            with open(conf, "w") as f:
+                f.write("pornhub.com\n")
+            with mock.patch.object(impl, "VAULT_FLAG", flag), \
+                 mock.patch.object(impl, "VAULT_CONF", conf):
+                self.assertEqual(impl.load_vault_domains(), [])
+
+
+class TestAudioEncodeArgs(unittest.TestCase):
+    def test_each_format_selects_its_own_codec(self):
+        import engine._impl as impl
+        self.assertIn("libmp3lame", impl.audio_encode_args("mp3"))
+        self.assertIn("flac", impl.audio_encode_args("flac"))
+        self.assertIn("aac", impl.audio_encode_args("m4a"))
+        self.assertIn("libopus", impl.audio_encode_args("opus"))
+
+    def test_unknown_format_falls_back_to_mp3(self):
+        import engine._impl as impl
+        self.assertIn("libmp3lame", impl.audio_encode_args("garbage"))
+
+
+class TestYtdlpTlsArgs(unittest.TestCase):
+    def test_verification_is_kept_when_ca_bundle_exists(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "get_runtime_env",
+                               return_value={"SSL_CERT_FILE": __file__}):
+            self.assertEqual(impl.ytdlp_tls_args(), [])
+
+    def test_verification_is_disabled_only_without_a_bundle(self):
+        import engine._impl as impl
+        from unittest import mock
+        with mock.patch.object(impl, "get_runtime_env", return_value={}):
+            self.assertEqual(impl.ytdlp_tls_args(), ["--no-check-certificates"])
+
+
+class TestDownloadFileScheme(unittest.TestCase):
+    def test_rejects_non_http_schemes_before_opening(self):
+        import engine._impl as impl
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "cookies.txt")
+            for url in ("file:///data/adb/hyperdl/cookies.txt",
+                        "ftp://example.com/x", "data:text/plain,secret"):
+                with self.assertRaises(RuntimeError):
+                    impl.download_file(url, out)
+            self.assertFalse(os.path.exists(out))
+
+    def test_direct_downloader_rejects_non_http_schemes(self):
+        import engine._impl as impl
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RuntimeError):
+                impl.download_with_ytdlp_direct("file:///data/adb/hyperdl/cookies.txt", tmp)
+            with self.assertRaises(RuntimeError):
+                impl.download_hls("file:///data/adb/hyperdl/cookies.txt",
+                                  os.path.join(tmp, "x.mp4"))
 
 
 if __name__ == "__main__":

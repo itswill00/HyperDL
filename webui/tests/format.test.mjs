@@ -76,6 +76,25 @@ test('extractUrl strips tracking params per platform', () => {
   assert.equal(extractUrl(''), '')
 })
 
+test('extractUrl matches real hosts, not lookalikes', () => {
+  assert.equal(
+    extractUrl('HTTPS://YOUTUBE.COM/watch?v=abc&si=x'),
+    'https://youtube.com/watch?v=abc'
+  )
+  assert.equal(
+    extractUrl('https://m.youtube.com/watch?v=abc&si=x'),
+    'https://m.youtube.com/watch?v=abc'
+  )
+  assert.equal(
+    extractUrl('https://notyoutube.com/watch?v=abc&si=x'),
+    'https://notyoutube.com/watch?v=abc&si=x'
+  )
+  assert.equal(
+    extractUrl('https://instagr.am/reel/a/?igsh=x'),
+    'https://instagr.am/reel/a/'
+  )
+})
+
 test('extractUrl pulls the first url out of surrounding text', () => {
   assert.equal(
     extractUrl('look at https://vt.tiktok.com/abc/ ok'),
@@ -128,5 +147,7 @@ test('needsResolutionPicker only for youtube', () => {
   assert.equal(needsResolutionPicker('https://youtu.be/abc'), true)
   assert.equal(needsResolutionPicker('https://youtube.com/watch?v=a'), true)
   assert.equal(needsResolutionPicker('https://tiktok.com/x'), false)
+  assert.equal(needsResolutionPicker('https://notyoutube.com/watch?v=a'), false)
+  assert.equal(needsResolutionPicker('https://m.youtube.com/watch?v=a'), true)
   assert.equal(needsResolutionPicker(''), false)
 })

@@ -121,9 +121,11 @@ def verify_installed(pin):
     if not os.path.isfile(TARGET):
         return False, "bin/yt-dlp is missing"
     have = installed_version()
-    if have and have != pin:
+    if not have:
+        return False, "cannot determine the installed yt-dlp version"
+    if have != pin:
         return False, f"installed {have} != pinned {pin}"
-    return True, f"installed {have or pin}"
+    return True, f"installed {have}"
 
 
 def install(tag):

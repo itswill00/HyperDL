@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <dlfcn.h>
 #include <libgen.h>
+#include <limits.h>
 #include <poll.h>
 #include "embedded_engine.h"
 
@@ -103,6 +104,7 @@ static int has_working_ffmpeg(void) {
 }
 static int path_is_managed(const char *path);
 static void json_escape(const char *src, char *dst, size_t dst_size);
+static int pid_is_hyperdl(pid_t pid);
 
 static const char *PYTHON_PATHS[] = {
     "/data/adb/modules/hyperdl/runtime/bin/python3",
@@ -207,14 +209,59 @@ static void setup_python_env(const char *python_bin) {
 
 static void atomic_write_text(const char *path, const char *text) {
     char tmp[1024];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-    FILE *f = fopen(tmp, "w");
-    if (!f) return;
-    fputs(text, f);
-    fclose(f);
-    chmod(tmp, 0666);
-    rename(tmp, path);
-    chmod(path, 0666);
+    snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid());
+    unlink(tmp);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0) return;
+    FILE *f = fdopen(fd, "w");
+    if (!f) {
+        close(fd);
+        unlink(tmp);
+        return;
+    }
+    int ok = (fputs(text, f) >= 0);
+    if (fflush(f) != 0) ok = 0;
+    if (fclose(f) != 0) ok = 0;
+    /* Root-owned control files must not be writable by other apps: a spoofed
+     * PID or status file would let a local app steer the root bridge. */
+    chmod(tmp, 0600);
+    if (ok && rename(tmp, path) == 0) {
+        chmod(path, 0600);
+        return;
+    }
+    unlink(tmp);
+}
+
+/* Write a PID atomically and avoid adopting a file that another app may have
+ * pre-created in /data/local/tmp. The bridge later trusts this PID for pause
+ * and cancel, so it must not be left half-written or owned by the shell user. */
+static void atomic_write_pid(const char *path, pid_t pid) {
+    char tmp[512];
+    char line[64];
+    snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid());
+    unlink(tmp);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0644);
+    if (fd < 0) return;
+    int n = snprintf(line, sizeof(line), "%d\n", (int)pid);
+    size_t len = n > 0 ? (size_t)n : 0;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t wrote = write(fd, line + off, len - off);
+        if (wrote < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (wrote == 0) break;
+        off += (size_t)wrote;
+    }
+    int ok = (off == len);
+    if (ok && fchmod(fd, 0644) != 0) ok = 0;
+    if (close(fd) != 0) ok = 0;
+    if (ok && rename(tmp, path) == 0) {
+        chmod(path, 0644);
+        return;
+    }
+    unlink(tmp);
 }
 
 static void run_detached(char *const argv[]) {
@@ -292,8 +339,10 @@ static void ensure_directories(void) {
      * legitimate loses access. */
     mkdir(CONF_DIR, 0700);
     chmod(CONF_DIR, 0700);
-    mkdir("/data/local/tmp", 0777);
-    chmod("/data/local/tmp", 0777);
+    /* /data/local/tmp is system-managed and normally sticky. Forcing 0777
+     * here would strip that protection and let any app replace our status
+     * and PID files. Never relax it. */
+    mkdir("/data/local/tmp", 01777);
 }
 
 static void format_file_size(off_t bytes, char *buf, size_t buf_len) {
@@ -308,8 +357,50 @@ static void format_file_size(off_t bytes, char *buf, size_t buf_len) {
     }
 }
 
+/* Python writes JSON with the default separator (": "), while the native
+ * bridge writes compact JSON (":"). Parse the status value instead of
+ * matching one exact byte layout, otherwise a dead or paused task written by
+ * Python is never recognised and the WebUI keeps showing "downloading". */
+static const char *json_find_status(const char *buf) {
+    const char *p = strstr(buf, "\"status\"");
+    if (!p) return NULL;
+    p += 8; /* strlen("\"status\"") */
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != ':') return NULL;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '"') return NULL;
+    return p + 1;
+}
+
+static int json_status_is(const char *buf, const char *value) {
+    const char *p = json_find_status(buf);
+    if (!p || !value || !*value) return 0;
+    size_t len = strlen(value);
+    if (strncmp(p, value, len) != 0) return 0;
+    p += len;
+    while (*p == ' ' || *p == '\t') p++;
+    return *p == '"';
+}
+
+static void json_set_status(char *buf, const char *value) {
+    const char *found = json_find_status(buf);
+    if (!found || !value || !*value) return;
+    char *start = (char *)found;
+    char *end = strchr(start, '"');
+    if (!end) return;
+    size_t old_len = (size_t)(end - start);
+    size_t new_len = strlen(value);
+    if (new_len > old_len) return;
+    memcpy(start, value, new_len);
+    start[new_len] = '"';
+    /* Keep the object byte length stable so the rest of the JSON stays where
+     * it is; pad over the old closing quote with insignificant whitespace. */
+    for (char *q = start + new_len + 1; q <= end; q++) *q = ' ';
+}
+
 static void cmd_status(void) {
-    char buf[2048] = "";
+    char buf[8192] = "";
     int has_status = 0;
 
     FILE *f = fopen(STATUS_FILE, "r");
@@ -325,11 +416,7 @@ static void cmd_status(void) {
     int pid_alive = 0;
     if (pf) {
         if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
-            char proc_path[64];
-            snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
-            if ((kill(pid, 0) == 0 || errno == EPERM) && access(proc_path, F_OK) == 0) {
-                pid_alive = 1;
-            }
+            pid_alive = pid_is_hyperdl(pid);
         }
         fclose(pf);
     }
@@ -344,7 +431,7 @@ static void cmd_status(void) {
         } else {
             FILE *af = fopen(ACTIVE_TASK_FILE, "r");
             if (af) {
-                char abuf[2048];
+                char abuf[8192];
                 size_t ar = fread(abuf, 1, sizeof(abuf) - 1, af);
                 fclose(af);
                 abuf[ar] = '\0';
@@ -358,29 +445,22 @@ static void cmd_status(void) {
         return;
     }
 
-    if (has_status && (strstr(buf, "\"completed\"") || strstr(buf, "\"error\""))) {
+    if (has_status && (json_status_is(buf, "completed") || json_status_is(buf, "error"))) {
         printf("%s\n", buf);
         return;
     }
 
     FILE *af = fopen(ACTIVE_TASK_FILE, "r");
     if (af) {
-        char abuf[2048];
+        char abuf[8192];
         size_t ar = fread(abuf, 1, sizeof(abuf) - 1, af);
         fclose(af);
         abuf[ar] = '\0';
 
-        if (strstr(abuf, "\"downloading\"") || strstr(abuf, "\"resolving\"") || strstr(abuf, "\"paused\"")) {
-            if (!strstr(abuf, "\"status\":\"paused\"")) {
-                char *sp = strstr(abuf, "\"status\":\"downloading\"");
-                if (sp) {
-                    memcpy(sp, "\"status\":\"paused\"     ", 22);
-                } else {
-                    sp = strstr(abuf, "\"status\":\"resolving\"");
-                    if (sp) {
-                        memcpy(sp, "\"status\":\"paused\"   ", 20);
-                    }
-                }
+        if (json_status_is(abuf, "downloading") || json_status_is(abuf, "resolving") ||
+            json_status_is(abuf, "paused")) {
+            if (!json_status_is(abuf, "paused")) {
+                json_set_status(abuf, "paused");
                 atomic_write_text(ACTIVE_TASK_FILE, abuf);
                 atomic_write_text(STATUS_FILE, abuf);
             }
@@ -389,7 +469,7 @@ static void cmd_status(void) {
         }
     }
 
-    if (has_status && strstr(buf, "\"paused\"")) {
+    if (has_status && json_status_is(buf, "paused")) {
         printf("%s\n", buf);
         return;
     }
@@ -411,11 +491,46 @@ static const char *get_bundle_path(void) {
     return NULL;
 }
 
+static int pid_is_alive(pid_t pid) {
+    if (pid <= 1) return 0;
+    char proc_path[64];
+    snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
+    errno = 0;
+    return (kill(pid, 0) == 0 || errno == EPERM) && access(proc_path, F_OK) == 0;
+}
+
+static int proc_file_contains(pid_t pid, const char *name, const char *needle) {
+    char path[96];
+    snprintf(path, sizeof(path), "/proc/%d/%s", pid, name);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    char buf[8192];
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return 0;
+    for (ssize_t i = 0; i < n; i++) {
+        if (buf[i] == '\0') buf[i] = ' ';
+    }
+    buf[n] = '\0';
+    return strstr(buf, needle) != NULL;
+}
+
+/* A stale PID file must never let us signal an unrelated root process. Check
+ * that the target is actually one of our Python/daemon processes first. The
+ * environment marker covers the embedded-launcher path where the command line
+ * contains no HyperDL path at all. */
+static int pid_is_hyperdl(pid_t pid) {
+    if (!pid_is_alive(pid)) return 0;
+    return proc_file_contains(pid, "cmdline", "hyperdl") ||
+           proc_file_contains(pid, "environ", "HYPERDL_BRIDGE=1");
+}
+
 static void kill_probe_if_running(void) {
     FILE *pf = fopen(PROBE_PID_FILE, "r");
     if (pf) {
         pid_t ppid = 0;
-        if (fscanf(pf, "%d", &ppid) == 1 && ppid > 1) {
+        if (fscanf(pf, "%d", &ppid) == 1 && pid_is_hyperdl(ppid)) {
+            kill(-ppid, SIGKILL);
             kill(ppid, SIGKILL);
         }
         fclose(pf);
@@ -434,26 +549,20 @@ static void cmd_probe_start(const char *url) {
         printf("{\"error\":\"missing_url\"}\n");
         return;
     }
+    if (strncasecmp(url, "http://", 7) != 0 && strncasecmp(url, "https://", 8) != 0) {
+        printf("{\"error\":\"unsupported_url\"}\n");
+        return;
+    }
 
     ensure_directories();
     kill_probe_if_running();
     unlink(PROBE_FILE);
 
-    FILE *pf_init = fopen(PROBE_FILE, "w");
-    if (pf_init) {
-        fputs("{\"status\":\"probing\",\"resolutions\":[]}\n", pf_init);
-        fclose(pf_init);
-        chmod(PROBE_FILE, 0666);
-    }
+    atomic_write_text(PROBE_FILE, "{\"status\":\"probing\",\"resolutions\":[]}\n");
 
     const char *python_bin = find_python();
     if (!python_bin) {
-        FILE *pf_err = fopen(PROBE_FILE, "w");
-        if (pf_err) {
-            fputs("{\"status\":\"error\",\"error\":\"Python 3 runtime not found\",\"resolutions\":[]}\n", pf_err);
-            fclose(pf_err);
-            chmod(PROBE_FILE, 0666);
-        }
+        atomic_write_text(PROBE_FILE, "{\"status\":\"error\",\"error\":\"Python 3 runtime not found\",\"resolutions\":[]}\n");
         printf("{\"status\":\"error\",\"error\":\"Python not found\"}\n");
         return;
     }
@@ -479,6 +588,7 @@ static void cmd_probe_start(const char *url) {
         }
 
         setup_python_env(python_bin);
+        setenv("HYPERDL_BRIDGE", "1", 1);
 
         if (bundle_path) {
             execl(python_bin, python_bin, bundle_path, "probe", url, (char *)NULL);
@@ -492,38 +602,41 @@ static void cmd_probe_start(const char *url) {
         _exit(127);
     }
 
-    FILE *ppf = fopen(PROBE_PID_FILE, "w");
-    if (ppf) {
-        fprintf(ppf, "%d\n", pid);
-        fclose(ppf);
-        chmod(PROBE_PID_FILE, 0666);
-    }
+    atomic_write_pid(PROBE_PID_FILE, pid);
 
     printf("{\"status\":\"probing\",\"pid\":%d}\n", pid);
 }
 
 static void cmd_probe_result(void) {
+    char buf[65536] = "";
+    size_t n = 0;
     FILE *f = fopen(PROBE_FILE, "r");
     if (f) {
-        char buf[65536];
-        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        n = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         if (n > 0) {
             buf[n] = '\0';
-            printf("%s\n", buf);
-            return;
+            /* A "probing" file is only meaningful while the worker is alive.
+             * If Android killed it, returning the stale file keeps the WebUI
+             * spinner running forever with no way to recover. */
+            if (!json_status_is(buf, "probing")) {
+                printf("%s\n", buf);
+                return;
+            }
         }
     }
 
     FILE *pf = fopen(PROBE_PID_FILE, "r");
     if (pf) {
         pid_t ppid = 0;
-        if (fscanf(pf, "%d", &ppid) == 1 && ppid > 1) {
-            if (kill(ppid, 0) == 0 || errno == EPERM) {
-                fclose(pf);
+        if (fscanf(pf, "%d", &ppid) == 1 && pid_is_hyperdl(ppid)) {
+            fclose(pf);
+            if (n > 0) {
+                printf("%s\n", buf);
+            } else {
                 printf("{\"status\":\"probing\",\"resolutions\":[]}\n");
-                return;
             }
+            return;
         }
         fclose(pf);
     }
@@ -532,6 +645,14 @@ static void cmd_probe_result(void) {
 }
 
 static void cmd_download(const char *url, const char *fmt, const char *format_id, const char *height, const char *audio_format, int is_playlist, const char *pl_start, const char *pl_end, const char *sub_langs) {
+    if (!url || !*url) {
+        printf("{\"success\":false,\"error\":\"missing_url\"}\n");
+        return;
+    }
+    if (strncasecmp(url, "http://", 7) != 0 && strncasecmp(url, "https://", 8) != 0) {
+        printf("{\"success\":false,\"error\":\"unsupported_url\"}\n");
+        return;
+    }
     ensure_directories();
     kill_probe_if_running();
     unlink(PROBE_FILE);
@@ -539,7 +660,8 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
     FILE *pf = fopen(PID_FILE, "r");
     if (pf) {
         pid_t old_pid = 0;
-        if (fscanf(pf, "%d", &old_pid) == 1 && old_pid > 1) {
+        if (fscanf(pf, "%d", &old_pid) == 1 && pid_is_hyperdl(old_pid)) {
+            kill(-old_pid, SIGKILL);
             kill(old_pid, SIGKILL);
         }
         fclose(pf);
@@ -566,11 +688,20 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         atomic_write_text(STATUS_FILE, resolving);
         atomic_write_text(ACTIVE_TASK_FILE, resolving);
     }
-    FILE *lcf = fopen("/data/local/tmp/hyperdl_last_clip.txt", "w");
-    if (lcf) {
-        fprintf(lcf, "%s\n", url ? url : "");
-        fclose(lcf);
-        chmod("/data/local/tmp/hyperdl_last_clip.txt", 0666);
+    const char *last_clip_path = "/data/local/tmp/hyperdl_last_clip.txt";
+    /* Remove first so a file pre-created by the shell user cannot stay owned
+     * by that user (and readable) after root writes the URL into it. */
+    unlink(last_clip_path);
+    int lcfd = open(last_clip_path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+    if (lcfd >= 0) {
+        FILE *lcf = fdopen(lcfd, "w");
+        if (lcf) {
+            fprintf(lcf, "%s\n", url ? url : "");
+            fchmod(fileno(lcf), 0600);
+            fclose(lcf);
+        } else {
+            close(lcfd);
+        }
     }
 
     pid_t pid = fork();
@@ -586,16 +717,23 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         int dev_null = open("/dev/null", O_RDWR);
         if (dev_null >= 0) {
             dup2(dev_null, STDIN_FILENO);
-            close(dev_null);
         }
-        int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0666);
+        int log_fd = open(LOG_FILE, O_WRONLY | O_CREAT | O_APPEND, 0640);
         if (log_fd >= 0) {
+            fchmod(log_fd, 0640);
             dup2(log_fd, STDOUT_FILENO);
             dup2(log_fd, STDERR_FILENO);
             close(log_fd);
+        } else if (dev_null >= 0) {
+            /* Never leave the bridge's stdout pipe open in the long-lived
+             * download child: the WebUI waits for EOF after the JSON reply. */
+            dup2(dev_null, STDOUT_FILENO);
+            dup2(dev_null, STDERR_FILENO);
         }
+        if (dev_null >= 0 && dev_null > STDERR_FILENO) close(dev_null);
 
         setup_python_env(python_bin);
+        setenv("HYPERDL_BRIDGE", "1", 1);
 
         char fid_arg[256] = "";
         char ht_arg[64] = "";
@@ -657,12 +795,7 @@ static void cmd_download(const char *url, const char *fmt, const char *format_id
         _exit(127);
     }
 
-    FILE *npf = fopen(PID_FILE, "w");
-    if (npf) {
-        fprintf(npf, "%d\n", pid);
-        fclose(npf);
-        chmod(PID_FILE, 0666);
-    }
+    atomic_write_pid(PID_FILE, pid);
 
     printf("{\"status\":\"started\",\"pid\":%d}\n", pid);
 }
@@ -699,6 +832,7 @@ static void run_python_action(const char *subaction, const char *extra_arg) {
             close(dev_null);
         }
         close(pipefd[1]);
+        setenv("HYPERDL_BRIDGE", "1", 1);
 
         if (bundle_path) {
             if (extra_arg && extra_arg[0]) {
@@ -796,7 +930,10 @@ static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int
         if (entry->d_name[0] == '.') continue;
 
         snprintf(full_path, sizeof(full_path), "%s/%s", base_dir, entry->d_name);
-        if (stat(full_path, &st) != 0) continue;
+        if (lstat(full_path, &st) != 0) continue;
+        /* Never follow links out of the output tree: a media app could create
+         * a link to a private root file and make it appear in the library. */
+        if (S_ISLNK(st.st_mode)) continue;
 
         if (S_ISDIR(st.st_mode)) {
             char next_rel[512];
@@ -818,29 +955,33 @@ static void scan_dir_recursive(const char *base_dir, const char *rel_prefix, int
             char url_b64[8192] = "";
             char side_path[1124];
             snprintf(side_path, sizeof(side_path), "%s.url.txt", full_path);
-            FILE *sf = fopen(side_path, "r");
-            if (sf) {
-                char ubuf[4096] = {0};
-                size_t rn = fread(ubuf, 1, sizeof(ubuf)-1, sf);
-                fclose(sf);
-                while (rn > 0 && (ubuf[rn-1]=='\n' || ubuf[rn-1]=='\r' || ubuf[rn-1]==' ')) ubuf[--rn]='\0';
-                char *sp = ubuf;
-                while (*sp==' ' || *sp=='\n' || *sp=='\r' || *sp=='\t') sp++;
-                if (*sp) {
-                    char *enc = base64_encode((const unsigned char *)sp, strlen(sp));
-                    if (enc) { snprintf(url_b64, sizeof(url_b64), "%s", enc); free(enc); }
+            struct stat sst;
+            if (lstat(side_path, &sst) == 0 && S_ISREG(sst.st_mode)) {
+                FILE *sf = fopen(side_path, "r");
+                if (sf) {
+                    char ubuf[4096] = {0};
+                    size_t rn = fread(ubuf, 1, sizeof(ubuf)-1, sf);
+                    fclose(sf);
+                    while (rn > 0 && (ubuf[rn-1]=='\n' || ubuf[rn-1]=='\r' || ubuf[rn-1]==' ')) ubuf[--rn]='\0';
+                    char *sp = ubuf;
+                    while (*sp==' ' || *sp=='\n' || *sp=='\r' || *sp=='\t') sp++;
+                    if (*sp) {
+                        char *enc = base64_encode((const unsigned char *)sp, strlen(sp));
+                        if (enc) { snprintf(url_b64, sizeof(url_b64), "%s", enc); free(enc); }
+                    }
                 }
             }
 
             if (!*first) printf(",\n");
             *first = 0;
 
-            char esc_name[1024], esc_path[1024], esc_folder[512];
+            char esc_name[1024], esc_path[1024], esc_folder[512], esc_ext[32];
             json_escape(entry->d_name, esc_name, sizeof(esc_name));
             json_escape(full_path, esc_path, sizeof(esc_path));
             json_escape(rel_prefix ? rel_prefix : "", esc_folder, sizeof(esc_folder));
+            json_escape(ext, esc_ext, sizeof(esc_ext));
             printf("  {\"name\":\"%s\",\"folder\":\"%s\",\"size\":\"%s\",\"ext\":\"%s\",\"path\":\"%s\",\"mtime\":%ld,\"bytes\":%lld,\"source_url_b64\":\"%s\"}",
-                   esc_name, esc_folder, size_str, ext, esc_path, (long)st.st_mtime, (long long)st.st_size, url_b64);
+                   esc_name, esc_folder, size_str, esc_ext, esc_path, (long)st.st_mtime, (long long)st.st_size, url_b64);
         }
     }
     closedir(d);
@@ -874,13 +1015,18 @@ static void count_storage_recursive(const char *dir_path, long long *media_count
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
         snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-        if (stat(full_path, &st) != 0) continue;
+        if (lstat(full_path, &st) != 0) continue;
+        if (S_ISLNK(st.st_mode)) continue;
 
         if (S_ISDIR(st.st_mode)) {
             if (entry->d_name[0] != '.') {
                 count_storage_recursive(full_path, media_count, media_bytes, junk_count, junk_bytes, depth + 1);
             }
         } else if (S_ISREG(st.st_mode)) {
+            size_t nlen = strlen(entry->d_name);
+            if (nlen > 8 && strcmp(entry->d_name + nlen - 8, ".url.txt") == 0) {
+                continue;
+            }
             if (is_junk_filename(entry->d_name)) {
                 (*junk_count)++;
                 (*junk_bytes) += st.st_size;
@@ -943,7 +1089,8 @@ static void clean_junk_recursive(const char *dir_path, int *deleted, long long *
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
         snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-        if (stat(full_path, &st) != 0) continue;
+        if (lstat(full_path, &st) != 0) continue;
+        if (S_ISLNK(st.st_mode)) continue;
 
         if (S_ISDIR(st.st_mode)) {
             if (entry->d_name[0] != '.') {
@@ -1057,25 +1204,49 @@ static void cmd_preview(const char *path) {
     free(b64);
 }
 
-/* Deletion is only ever meant to touch files HyperDL itself produced, so every
- * path must sit strictly inside the output directory. Requiring the trailing
- * separator blocks prefix tricks such as ".../HyperDL_evil/x.mp4". */
+/* Deletion, preview, and open are only ever meant to touch files HyperDL
+ * produced, so every path must resolve strictly inside the output directory.
+ * Comparing the unresolved string is not enough: a symlinked parent (created
+ * by any app, since Download/HyperDL is world-writable) could otherwise point
+ * at /data/adb/hyperdl/cookies.txt and pass the prefix check. realpath()
+ * collapses every symlink before the comparison. */
 static int path_is_managed(const char *path) {
     if (!path || path[0] != '/') return 0;
     if (strstr(path, "/../") || strstr(path, "/./")) return 0;
-    const char *od = outdir();
-    size_t n = strlen(od);
-    if (strncmp(path, od, n) != 0) return 0;
-    return path[n] == '/';
+    size_t plen = strlen(path);
+    if (plen >= 3 && strcmp(path + plen - 3, "/..") == 0) return 0;
+    if (plen >= 2 && strcmp(path + plen - 2, "/.") == 0) return 0;
+
+    char od_real[PATH_MAX];
+    char path_real[PATH_MAX];
+    if (!realpath(outdir(), od_real)) return 0;
+    if (!realpath(path, path_real)) return 0;
+
+    size_t n = strlen(od_real);
+    if (strncmp(path_real, od_real, n) != 0) return 0;
+    return path_real[n] == '/';
 }
 
 static void prune_empty_parents(const char *file_path) {
-    if (!path_is_managed(file_path)) return;
-    const char *od = outdir();
+    if (!file_path) return;
+    /* The file itself is already gone by the time this runs, so resolve its
+     * parent instead of the deleted path. Resolving first keeps a symlinked
+     * output directory from making us rmdir the unresolved FUSE alias. */
     char path_buf[1024];
     snprintf(path_buf, sizeof(path_buf), "%s", file_path);
-    char *parent = dirname(path_buf);
-    while (parent && strcmp(parent, od) != 0 && strcmp(parent, "/") != 0 && strlen(parent) > strlen(od)) {
+    char *slash = strrchr(path_buf, '/');
+    if (!slash || slash == path_buf) return;
+    *slash = '\0';
+
+    char parent_real[PATH_MAX];
+    char od_real[PATH_MAX];
+    if (!realpath(path_buf, parent_real)) return;
+    if (!realpath(outdir(), od_real)) return;
+    if (!path_is_managed(parent_real)) return;
+
+    char *parent = parent_real;
+    while (parent && strcmp(parent, od_real) != 0 && strcmp(parent, "/") != 0 &&
+           strlen(parent) > strlen(od_real)) {
         if (rmdir(parent) != 0) {
             break;
         }
@@ -1097,16 +1268,30 @@ static void safe_sql_escape(const char *src, char *dst, size_t dst_size) {
 }
 
 static void json_escape(const char *src, char *dst, size_t dst_size) {
+    if (!dst || dst_size == 0) return;
     size_t j = 0;
-    for (size_t i = 0; src && src[i] && j + 2 < dst_size; i++) {
+    for (size_t i = 0; src && src[i]; i++) {
         unsigned char c = (unsigned char)src[i];
-        if (c == '"' || c == '\\') {
-            if (j + 2 >= dst_size) break;
-            dst[j++] = '\\';
-            dst[j++] = (char)c;
-        } else if (c < 0x20) {
-            continue;
+        const char *esc = NULL;
+        char unicode[7];
+        if (c == '"') esc = "\\\"";
+        else if (c == '\\') esc = "\\\\";
+        else if (c == '\n') esc = "\\n";
+        else if (c == '\r') esc = "\\r";
+        else if (c == '\t') esc = "\\t";
+        else if (c == '\b') esc = "\\b";
+        else if (c == '\f') esc = "\\f";
+        else if (c < 0x20) {
+            snprintf(unicode, sizeof(unicode), "\\u%04x", c);
+            esc = unicode;
+        }
+        if (esc) {
+            size_t el = strlen(esc);
+            if (j + el >= dst_size) break;
+            memcpy(dst + j, esc, el);
+            j += el;
         } else {
+            if (j + 1 >= dst_size) break;
             dst[j++] = (char)c;
         }
     }
@@ -1120,6 +1305,7 @@ static void cmd_delete(int count, char **paths) {
     }
     int deleted = 0;
     int rejected = 0;
+    int last_err = 0;
     for (int i = 0; i < count; i++) {
         const char *path = paths[i];
         if (!path || !*path) continue;
@@ -1155,6 +1341,8 @@ static void cmd_delete(int count, char **paths) {
             };
             run_detached(scan_argv);
             prune_empty_parents(path);
+        } else {
+            last_err = errno;
         }
     }
     if (deleted > 0) {
@@ -1162,7 +1350,8 @@ static void cmd_delete(int count, char **paths) {
     } else if (rejected > 0) {
         printf("{\"success\":false,\"error\":\"path_outside_output_dir\"}\n");
     } else {
-        printf("{\"success\":false,\"error\":\"%s\"}\n", strerror(errno));
+        printf("{\"success\":false,\"error\":\"%s\"}\n",
+               last_err ? strerror(last_err) : "not_found");
     }
 }
 
@@ -1272,7 +1461,7 @@ static void cmd_open(const char *path) {
         return;
     }
 
-    chmod(path, 0666);
+    chmod(path, 0644);
 
     const char *mime = "video/*";
     const char *dot = strrchr(path, '.');
@@ -1376,6 +1565,7 @@ static void cmd_info(void) {
                 char *cr = strchr(line + 8, '\r');
                 if (cr) *cr = '\0';
                 strncpy(mod_version, line + 8, sizeof(mod_version) - 1);
+                mod_version[sizeof(mod_version) - 1] = '\0';
                 break;
             }
         }
@@ -1411,11 +1601,11 @@ static void cmd_set_audio_format(const char *fmt) {
         return;
     }
     ensure_directories();
-    FILE *afp = fopen("/data/adb/hyperdl/audio_format.conf", "w");
-    if (afp) {
-        fprintf(afp, "%s\n", fmt);
-        fclose(afp);
-        chmod("/data/adb/hyperdl/audio_format.conf", 0644);
+    const char *conf_path = "/data/adb/hyperdl/audio_format.conf";
+    char content[32];
+    snprintf(content, sizeof(content), "%s\n", fmt);
+    atomic_write_text(conf_path, content);
+    if (access(conf_path, R_OK) == 0) {
         printf("{\"success\":true,\"audio_format\":\"%s\"}\n", fmt);
     } else {
         printf("{\"success\":false,\"error\":\"file_write_failed\"}\n");
@@ -1481,16 +1671,35 @@ static void cmd_save_cookies(const char *b64_data) {
         return;
     }
 
-    FILE *f = fopen(COOKIES_FILE, "wb");
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d", COOKIES_FILE, (int)getpid());
+    FILE *f = fopen(tmp_path, "wb");
     if (!f) {
         free(decoded);
         printf("{\"success\":false,\"error\":\"open_failed\"}\n");
         return;
     }
 
-    fwrite(decoded, 1, out_len, f);
-    fclose(f);
-    /* A cookie file is a live login session, so it stays owner-only. */
+    size_t wrote = fwrite(decoded, 1, out_len, f);
+    int flush_ok = (fflush(f) == 0);
+    int close_ok = (fclose(f) == 0);
+    if (wrote != out_len || !flush_ok || !close_ok) {
+        unlink(tmp_path);
+        free(decoded);
+        printf("{\"success\":false,\"error\":\"write_failed\"}\n");
+        return;
+    }
+
+    /* A cookie file is a live login session, so it stays owner-only. Write to
+     * a temp file first: an interrupted save must not leave a truncated jar
+     * that breaks every platform until the user pastes cookies again. */
+    chmod(tmp_path, 0600);
+    if (rename(tmp_path, COOKIES_FILE) != 0) {
+        unlink(tmp_path);
+        free(decoded);
+        printf("{\"success\":false,\"error\":\"write_failed\"}\n");
+        return;
+    }
     chmod(COOKIES_FILE, 0600);
 
     int lines = 0;
@@ -1519,7 +1728,7 @@ static void cmd_get_logs(void) {
     int count = 0;
 
     while (fgets(line, sizeof(line), f)) {
-        strncpy(ring[count % 60], line, sizeof(ring[0]));
+        snprintf(ring[count % 60], sizeof(ring[0]), "%s", line);
         count++;
     }
     fclose(f);
@@ -1535,6 +1744,9 @@ static void cmd_get_logs(void) {
 static void cmd_clear_logs(void) {
     FILE *f = fopen(LOG_FILE, "w");
     if (f) fclose(f);
+    /* Recreating the log must not relax the 0640 privacy mode the download
+     * child applies: URLs and media titles can be sensitive. */
+    chmod(LOG_FILE, 0640);
     printf("{\"success\":true}\n");
 }
 
@@ -1626,10 +1838,34 @@ static void cmd_get_clipboard(void) {
     close(fds[1]);
     char buf[4096] = {0};
     size_t n = 0;
-    while (n < sizeof(buf) - 1) {
-        ssize_t r = read(fds[0], buf + n, sizeof(buf) - 1 - n);
+    int idle_rounds = 0;
+    while (idle_rounds < 10) {
+        struct pollfd pfd;
+        pfd.fd = fds[0];
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int pr = poll(&pfd, 1, 500);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (pr == 0) {
+            idle_rounds++;
+            continue;
+        }
+        idle_rounds = 0;
+        char chunk[4096];
+        ssize_t r = read(fds[0], chunk, sizeof(chunk));
         if (r <= 0) break;
-        n += (size_t)r;
+        size_t copy = (size_t)r;
+        if (n + copy > sizeof(buf) - 1) copy = sizeof(buf) - 1 - n;
+        memcpy(buf + n, chunk, copy);
+        n += copy;
+    }
+    if (idle_rounds >= 10) {
+        /* Clipboard content can be arbitrarily large. Keep draining so the
+         * child never blocks on a full pipe, but never wait forever. */
+        kill(cpid, SIGKILL);
     }
     close(fds[0]);
     int st = 0;
@@ -1670,12 +1906,8 @@ static void cmd_get_autodl(void) {
         int running = 0;
         if (pf) {
             pid_t pid = 0;
-            if (fscanf(pf, "%d", &pid) == 1 && pid > 1) {
-                char proc_path[64];
-                snprintf(proc_path, sizeof(proc_path), "/proc/%d", pid);
-                if ((kill(pid, 0) == 0 || errno == EPERM) && access(proc_path, F_OK) == 0) {
-                    running = 1;
-                }
+            if (fscanf(pf, "%d", &pid) == 1 && pid_is_hyperdl(pid)) {
+                running = 1;
             }
             fclose(pf);
         }
@@ -1731,12 +1963,9 @@ static void cmd_get_vault_domains(void) {
             while (*s == ' ' || *s == '\t') s++;
             if (!*s) continue;
             if (!first) printf(",");
-            printf("\"");
-            for (char *p = s; *p; p++) {
-                if (*p == '"' || *p == '\\') printf("\\");
-                putchar(*p);
-            }
-            printf("\"");
+            char esc[512];
+            json_escape(s, esc, sizeof(esc));
+            printf("\"%s\"", esc);
             first = 0;
         }
         fclose(f);
@@ -1803,14 +2032,23 @@ static void cmd_save_vault_domains(const char *b64_data) {
         return;
     }
     clean[ci++] = '\n';
+    clean[ci] = '\0';
     const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
-    FILE *f = fopen(conf_path, "w");
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp.%d", conf_path, (int)getpid());
+    FILE *f = fopen(tmp_path, "w");
     if (!f) {
         printf("{\"success\":false,\"error\":\"open_failed\"}\n");
         return;
     }
-    fwrite(clean, 1, ci, f);
-    fclose(f);
+    size_t wrote = fwrite(clean, 1, ci, f);
+    int flush_ok = (fflush(f) == 0);
+    int close_ok = (fclose(f) == 0);
+    if (wrote != ci || !flush_ok || !close_ok || rename(tmp_path, conf_path) != 0) {
+        unlink(tmp_path);
+        printf("{\"success\":false,\"error\":\"write_failed\"}\n");
+        return;
+    }
     chmod(conf_path, 0644);
     printf("{\"success\":true,\"domains\":%d}\n", count);
 }
@@ -1850,12 +2088,12 @@ static void cmd_toggle_vault(const char *val) {
         char nomedia[512];
         snprintf(vault_dir, sizeof(vault_dir), "%s/.vault", outdir());
         snprintf(nomedia, sizeof(nomedia), "%s/.vault/.nomedia", outdir());
-        mkdir(vault_dir, 0777);
-        chmod(vault_dir, 0777);
+        mkdir(vault_dir, 0755);
+        chmod(vault_dir, 0755);
 
-        int nfd = open(nomedia, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        int nfd = open(nomedia, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (nfd >= 0) close(nfd);
-        chmod(nomedia, 0666);
+        chmod(nomedia, 0644);
 
         const char *conf_path = "/data/adb/hyperdl/vault_domains.conf";
         {
@@ -1877,14 +2115,17 @@ static void cmd_toggle_vault(const char *val) {
                     char *saveptr = NULL;
                     char *line = strtok_r(required, "\n", &saveptr);
                     char to_append[4096] = {0};
+                    size_t used = 0;
                     int need = 0;
                     while (line) {
                         while (*line==' '||*line=='\t'||*line=='\r') line++;
                         size_t ll = strlen(line);
                         while (ll && (line[ll-1]==' '||line[ll-1]=='\t'||line[ll-1]=='\r')) line[--ll]='\0';
                         if (*line && !conf_has_domain(existing_buf, line)) {
-                            if (to_append[0]) strcat(to_append, "\n");
-                            strcat(to_append, line);
+                            int w = snprintf(to_append + used, sizeof(to_append) - used,
+                                             "%s%s", used ? "\n" : "", line);
+                            if (w < 0 || (size_t)w >= sizeof(to_append) - used) break;
+                            used += (size_t)w;
                             need = 1;
                         }
                         line = strtok_r(NULL, "\n", &saveptr);
@@ -1912,11 +2153,14 @@ static void cmd_pause(void) {
     FILE *pf = fopen(PID_FILE, "r");
     pid_t old_pid = 0;
     if (pf) {
-        if (fscanf(pf, "%d", &old_pid) == 1 && old_pid > 1) {
+        if (fscanf(pf, "%d", &old_pid) == 1 && pid_is_hyperdl(old_pid)) {
             kill(-old_pid, SIGTERM);
             kill(old_pid, SIGTERM);
             usleep(50000);
-            if (kill(old_pid, 0) == 0) {
+            /* Re-check identity after the grace period: a process that already
+             * exited must not let a recycled PID steer SIGKILL at an unrelated
+             * process group. */
+            if (pid_is_hyperdl(old_pid)) {
                 kill(-old_pid, SIGKILL);
                 kill(old_pid, SIGKILL);
             }
@@ -1925,22 +2169,18 @@ static void cmd_pause(void) {
         unlink(PID_FILE);
     }
 
-    char buf[2048] = "";
-    FILE *f = fopen(STATUS_FILE, "r");
-    if (!f) f = fopen(ACTIVE_TASK_FILE, "r");
+    char buf[8192] = "";
+    /* The active task is written on every progress tick and is the freshest
+     * source here; a completed STATUS_FILE can otherwise mask a live task. */
+    FILE *f = fopen(ACTIVE_TASK_FILE, "r");
+    if (!f) f = fopen(STATUS_FILE, "r");
     if (f) {
         size_t r = fread(buf, 1, sizeof(buf) - 1, f);
         fclose(f);
         buf[r] = '\0';
 
-        char *sp = strstr(buf, "\"status\":\"downloading\"");
-        if (sp) {
-            memcpy(sp, "\"status\":\"paused\"     ", 22);
-        } else {
-            sp = strstr(buf, "\"status\":\"resolving\"");
-            if (sp) {
-                memcpy(sp, "\"status\":\"paused\"   ", 20);
-            }
+        if (json_status_is(buf, "downloading") || json_status_is(buf, "resolving")) {
+            json_set_status(buf, "paused");
         }
 
         atomic_write_text(STATUS_FILE, buf);
@@ -1959,12 +2199,14 @@ static void cmd_cancel(void) {
     FILE *pf = fopen(PID_FILE, "r");
     pid_t old_pid = 0;
     if (pf) {
-        if (fscanf(pf, "%d", &old_pid) == 1 && old_pid > 1) {
+        if (fscanf(pf, "%d", &old_pid) == 1 && pid_is_hyperdl(old_pid)) {
             kill(-old_pid, SIGTERM);
             kill(old_pid, SIGTERM);
             usleep(30000);
-            kill(-old_pid, SIGKILL);
-            kill(old_pid, SIGKILL);
+            if (pid_is_hyperdl(old_pid)) {
+                kill(-old_pid, SIGKILL);
+                kill(old_pid, SIGKILL);
+            }
         }
         fclose(pf);
         unlink(PID_FILE);
@@ -1974,6 +2216,16 @@ static void cmd_cancel(void) {
 
     pid_t npid = fork();
     if (npid == 0) {
+        /* Detach the notification helper from the bridge's stdout pipe: the
+         * WebUI waits for EOF, so an inherited descriptor would defeat the
+         * point of not waiting here. */
+        int dev_null = open("/dev/null", O_RDWR);
+        if (dev_null >= 0) {
+            dup2(dev_null, STDOUT_FILENO);
+            dup2(dev_null, STDERR_FILENO);
+            if (dev_null > STDERR_FILENO) close(dev_null);
+        }
+        setsid();
         setresgid(2000, 2000, 2000);
         setresuid(2000, 2000, 2000);
         execl("/system/bin/cmd", "cmd", "notification", "post",
@@ -1983,9 +2235,8 @@ static void cmd_cancel(void) {
               "Download cancelled by user", (char *)NULL);
         _exit(0);
     }
-    if (npid > 0) {
-        waitpid(npid, NULL, 0);
-    }
+    /* Do not wait for the notification helper: the bridge must return to the
+     * WebUI immediately, and init reaps the short-lived child after we exit. */
 
     printf("{\"success\":true,\"cancelled\":true}\n");
 }
@@ -2028,6 +2279,18 @@ int main(int argc, char *argv[]) {
                 }
                 fclose(afp);
             }
+        }
+        if (!audio_format ||
+            (strcmp(audio_format, "mp3") != 0 &&
+             strcmp(audio_format, "flac") != 0 &&
+             strcmp(audio_format, "m4a") != 0 &&
+             strcmp(audio_format, "opus") != 0)) {
+            audio_format = "mp3";
+        }
+        if (!fmt || (strcmp(fmt, "video") != 0 &&
+                     strcmp(fmt, "audio") != 0 &&
+                     strcmp(fmt, "album") != 0)) {
+            fmt = "video";
         }
         cmd_download(url, fmt, format_id, height, audio_format, is_playlist, pl_start, pl_end, sub_langs);
     } else if (strcmp(action, "set_audio_format") == 0) {

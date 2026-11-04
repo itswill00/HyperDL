@@ -45,7 +45,11 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$BUMP" = "true" ]; then
-    python3 scripts/bump_version.py $BUMP_ARG
+    if [ -n "$BUMP_ARG" ]; then
+        python3 scripts/bump_version.py "$BUMP_ARG"
+    else
+        python3 scripts/bump_version.py
+    fi
 fi
 
 if [ ! -f "module.prop" ]; then
@@ -55,10 +59,14 @@ fi
 
 VERSION=$(grep '^version=' module.prop | cut -d= -f2)
 VERSION_CODE=$(grep '^versionCode=' module.prop | cut -d= -f2)
+if [ -z "$VERSION" ] || [ -z "$VERSION_CODE" ]; then
+    echo "error: module.prop is missing version or versionCode"
+    exit 1
+fi
 
 if [ "$CLEAN" = "true" ]; then
     echo "cleaning build artifacts..."
-    rm -rf webui/dist webroot/index.html bin/libhyperdl.so bin/hyperdl.bundle releases
+    rm -rf webui/dist webroot/index.html bin/libhyperdl.so bin/hyperdl.bundle releases src/embedded_engine.h
     find engine tests scripts webui/src -type d -name "__pycache__" -prune -exec rm -rf {} + 2>/dev/null || true
     find engine tests scripts webui/src -name "*.pyc" -delete 2>/dev/null || true
     exit 0
@@ -68,7 +76,7 @@ fi
 mkdir -p bin
 
 # Python bundle (source of truth: _impl.py)
-if [ ! -f "bin/hyperdl.bundle" ] || [ "engine/downloader.py" -nt "bin/hyperdl.bundle" ] || [ "engine/_impl.py" -nt "bin/hyperdl.bundle" ]; then
+if [ ! -f "bin/hyperdl.bundle" ] || [ ! -f "src/embedded_engine.h" ] || [ -n "$(find engine -name '*.py' -newer bin/hyperdl.bundle 2>/dev/null)" ]; then
     echo "-> bundling python extractor..."
     python3 scripts/bundle_engine.py
 fi
@@ -76,13 +84,28 @@ fi
 # C native bridge
 if [ ! -f "bin/libhyperdl.so" ] || [ "src/main.c" -nt "bin/libhyperdl.so" ] || [ "src/embedded_engine.h" -nt "bin/libhyperdl.so" ]; then
     echo "-> compiling c native bridge..."
-    clang -O3 -Wall -Wextra src/main.c -o bin/libhyperdl.so
+    clang -O3 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wstrict-prototypes \
+        src/main.c -o bin/libhyperdl.so
+fi
+
+# Always re-run the post-link steps, even when the compile was skipped. A
+# previous run may have failed after linking but before the RUNPATH cleanup,
+# and an incremental build must never package that half-built bridge.
+if [ -f "bin/libhyperdl.so" ]; then
+    if ! command -v patchelf >/dev/null 2>&1; then
+        echo "error: patchelf is required to strip the Termux RUNPATH from bin/libhyperdl.so" >&2
+        exit 1
+    fi
+    if ! command -v readelf >/dev/null 2>&1; then
+        echo "error: readelf is required to verify bin/libhyperdl.so has no Termux RUNPATH" >&2
+        exit 1
+    fi
     # The Termux clang driver bakes its own toolchain path into RUNPATH
     # (/data/data/com.termux/files/usr/bin/../../usr/lib). That path must never
     # ship: on a device where Termux exists the linker could resolve libc.so
     # from it, and the module is supposed to be fully standalone. The driver
     # always prepends it, so drop it after linking.
-    patchelf --remove-rpath bin/libhyperdl.so 2>/dev/null || true
+    patchelf --remove-rpath bin/libhyperdl.so
     strip --strip-unneeded bin/libhyperdl.so
     chmod 755 bin/libhyperdl.so
     # Fail loudly instead of shipping a bridge that points back at the builder.
@@ -120,8 +143,18 @@ if [ "$DEPLOY" = "true" ]; then
     echo "-> deploying to /data/adb/modules/hyperdl..."
     su -c "
         TARGET=\"/data/adb/modules/hyperdl\"
-        [ -f /data/local/tmp/hyperdl_clip.pid ] && kill -9 \$(cat /data/local/tmp/hyperdl_clip.pid 2>/dev/null) 2>/dev/null || true
-        [ -f /data/local/tmp/hyperdl.pid ] && kill -9 \$(cat /data/local/tmp/hyperdl.pid 2>/dev/null) 2>/dev/null || true
+        kill_pid_file() {
+            _pf=\"\$1\"
+            [ -f \"\$_pf\" ] || return 0
+            _pid=\$(cat \"\$_pf\" 2>/dev/null)
+            case \"\$_pid\" in \"\"|*[!0-9]*) _pid=\"\" ;; esac
+            if [ -n \"\$_pid\" ] && { { [ -r \"/proc/\$_pid/cmdline\" ] && tr '\\0' ' ' < \"/proc/\$_pid/cmdline\" | grep -q hyperdl; } || { [ -r \"/proc/\$_pid/environ\" ] && tr '\\0' '\\n' < \"/proc/\$_pid/environ\" | grep -q '^HYPERDL_BRIDGE=1$'; }; }; then
+                kill -9 \"\$_pid\" 2>/dev/null || true
+            fi
+            rm -f \"\$_pf\"
+        }
+        kill_pid_file /data/local/tmp/hyperdl_clip.pid
+        kill_pid_file /data/local/tmp/hyperdl.pid
         rm -f /data/local/tmp/hyperdl*.pid
 
         mkdir -p \"\$TARGET/bin\" \"\$TARGET/webroot\" /data/adb/hyperdl /storage/emulated/0/Download/HyperDL
@@ -154,6 +187,12 @@ if [ "$DEPLOY" = "true" ]; then
     "
     echo "deploy complete: module updated in <1s"
     exit 0
+fi
+
+if [ "$RELEASE" = "true" ]; then
+    echo "-> running test suites..."
+    python3 -m unittest discover -s tests
+    (cd webui && npm test)
 fi
 
 # 3. Packaging Mode
@@ -190,10 +229,13 @@ if [ "$RELEASE" = "true" ]; then
         echo "error: tag ${VERSION} already exists locally"
         exit 1
     fi
+    if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q .; then
+        echo "error: tag ${VERSION} already exists on origin"
+        exit 1
+    fi
 
     git tag -a "${VERSION}" -m "HyperDL ${VERSION} (b${VERSION_CODE})"
     git push origin "refs/tags/${VERSION}"
-    gh release delete "${VERSION}" --repo "$REL_REPO" -y 2>/dev/null || true
     gh release create "${VERSION}" "$OUT_DIR/$ZIP_NAME" --repo "$REL_REPO" \
         --title "HyperDL ${VERSION}" --notes-file "$NOTES_FILE"
     echo "Release published: https://github.com/${REL_REPO}/releases/tag/${VERSION}"
