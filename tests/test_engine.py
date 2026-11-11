@@ -338,6 +338,7 @@ class TestProbeResolutionFilter(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _heights(self, formats):
+        """Return the heights probe_resolutions reports for the given formats."""
         payload = json.dumps({"duration": 60, "formats": formats})
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr="")
         with mock.patch.object(self.impl, "get_or_download_ytdlp", return_value="/unused/yt-dlp"), \
@@ -588,6 +589,7 @@ class TestRedditRapidsaveTitle(unittest.TestCase):
     )
 
     def _resolve(self, url):
+        """Run resolve_reddit with status, cookie, and network calls mocked."""
         import engine._impl as impl
         from unittest import mock
 
@@ -621,10 +623,12 @@ class TestThreadsEmbedFallback(unittest.TestCase):
     EMBED_VIDEO = '<video controls="1"><source src="https://cdn.example.test/v.mp4?a=1&amp;b=2" type="video/mp4"></video>'
 
     def _resolve(self, fmt, post_html, embed_html=""):
+        """Run resolve_threads against mocked post and embed pages."""
         import engine._impl as impl
         from unittest import mock
 
         def fake_urlopen(req, timeout=None):
+            """Serve the embed HTML for /embed URLs and the post HTML otherwise."""
             body = embed_html if req.full_url.endswith("/embed") else post_html
             class R:
                 def read(self_inner):
@@ -890,6 +894,7 @@ class TestDownloadFileScheme(unittest.TestCase):
 
 class TestTikTokOwnerOnlyVideo(unittest.TestCase):
     def test_self_only_video_stops_before_mirror_retry(self):
+        """A self-only TikTok page raises before the mirror retry runs."""
         import engine._impl as impl
         page = (
             '<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'

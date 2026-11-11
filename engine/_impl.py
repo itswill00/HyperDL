@@ -374,6 +374,7 @@ def expand_shortlink_fast(url, timeout=3.5):
     return res
 
 def humanize_error(e):
+    """Translate a raw exception or yt-dlp error into a short user-facing message."""
     if not e:
         return ""
     msg = str(e)
@@ -1403,6 +1404,11 @@ def fetch_tikwm(clean_url, fmt="video"):
     raise RuntimeError(f"TikWM mirror failed: {last_err}")
 
 def resolve_tiktok(url, fmt="video"):
+    """Resolve a TikTok link to downloadable media.
+
+    Tries the TikWM mirror and a direct page scrape before handing off to yt-dlp.
+    Owner-only ("Only me") videos raise instead, since no fallback can serve them.
+    """
     update_status("resolving", title="Resolving TikTok media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
     cookie_hdr = get_cookie_header("tiktok.com")
@@ -2076,6 +2082,11 @@ def resolve_pinterest(url, fmt="video"):
     }
 
 def resolve_reddit(url, fmt="video"):
+    """Resolve a Reddit post to a video URL.
+
+    Reads the post JSON first and falls back to the rapidsave mirror. The mirror's
+    page title is generic, so its title comes from the post URL slug instead.
+    """
     update_status("resolving", title="Resolving Reddit media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
 
@@ -2933,6 +2944,11 @@ def _threads_embed_video(url):
     return pyhtml.unescape(m.group(1)) if m else ""
 
 def resolve_threads(url, fmt="video"):
+    """Resolve a Threads post to media from its public page data.
+
+    Video and audio requests read the post's /embed page when og:video is missing,
+    because video posts often omit it from the main page.
+    """
     update_status("resolving", title="Resolving Threads media...")
     m = re.search(r'threads\.(?:net|com)/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
     post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
@@ -3629,6 +3645,11 @@ def _write_probe_result(data):
             pass
 
 def probe_resolutions(url):
+    """Return the quality list, thumbnail, and subtitle languages for a link.
+
+    Uses one yt-dlp metadata call. Cached results hold only these fields, never
+    signed stream URLs, so downloads always re-resolve fresh links.
+    """
     url = clean_media_url(url)
     if not re.match(r'(?i)^https?://', url):
         msg = "Unsupported media URL scheme"
