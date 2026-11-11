@@ -8,6 +8,7 @@ two can never tell a different story about the same build.
 import os
 import re
 import json
+import subprocess
 import unittest
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,18 +24,62 @@ def current_version():
     return match.group(1).strip()
 
 
+def version_tuple(version):
+    """Split a vX.Y.Z string into ints so versions compare numerically."""
+    return tuple(int(part) for part in version.lstrip("v").split("."))
+
+
+def version_code(version):
+    """Return the versionCode that scripts/bump_version.py derives from a version."""
+    major, minor, patch = version_tuple(version)
+    return major * 10000 + minor * 1000 + patch * 10
+
+
+def release_tag_exists(version):
+    """Return True once the version's git tag exists, meaning its release was cut."""
+    try:
+        listed = subprocess.run(
+            ["git", "tag", "--list", version],
+            cwd=PROJECT_DIR, capture_output=True, text=True, check=False,
+        ).stdout
+    except OSError:
+        return False
+    return version in listed.split()
+
+
+def previous_release(version):
+    """Return the newest vX.Y.Z below version that has release notes, or None."""
+    older = []
+    for name in os.listdir(os.path.join(PROJECT_DIR, "release_notes")):
+        if re.fullmatch(r"v\d+\.\d+\.\d+\.md", name):
+            tag = name[:-len(".md")]
+            if version_tuple(tag) < version_tuple(version):
+                older.append((version_tuple(tag), tag))
+    return max(older)[1] if older else None
+
+
 class TestUpdateJson(unittest.TestCase):
+    """update.json is the public feed and must only describe a published release.
+
+    Until the GitHub Release for module.prop's version exists, the feed keeps the
+    previous release, so no root manager is offered a ZIP that was never uploaded.
+    Once the tag exists, re-sync the feed with
+    `scripts/bump_version.py <version> --notes "<intro>"`.
+    """
+
     def setUp(self):
         self.data = json.loads(read("update.json"))
 
-    def test_version_matches_module_prop(self):
-        self.assertEqual(self.data["version"], current_version())
+    def test_feed_describes_current_release_or_pending_predecessor(self):
+        """Once the tag exists the feed must name this release; before, the one before."""
+        version = current_version()
+        allowed = [version] if release_tag_exists(version) else [version, previous_release(version)]
+        self.assertIn(self.data["version"], allowed)
 
-    def test_version_code_matches_module_prop(self):
-        code = re.search(r"^versionCode=(\d+)$", read("module.prop"), re.MULTILINE)
-        self.assertEqual(self.data["versionCode"], int(code.group(1)))
+    def test_version_code_matches_feed_version(self):
+        self.assertEqual(self.data["versionCode"], version_code(self.data["version"]))
 
-    def test_zip_url_points_at_the_current_tag(self):
+    def test_zip_url_points_at_the_feed_tag(self):
         version = self.data["version"]
         self.assertEqual(
             self.data["zipUrl"],
@@ -47,11 +92,10 @@ class TestUpdateJson(unittest.TestCase):
             "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
         )
 
-    def test_notes_is_the_release_notes_intro_verbatim(self):
+    def test_notes_is_the_feed_release_intro_verbatim(self):
         # Regression: v1.3.54 paraphrased the intro instead of reusing it, so
         # the update prompt and the release page disagreed on wording.
-        intro = release_intro(current_version())
-        self.assertEqual(self.data["notes"], intro)
+        self.assertEqual(self.data["notes"], release_intro(self.data["version"]))
 
 
 def release_intro(version):
@@ -107,6 +151,10 @@ class TestModuleProp(unittest.TestCase):
             "updateJson=https://raw.githubusercontent.com/itswill00/HyperDL/main/update.json",
             read("module.prop"),
         )
+
+    def test_version_code_matches_version(self):
+        code = re.search(r"^versionCode=(\d+)$", read("module.prop"), re.MULTILINE)
+        self.assertEqual(int(code.group(1)), version_code(current_version()))
 
 
 if __name__ == "__main__":

@@ -374,6 +374,10 @@ def expand_shortlink_fast(url, timeout=3.5):
     return res
 
 def humanize_error(e):
+    """Map known network, SSL, and platform errors to a short user-facing message.
+
+    Unrecognised errors pass through unchanged so the raw reason stays visible.
+    """
     if not e:
         return ""
     msg = str(e)
@@ -407,6 +411,10 @@ def humanize_error(e):
         return "FFmpeg postprocessing failed. Please verify module installation, reboot, then try again."
     if "http error 404" in low or "404 not found" in low or "404: not found" in low:
         return "Media not found (HTTP 404). Link may be expired or deleted."
+    if "http error 412" in low:
+        if has_cookies_for_current():
+            return "Platform blocked the automated request (HTTP 412) even with saved cookies. Try refreshing them or try again later."
+        return "Platform blocked the automated request (HTTP 412), likely an anti-bot check on this network. Adding session cookies may help, or try again later."
     if "private video" in low or "login required" in low:
         if has_cookies_for_current():
             return "Content is private or the session expired. Try refreshing session cookies."
@@ -1399,6 +1407,11 @@ def fetch_tikwm(clean_url, fmt="video"):
     raise RuntimeError(f"TikWM mirror failed: {last_err}")
 
 def resolve_tiktok(url, fmt="video"):
+    """Resolve a TikTok link to downloadable media.
+
+    Tries the TikWM mirror and a direct page scrape before handing off to yt-dlp.
+    Owner-only ("Only me") videos raise instead, since no fallback can serve them.
+    """
     update_status("resolving", title="Resolving TikTok media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
     cookie_hdr = get_cookie_header("tiktok.com")
@@ -1421,6 +1434,7 @@ def resolve_tiktok(url, fmt="video"):
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
+    owner_only = False
     try:
         req = urllib.request.Request(clean_url, headers=hdrs)
         with urllib.request.urlopen(req, timeout=7) as resp:
@@ -1440,6 +1454,7 @@ def resolve_tiktok(url, fmt="video"):
             scope = (data.get("__DEFAULT_SCOPE__") or {})
             detail = (scope.get("webapp.video-detail") or {})
             item = ((detail.get("itemInfo") or {}).get("itemStruct") or {})
+            owner_only = not item and detail.get("statusMsg") == "status_self_see"
 
             if item:
                 title = item.get("desc") or "TikTok Video"
@@ -1576,6 +1591,10 @@ def resolve_tiktok(url, fmt="video"):
                     }
     except Exception as e:
         print(f"Direct TikTok scrape note: {e}, using mirror resolver...", file=sys.stderr)
+
+    # Mirror and yt-dlp fallbacks cannot serve owner-only videos; report the actual reason.
+    if owner_only:
+        raise RuntimeError("This TikTok video is set to Only me, so only its owner can download it.")
 
     try:
         update_status("resolving", title="Trying mirror resolver...")
@@ -2066,6 +2085,12 @@ def resolve_pinterest(url, fmt="video"):
     }
 
 def resolve_reddit(url, fmt="video"):
+    """Resolve a Reddit post to media.
+
+    Tries the rapidsave mirror first, then Reddit's JSON endpoints, and finally
+    hands off to yt-dlp. The mirror's page title is generic, so its title comes
+    from the post URL slug instead.
+    """
     update_status("resolving", title="Resolving Reddit media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
 
@@ -2107,9 +2132,11 @@ def resolve_reddit(url, fmt="video"):
                 dl_url = "https:" + dl_url
             if not dl_url.startswith("http"):
                 dl_url = urllib.parse.urljoin(rs_url, dl_url)
-            title_m = re.search(r'<title>(.*?)</title>', rs_html)
-            t = title_m.group(1) if title_m else "Reddit Video"
-            t = re.sub(r'\s*-\s*Reddit Video Downloader.*$', '', t, flags=re.I).strip()
+            # rapidsave's <title> is the same generic string for every post; the
+            # real title lives in the Reddit URL slug.
+            slug_m = re.search(r'/comments/[A-Za-z0-9]+/([^/?#]+)', p.path)
+            t = urllib.parse.unquote(slug_m.group(1)).replace("_", " ").strip() if slug_m else ""
+            t = t[:1].upper() + t[1:]
             return {"url": dl_url, "title": t or "Reddit Video", "ext": "mp4", "kind": "video"}
     except Exception as re_err:
         print(f"Reddit rapidsave mirror note: {re_err}", file=sys.stderr)
@@ -2906,7 +2933,26 @@ def resolve_bluesky(url, fmt="video"):
 
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Bluesky_{rkey}", "platform": "Bluesky"}
 
+def _threads_embed_video(url):
+    """Return the MP4 URL from a Threads post's /embed page, or an empty string."""
+    embed_url = re.sub(r'[?#].*$', '', url).rstrip('/') + '/embed'
+    try:
+        req = urllib.request.Request(embed_url, headers={
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        print(f"Threads embed note: {e}", file=sys.stderr)
+        return ""
+    m = re.search(r'<video[^>]*>\s*<source[^>]+src=["\']([^"\']+)["\']', html)
+    return pyhtml.unescape(m.group(1)) if m else ""
+
 def resolve_threads(url, fmt="video"):
+    """Resolve a Threads post to media from its public page data.
+
+    Video and audio requests read the post's /embed page when og:video is missing,
+    because video posts often omit it from the main page.
+    """
     update_status("resolving", title="Resolving Threads media...")
     m = re.search(r'threads\.(?:net|com)/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
     post_id = m.group(1) if m else hashlib.md5(url.encode()).hexdigest()[:8]
@@ -2924,8 +2970,11 @@ def resolve_threads(url, fmt="video"):
             html = resp.read().decode("utf-8", errors="ignore")
         og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', html) or \
                  re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:video(?::secure_url)?["\']', html)
-        if og_vid:
-            vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
+        vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&") if og_vid else ""
+        # Video posts often omit og:video; the /embed page still carries the MP4.
+        if not vurl and fmt in ("audio", "video"):
+            vurl = _threads_embed_video(url)
+        if vurl:
             og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
             title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
             m_auth = re.search(r'threads\.(?:net|com)/@([^/]+)', url)
@@ -3600,6 +3649,12 @@ def _write_probe_result(data):
             pass
 
 def probe_resolutions(url):
+    """Return the quality list, thumbnail, and subtitle languages for a link.
+
+    Runs yt-dlp in metadata-only mode, retrying once with cookies if the first
+    attempt fails. Only these fields are cached, never signed stream URLs, so
+    downloads always re-resolve fresh links.
+    """
     url = clean_media_url(url)
     if not re.match(r'(?i)^https?://', url):
         msg = "Unsupported media URL scheme"
@@ -3671,7 +3726,7 @@ def probe_resolutions(url):
 
     best_audio_size = 0
     for f in formats:
-        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
+        if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none"):
             asize = f.get("filesize") or f.get("filesize_approx") or 0
             if asize == 0 and duration > 0:
                 abr = f.get("abr") or f.get("tbr") or 128
@@ -3686,8 +3741,8 @@ def probe_resolutions(url):
         eff_h = min(h, w) if (h and w and w < h) else h
         if not eff_h or eff_h < 144:
             continue
-        vcodec = f.get("vcodec", "none")
-        if vcodec == "none":
+        # yt-dlp leaves vcodec out for progressive MP4s; only an explicit "none" is audio-only.
+        if f.get("vcodec") == "none":
             continue
         note = str(f.get("format_note", "")).lower()
         if "premium" in note:
