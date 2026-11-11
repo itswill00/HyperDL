@@ -554,6 +554,82 @@ class TestRedditJsonPath(unittest.TestCase):
         self.assertNotIn(".json/.json", got)
 
 
+class TestRedditRapidsaveTitle(unittest.TestCase):
+    PAGE = (
+        b'<html><head><title>Download Reddit Videos with sound - Reddit Video Downloader | RedditSave</title></head>'
+        b'<body><a href="https://sd.rapidsave.com/download.php?permalink=https://reddit.com/r/videos/comments/6rrwyj/that_small_heart_attack/&amp;video_url=https://v.redd.it/zv89llsvexdz/DASH_2_4_M?source=fallback&amp;audio_url=false">Download</a></body></html>'
+    )
+
+    def _resolve(self, url):
+        import engine._impl as impl
+        from unittest import mock
+
+        class R:
+            def read(self_inner):
+                return self.PAGE
+            def __enter__(self_inner):
+                return self_inner
+            def __exit__(self_inner, *a):
+                return False
+
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "expand_shortlink_fast", lambda u, timeout=None: u), \
+             mock.patch.object(impl, "get_cookie_header", lambda d="": ""), \
+             mock.patch.object(impl.urllib.request, "urlopen", lambda req, timeout=None: R()):
+            return impl.resolve_reddit(url, "video")
+
+    def test_title_comes_from_post_slug_not_mirror_page(self):
+        info = self._resolve("https://www.reddit.com/r/videos/comments/6rrwyj/that_small_heart_attack/")
+        self.assertEqual(info["title"], "That small heart attack")
+        self.assertEqual(info["kind"], "video")
+        self.assertTrue(info["url"].startswith("https://sd.rapidsave.com/download.php?"), info["url"])
+
+    def test_url_without_slug_uses_generic_title(self):
+        info = self._resolve("https://www.reddit.com/r/videos/comments/6rrwyj/")
+        self.assertEqual(info["title"], "Reddit Video")
+
+
+class TestThreadsEmbedFallback(unittest.TestCase):
+    POST = "https://www.threads.net/@tobijeffrichards/post/DF7htg_sGRk"
+    EMBED_VIDEO = '<video controls="1"><source src="https://cdn.example.test/v.mp4?a=1&amp;b=2" type="video/mp4"></video>'
+
+    def _resolve(self, fmt, post_html, embed_html=""):
+        import engine._impl as impl
+        from unittest import mock
+
+        def fake_urlopen(req, timeout=None):
+            body = embed_html if req.full_url.endswith("/embed") else post_html
+            class R:
+                def read(self_inner):
+                    return body.encode()
+                def __enter__(self_inner):
+                    return self_inner
+                def __exit__(self_inner, *a):
+                    return False
+            return R()
+
+        with mock.patch.object(impl, "update_status", lambda *a, **k: None), \
+             mock.patch.object(impl, "get_cookie_header", lambda d="": ""), \
+             mock.patch.object(impl.urllib.request, "urlopen", fake_urlopen):
+            return impl.resolve_threads(self.POST, fmt)
+
+    def test_video_post_without_og_video_uses_embed(self):
+        post = '<meta property="og:title" content="Tobi Jeff Richards on Threads" />'
+        info = self._resolve("video", post, self.EMBED_VIDEO)
+        self.assertEqual(info["kind"], "video")
+        self.assertEqual(info["url"], "https://cdn.example.test/v.mp4?a=1&b=2")
+
+    def test_photo_request_does_not_use_embed_video(self):
+        post = '<meta property="og:image" content="https://cdn.example.test/i.jpg" />'
+        info = self._resolve("photo", post, self.EMBED_VIDEO)
+        self.assertEqual(info["kind"], "image")
+
+    def test_image_post_without_embed_video_falls_back_to_ytdlp(self):
+        post = '<meta property="og:image" content="https://cdn.example.test/i.jpg" />'
+        info = self._resolve("video", post, "<html>no video</html>")
+        self.assertTrue(info.get("direct_ytdlp"), info)
+
+
 class TestModuleUpdateFallback(unittest.TestCase):
     def test_unreadable_module_prop_does_not_pretend_to_be_current(self):
         """A failed module.prop read must not hide a real update."""

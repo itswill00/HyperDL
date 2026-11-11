@@ -2113,9 +2113,11 @@ def resolve_reddit(url, fmt="video"):
                 dl_url = "https:" + dl_url
             if not dl_url.startswith("http"):
                 dl_url = urllib.parse.urljoin(rs_url, dl_url)
-            title_m = re.search(r'<title>(.*?)</title>', rs_html)
-            t = title_m.group(1) if title_m else "Reddit Video"
-            t = re.sub(r'\s*-\s*Reddit Video Downloader.*$', '', t, flags=re.I).strip()
+            # rapidsave's <title> is the same generic string for every post; the
+            # real title lives in the Reddit URL slug.
+            slug_m = re.search(r'/comments/[A-Za-z0-9]+/([^/?#]+)', p.path)
+            t = urllib.parse.unquote(slug_m.group(1)).replace("_", " ").strip() if slug_m else ""
+            t = t[:1].upper() + t[1:]
             return {"url": dl_url, "title": t or "Reddit Video", "ext": "mp4", "kind": "video"}
     except Exception as re_err:
         print(f"Reddit rapidsave mirror note: {re_err}", file=sys.stderr)
@@ -2912,6 +2914,20 @@ def resolve_bluesky(url, fmt="video"):
 
     return {"direct_ytdlp": True, "url": url, "fmt": fmt, "is_yt": False, "title": f"Bluesky_{rkey}", "platform": "Bluesky"}
 
+def _threads_embed_video(url):
+    """Return the MP4 URL from a Threads post's /embed page, or an empty string."""
+    embed_url = re.sub(r'[?#].*$', '', url).rstrip('/') + '/embed'
+    try:
+        req = urllib.request.Request(embed_url, headers={
+            "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+    except Exception as e:
+        print(f"Threads embed note: {e}", file=sys.stderr)
+        return ""
+    m = re.search(r'<video[^>]*>\s*<source[^>]+src=["\']([^"\']+)["\']', html)
+    return pyhtml.unescape(m.group(1)) if m else ""
+
 def resolve_threads(url, fmt="video"):
     update_status("resolving", title="Resolving Threads media...")
     m = re.search(r'threads\.(?:net|com)/(?:@[^/]+/post|t)/([A-Za-z0-9_-]+)', url)
@@ -2930,8 +2946,11 @@ def resolve_threads(url, fmt="video"):
             html = resp.read().decode("utf-8", errors="ignore")
         og_vid = re.search(r'property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', html) or \
                  re.search(r'content=["\']([^"\']+)["\'][^>]+property=["\']og:video(?::secure_url)?["\']', html)
-        if og_vid:
-            vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&")
+        vurl = pyhtml.unescape(og_vid.group(1)).replace("&amp;", "&") if og_vid else ""
+        # Video posts often omit og:video; the /embed page still carries the MP4.
+        if not vurl and fmt in ("audio", "video"):
+            vurl = _threads_embed_video(url)
+        if vurl:
             og_title = re.search(r'property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html)
             title = pyhtml.unescape(og_title.group(1)).strip() if og_title else f"Threads_{post_id}"
             m_auth = re.search(r'threads\.(?:net|com)/@([^/]+)', url)
