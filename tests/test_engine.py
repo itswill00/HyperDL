@@ -2,9 +2,11 @@ import os
 import sys
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -294,6 +296,45 @@ class TestProbePayloadHelpers(unittest.TestCase):
     def test_pick_subtitle_langs_empty(self):
         self.assertEqual(self.impl._pick_subtitle_langs({}), [])
         self.assertEqual(self.impl._pick_subtitle_langs(None), [])
+
+
+class TestProbeResolutionFilter(unittest.TestCase):
+    def setUp(self):
+        import engine._impl as impl
+        self.impl = impl
+        self.tmp = tempfile.mkdtemp()
+        self.orig_pid = impl.PROBE_PID
+        impl.PROBE_PID = os.path.join(self.tmp, "probe.pid")
+
+    def tearDown(self):
+        self.impl.PROBE_PID = self.orig_pid
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _heights(self, formats):
+        payload = json.dumps({"duration": 60, "formats": formats})
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr="")
+        with mock.patch.object(self.impl, "get_or_download_ytdlp", return_value="/unused/yt-dlp"), \
+                mock.patch.object(self.impl, "get_python_binary", return_value="python3"), \
+                mock.patch.object(self.impl, "_cache_get_probe", return_value=None), \
+                mock.patch.object(self.impl, "_cache_put_probe"), \
+                mock.patch.object(self.impl, "_write_probe_result"), \
+                mock.patch.object(self.impl.os, "nice"), \
+                mock.patch.object(self.impl.subprocess, "run", return_value=completed):
+            res = self.impl.probe_resolutions("https://example.com/watch/1")
+        return [r["height"] for r in res["resolutions"]]
+
+    def test_progressive_formats_without_vcodec_are_kept(self):
+        self.assertEqual(self._heights([
+            {"format_id": "low", "ext": "mp4", "protocol": "https", "height": 360, "width": None},
+            {"format_id": "high", "ext": "mp4", "protocol": "https", "height": 720, "width": None},
+        ]), [720, 360])
+
+    def test_audio_only_and_explicit_video_none_are_dropped(self):
+        self.assertEqual(self._heights([
+            {"format_id": "audio", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128},
+            {"format_id": "still", "height": 480, "width": 854, "vcodec": "none", "acodec": "none"},
+            {"format_id": "hls-720p", "height": 720, "width": 1280, "vcodec": "avc1.64001f", "acodec": "mp4a.40.2"},
+        ]), [720])
 
 
 class TestDecodeBase64Padded(unittest.TestCase):
@@ -742,6 +783,29 @@ class TestDownloadFileScheme(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 impl.download_hls("file:///data/adb/hyperdl/cookies.txt",
                                   os.path.join(tmp, "x.mp4"))
+
+
+class TestTikTokOwnerOnlyVideo(unittest.TestCase):
+    def test_self_only_video_stops_before_mirror_retry(self):
+        import engine._impl as impl
+        page = (
+            '<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
+            '{"__DEFAULT_SCOPE__": {"webapp.video-detail": '
+            '{"statusCode": 10204, "statusMsg": "status_self_see"}}}'
+            '</script></html>'
+        )
+        resp = mock.MagicMock()
+        resp.read.return_value = page.encode("utf-8")
+        resp.__enter__.return_value = resp
+        with mock.patch.object(impl, "expand_shortlink_fast", side_effect=lambda u, timeout=3.5: u), \
+             mock.patch.object(impl, "get_cookie_header", return_value=None), \
+             mock.patch.object(impl, "update_status"), \
+             mock.patch.object(impl, "fetch_tikwm", side_effect=RuntimeError("TikWM mirror failed")) as tikwm, \
+             mock.patch.object(impl.urllib.request, "urlopen", return_value=resp):
+            with self.assertRaises(RuntimeError) as ctx:
+                impl.resolve_tiktok("https://www.tiktok.com/@someone/video/1")
+        self.assertIn("only its owner can download it", str(ctx.exception))
+        self.assertEqual(tikwm.call_count, 1)
 
 
 if __name__ == "__main__":

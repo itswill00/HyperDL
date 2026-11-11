@@ -1421,6 +1421,7 @@ def resolve_tiktok(url, fmt="video"):
     if cookie_hdr:
         hdrs["Cookie"] = cookie_hdr
 
+    owner_only = False
     try:
         req = urllib.request.Request(clean_url, headers=hdrs)
         with urllib.request.urlopen(req, timeout=7) as resp:
@@ -1440,6 +1441,7 @@ def resolve_tiktok(url, fmt="video"):
             scope = (data.get("__DEFAULT_SCOPE__") or {})
             detail = (scope.get("webapp.video-detail") or {})
             item = ((detail.get("itemInfo") or {}).get("itemStruct") or {})
+            owner_only = not item and detail.get("statusMsg") == "status_self_see"
 
             if item:
                 title = item.get("desc") or "TikTok Video"
@@ -1576,6 +1578,10 @@ def resolve_tiktok(url, fmt="video"):
                     }
     except Exception as e:
         print(f"Direct TikTok scrape note: {e}, using mirror resolver...", file=sys.stderr)
+
+    # Mirror and yt-dlp fallbacks cannot serve owner-only videos; report the actual reason.
+    if owner_only:
+        raise RuntimeError("This TikTok video is set to Only me, so only its owner can download it.")
 
     try:
         update_status("resolving", title="Trying mirror resolver...")
@@ -3671,7 +3677,7 @@ def probe_resolutions(url):
 
     best_audio_size = 0
     for f in formats:
-        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
+        if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none"):
             asize = f.get("filesize") or f.get("filesize_approx") or 0
             if asize == 0 and duration > 0:
                 abr = f.get("abr") or f.get("tbr") or 128
@@ -3686,8 +3692,8 @@ def probe_resolutions(url):
         eff_h = min(h, w) if (h and w and w < h) else h
         if not eff_h or eff_h < 144:
             continue
-        vcodec = f.get("vcodec", "none")
-        if vcodec == "none":
+        # yt-dlp leaves vcodec out for progressive MP4s; only an explicit "none" is audio-only.
+        if f.get("vcodec") == "none":
             continue
         note = str(f.get("format_note", "")).lower()
         if "premium" in note:
