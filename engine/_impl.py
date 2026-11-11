@@ -3671,7 +3671,7 @@ def probe_resolutions(url):
 
     best_audio_size = 0
     for f in formats:
-        if f.get("vcodec", "none") == "none" and f.get("acodec", "none") != "none":
+        if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none"):
             asize = f.get("filesize") or f.get("filesize_approx") or 0
             if asize == 0 and duration > 0:
                 abr = f.get("abr") or f.get("tbr") or 128
@@ -3686,8 +3686,8 @@ def probe_resolutions(url):
         eff_h = min(h, w) if (h and w and w < h) else h
         if not eff_h or eff_h < 144:
             continue
-        vcodec = f.get("vcodec", "none")
-        if vcodec == "none":
+        # yt-dlp leaves vcodec out for progressive MP4s; only an explicit "none" is audio-only.
+        if f.get("vcodec") == "none":
             continue
         note = str(f.get("format_note", "")).lower()
         if "premium" in note:
