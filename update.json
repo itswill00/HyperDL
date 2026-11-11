@@ -1,7 +1,7 @@
 {
-  "version": "v1.3.56",
-  "versionCode": 13560,
-  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.56/HyperDL-v1.3.56.zip",
+  "version": "v1.3.57",
+  "versionCode": 13570,
+  "zipUrl": "https://github.com/itswill00/HyperDL/releases/download/v1.3.57/HyperDL-v1.3.57.zip",
   "changelog": "https://raw.githubusercontent.com/itswill00/HyperDL/main/README.md",
-  "notes": "Hardens vault isolation, download cleanup, and root control files while making URL handling and bundled-tool trust safer across the module."
+  "notes": "Refreshes the bundled yt-dlp to 2026.10.26, restores resolution lists on several progressive MP4 sites, and makes Reddit, Threads, TikTok, and Bilibili downloads report accurate titles and errors."
 }
