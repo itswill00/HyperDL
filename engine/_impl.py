@@ -374,7 +374,10 @@ def expand_shortlink_fast(url, timeout=3.5):
     return res
 
 def humanize_error(e):
-    """Translate a raw exception or yt-dlp error into a short user-facing message."""
+    """Map known network, SSL, and platform errors to a short user-facing message.
+
+    Unrecognised errors pass through unchanged so the raw reason stays visible.
+    """
     if not e:
         return ""
     msg = str(e)
@@ -2082,10 +2085,11 @@ def resolve_pinterest(url, fmt="video"):
     }
 
 def resolve_reddit(url, fmt="video"):
-    """Resolve a Reddit post to a video URL.
+    """Resolve a Reddit post to media.
 
-    Reads the post JSON first and falls back to the rapidsave mirror. The mirror's
-    page title is generic, so its title comes from the post URL slug instead.
+    Tries the rapidsave mirror first, then Reddit's JSON endpoints, and finally
+    hands off to yt-dlp. The mirror's page title is generic, so its title comes
+    from the post URL slug instead.
     """
     update_status("resolving", title="Resolving Reddit media...")
     clean_url = expand_shortlink_fast(url, timeout=3.5)
@@ -3647,8 +3651,9 @@ def _write_probe_result(data):
 def probe_resolutions(url):
     """Return the quality list, thumbnail, and subtitle languages for a link.
 
-    Uses one yt-dlp metadata call. Cached results hold only these fields, never
-    signed stream URLs, so downloads always re-resolve fresh links.
+    Runs yt-dlp in metadata-only mode, retrying once with cookies if the first
+    attempt fails. Only these fields are cached, never signed stream URLs, so
+    downloads always re-resolve fresh links.
     """
     url = clean_media_url(url)
     if not re.match(r'(?i)^https?://', url):
