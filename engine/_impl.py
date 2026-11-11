@@ -407,6 +407,10 @@ def humanize_error(e):
         return "FFmpeg postprocessing failed. Please verify module installation, reboot, then try again."
     if "http error 404" in low or "404 not found" in low or "404: not found" in low:
         return "Media not found (HTTP 404). Link may be expired or deleted."
+    if "http error 412" in low:
+        if has_cookies_for_current():
+            return "Platform blocked the automated request (HTTP 412) even with saved cookies. Try refreshing them or try again later."
+        return "Platform blocked the automated request (HTTP 412), likely an anti-bot check on this network. Adding session cookies may help, or try again later."
     if "private video" in low or "login required" in low:
         if has_cookies_for_current():
             return "Content is private or the session expired. Try refreshing session cookies."

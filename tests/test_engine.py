@@ -117,6 +117,33 @@ class TestHumanizeError(unittest.TestCase):
             impl.CURRENT_URL = orig_url
             impl.load_cookies = orig_load
 
+    def test_412_no_cookies_suggests_cookies_or_retry(self):
+        import engine._impl as impl
+        orig_url = impl.CURRENT_URL
+        orig_load = impl.load_cookies
+        try:
+            impl.CURRENT_URL = "https://www.bilibili.com/video/BV13x41117TL"
+            impl.load_cookies = lambda domain="": {}
+            out = humanize_error("HTTP Error 412: Precondition Failed")
+            self.assertIn("HTTP 412", out)
+            self.assertIn("session cookies", out)
+        finally:
+            impl.CURRENT_URL = orig_url
+            impl.load_cookies = orig_load
+
+    def test_412_with_cookies_points_to_retry(self):
+        import engine._impl as impl
+        orig_url = impl.CURRENT_URL
+        orig_load = impl.load_cookies
+        try:
+            impl.CURRENT_URL = "https://www.bilibili.com/video/BV13x41117TL"
+            impl.load_cookies = lambda domain="": {"SESSDATA": "x"}
+            out = humanize_error("HTTP Error 412: Precondition Failed")
+            self.assertIn("even with saved cookies", out)
+        finally:
+            impl.CURRENT_URL = orig_url
+            impl.load_cookies = orig_load
+
     def test_private_no_cookies_points_to_optional(self):
         out = humanize_error("Login required")
         self.assertIn("without cookies", out)
