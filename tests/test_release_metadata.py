@@ -25,6 +25,7 @@ def current_version():
 
 
 def version_tuple(version):
+    """Split a vX.Y.Z string into ints so versions compare numerically."""
     return tuple(int(part) for part in version.lstrip("v").split("."))
 
 
@@ -70,6 +71,7 @@ class TestUpdateJson(unittest.TestCase):
         self.data = json.loads(read("update.json"))
 
     def test_feed_describes_current_release_or_pending_predecessor(self):
+        """Once the tag exists the feed must name this release; before, the one before."""
         version = current_version()
         allowed = [version] if release_tag_exists(version) else [version, previous_release(version)]
         self.assertIn(self.data["version"], allowed)
